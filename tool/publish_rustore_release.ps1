@@ -1,11 +1,9 @@
 param(
   [string]$PackageName = "com.ahjkuio.lineage_family_app",
   [string]$ArtifactPath = "build/app/outputs/bundle/release/app-release.aab",
-  [string]$AppName = "Lineage. Семейное дерево",
-  [ValidateSet("MAIN", "GAMES")]
-  [string]$AppType = "MAIN",
-  [ValidateSet("MANUAL", "INSTANTLY", "DELAYED")]
-  [string]$PublishType = "MANUAL",
+  [string]$AppName,
+  [string]$AppType,
+  [string]$PublishType,
   [Parameter(Mandatory = $true)]
   [int]$MinAndroidVersion,
   [string]$WhatsNew,
@@ -42,17 +40,59 @@ function New-RuStoreSignaturePayload(
   [string]$KeyId,
   [string]$PrivateKeyBase64
 ) {
-  $timestamp = [DateTimeOffset]::Now.ToString("yyyy-MM-ddTHH:mm:ss.fffzzz")
+  $timestamp = [DateTimeOffset]::Now.ToString("yyyy-MM-ddTHH:mm:ss.fffffffzzz")
   $message = "$KeyId$timestamp"
   $privateKeyBytes = [Convert]::FromBase64String($PrivateKeyBase64)
-  $rsa = [System.Security.Cryptography.RSA]::Create()
-  $bytesRead = 0
-  $rsa.ImportPkcs8PrivateKey($privateKeyBytes, [ref]$bytesRead)
-  $signatureBytes = $rsa.SignData(
-    [System.Text.Encoding]::UTF8.GetBytes($message),
-    [System.Security.Cryptography.HashAlgorithmName]::SHA512,
-    [System.Security.Cryptography.RSASignaturePadding]::Pkcs1
+  $signatureBytes = $null
+  $importMethod = [System.Security.Cryptography.RSA].GetMethod(
+    "ImportPkcs8PrivateKey",
+    [type[]]@(
+      [byte[]],
+      [ref].MakeByRefType()
+    )
   )
+
+  if ($null -ne $importMethod) {
+    $rsa = [System.Security.Cryptography.RSA]::Create()
+    try {
+      $bytesRead = 0
+      $rsa.ImportPkcs8PrivateKey($privateKeyBytes, [ref]$bytesRead)
+      $signatureBytes = $rsa.SignData(
+        [System.Text.Encoding]::UTF8.GetBytes($message),
+        [System.Security.Cryptography.HashAlgorithmName]::SHA512,
+        [System.Security.Cryptography.RSASignaturePadding]::Pkcs1
+      )
+    } finally {
+      $rsa.Dispose()
+    }
+  } else {
+    $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("rustore-sign-" + [System.Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $tempDir | Out-Null
+    try {
+      $keyPath = Join-Path $tempDir "private-key.der"
+      $messagePath = Join-Path $tempDir "message.txt"
+      $signaturePath = Join-Path $tempDir "signature.bin"
+
+      [System.IO.File]::WriteAllBytes($keyPath, $privateKeyBytes)
+      [System.IO.File]::WriteAllBytes($messagePath, [System.Text.Encoding]::UTF8.GetBytes($message))
+
+      $openssl = Get-Command "openssl" -ErrorAction SilentlyContinue
+      if ($null -eq $openssl) {
+        throw "OpenSSL not found in PATH and current PowerShell runtime does not support ImportPkcs8PrivateKey."
+      }
+
+      $opensslOutput = & $openssl.Source dgst -sha512 -sign $keyPath -keyform DER -out $signaturePath $messagePath 2>&1
+      if ($LASTEXITCODE -ne 0) {
+        throw "OpenSSL signing failed: $opensslOutput"
+      }
+
+      $signatureBytes = [System.IO.File]::ReadAllBytes($signaturePath)
+    } finally {
+      if (Test-Path $tempDir) {
+        Remove-Item -LiteralPath $tempDir -Recurse -Force
+      }
+    }
+  }
 
   return @{
     keyId = $KeyId
@@ -148,11 +188,26 @@ $headers = @{
   "Public-Token" = $token
 }
 $draftBody = @{
-  appName = $AppName
-  appType = $AppType
-  publishType = $PublishType
   minAndroidVersion = $MinAndroidVersion
   whatsNew = $whatsNewText
+}
+
+if (-not [string]::IsNullOrWhiteSpace($AppName)) {
+  $draftBody.appName = $AppName
+}
+
+if (-not [string]::IsNullOrWhiteSpace($AppType)) {
+  if ($AppType -notin @("MAIN", "GAMES")) {
+    throw "Unsupported AppType: $AppType"
+  }
+  $draftBody.appType = $AppType
+}
+
+if (-not [string]::IsNullOrWhiteSpace($PublishType)) {
+  if ($PublishType -notin @("MANUAL", "INSTANTLY", "DELAYED")) {
+    throw "Unsupported PublishType: $PublishType"
+  }
+  $draftBody.publishType = $PublishType
 }
 
 if (-not [string]::IsNullOrWhiteSpace($ModeratorComment)) {
@@ -169,7 +224,14 @@ if ($draftResponse.code -ne "OK") {
   throw "Failed to create RuStore draft: $($draftResponse | ConvertTo-Json -Depth 10)"
 }
 
-$versionId = $draftResponse.body.versionId
+$versionId = if ($draftResponse.body -is [int] -or
+                 $draftResponse.body -is [long] -or
+                 $draftResponse.body -is [string]) {
+  [string]$draftResponse.body
+} else {
+  [string]$draftResponse.body.versionId
+}
+
 if (-not $versionId) {
   throw "RuStore draft response does not contain versionId: $($draftResponse | ConvertTo-Json -Depth 10)"
 }
