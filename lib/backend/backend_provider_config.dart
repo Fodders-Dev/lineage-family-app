@@ -48,7 +48,7 @@ class BackendProviderConfig {
 
   static BackendProviderConfig get current {
     final runtimePreset = _runtimePresetEnv.trim();
-    if (runtimePreset == 'prod_custom_api') {
+    if (_usesProdCustomApiPreset(runtimePreset, Uri.base.host)) {
       return const BackendProviderConfig(
         authProvider: BackendProviderKind.customApi,
         profileProvider: BackendProviderKind.customApi,
@@ -70,6 +70,8 @@ class BackendProviderConfig {
   }
 
   static BackendProviderConfig resolve({
+    String runtimePresetRaw = '',
+    String hostRaw = '',
     String authProviderRaw = '',
     String profileProviderRaw = '',
     String treeProviderRaw = '',
@@ -77,6 +79,17 @@ class BackendProviderConfig {
     String storageProviderRaw = '',
     String notificationProviderRaw = '',
   }) {
+    if (_usesProdCustomApiPreset(runtimePresetRaw, hostRaw)) {
+      return const BackendProviderConfig(
+        authProvider: BackendProviderKind.customApi,
+        profileProvider: BackendProviderKind.customApi,
+        treeProvider: BackendProviderKind.customApi,
+        chatProvider: BackendProviderKind.customApi,
+        storageProvider: BackendProviderKind.customApi,
+        notificationProvider: BackendProviderKind.customApi,
+      );
+    }
+
     final authProvider = _providerFromRaw(
       authProviderRaw,
       BackendProviderKind.firebase,
@@ -119,5 +132,17 @@ class BackendProviderConfig {
       (value) => value.name == resolved,
       orElse: () => fallback,
     );
+  }
+
+  static bool _usesProdCustomApiPreset(
+      String runtimePresetRaw, String hostRaw) {
+    final runtimePreset = runtimePresetRaw.trim();
+    if (runtimePreset == 'prod_custom_api') {
+      return true;
+    }
+
+    final normalizedHost = hostRaw.trim().toLowerCase();
+    return normalizedHost == 'rodnya-tree.ru' ||
+        normalizedHost == 'www.rodnya-tree.ru';
   }
 }

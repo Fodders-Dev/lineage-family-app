@@ -12,16 +12,16 @@
 ### Windows
 ```powershell
 $env:LINEAGE_RELEASE_SIGNING_PROPERTIES="C:\path\to\release-signing.properties"
-$env:LINEAGE_BUILD_NAME="1.0.1"
-$env:LINEAGE_BUILD_NUMBER="8"
+$env:LINEAGE_BUILD_NAME="1.0.2"
+$env:LINEAGE_BUILD_NUMBER="9"
 powershell -ExecutionPolicy Bypass -File .\tool\build_rustore_release.ps1
 ```
 
 ### Linux
 ```bash
 export LINEAGE_RELEASE_SIGNING_PROPERTIES=/absolute/path/to/release-signing.properties
-export LINEAGE_BUILD_NAME=1.0.1
-export LINEAGE_BUILD_NUMBER=8
+export LINEAGE_BUILD_NAME=1.0.2
+export LINEAGE_BUILD_NUMBER=9
 ./tool/build_rustore_release.sh
 ```
 
@@ -40,10 +40,12 @@ $env:RUSTORE_KEY_ID="your-key-id"
 $env:RUSTORE_PRIVATE_KEY_BASE64="base64-private-key-from-rustore-console"
 powershell -ExecutionPolicy Bypass -File .\tool\publish_rustore_release.ps1 `
   -MinAndroidVersion 7 `
-  -WhatsNew "Релиз 1.0.1: стабилизация customApi, дерева, чата и уведомлений." `
+  -WhatsNewFile ".\docs\rustore_whatsnew_1.0.2.txt" `
   -ModeratorComment "Тестовый аккаунт: codex.tree.20260327120500@example.com / Test123456" `
   -SubmitForModeration
 ```
+
+- Prefer `-WhatsNewFile` with a UTF-8 text file over inline `-WhatsNew`, otherwise RuStore release notes may end up with broken Cyrillic encoding.
 
 ### Official API References
 - Auth token: `POST https://public-api.rustore.ru/public/auth`

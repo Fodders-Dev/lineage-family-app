@@ -66,6 +66,7 @@ class BackendRuntimeConfig {
 
   static BackendRuntimeConfig resolve({
     String runtimePresetRaw = '',
+    String hostRaw = '',
     String publicAppUrlRaw = '',
     String apiBaseUrlRaw = '',
     String webSocketBaseUrlRaw = '',
@@ -75,9 +76,13 @@ class BackendRuntimeConfig {
     BackendProviderConfig? providerConfig,
   }) {
     final runtimePreset = runtimePresetRaw.trim();
-    final resolvedProviderConfig =
-        providerConfig ?? BackendProviderConfig.current;
-    final isProdCustomApiPreset = runtimePreset == 'prod_custom_api';
+    final resolvedProviderConfig = providerConfig ??
+        BackendProviderConfig.resolve(
+          runtimePresetRaw: runtimePresetRaw,
+          hostRaw: hostRaw,
+        );
+    final isProdCustomApiPreset =
+        runtimePreset == 'prod_custom_api' || _isProductionRodnyaHost(hostRaw);
     final fallbackApiBaseUrl = 'https://api.rodnya-tree.ru';
     final resolvedApiBaseUrl =
         _stringFromRaw(apiBaseUrlRaw, fallbackApiBaseUrl);
@@ -158,5 +163,11 @@ class BackendRuntimeConfig {
       default:
         return fallback;
     }
+  }
+
+  static bool _isProductionRodnyaHost(String hostRaw) {
+    final normalizedHost = hostRaw.trim().toLowerCase();
+    return normalizedHost == 'rodnya-tree.ru' ||
+        normalizedHost == 'www.rodnya-tree.ru';
   }
 }

@@ -56,4 +56,18 @@ void main() {
     expect(config.storageProvider, BackendProviderKind.supabase);
     expect(config.notificationProvider, BackendProviderKind.customApi);
   });
+
+  test(
+    'BackendProviderConfig auto-selects customApi providers on rodnya production host',
+    () {
+      final config = BackendProviderConfig.resolve(hostRaw: 'rodnya-tree.ru');
+
+      expect(config.authProvider, BackendProviderKind.customApi);
+      expect(config.profileProvider, BackendProviderKind.customApi);
+      expect(config.treeProvider, BackendProviderKind.customApi);
+      expect(config.chatProvider, BackendProviderKind.customApi);
+      expect(config.storageProvider, BackendProviderKind.customApi);
+      expect(config.notificationProvider, BackendProviderKind.customApi);
+    },
+  );
 }

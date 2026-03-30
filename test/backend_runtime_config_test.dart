@@ -96,4 +96,17 @@ void main() {
       expect(config.enableLegacyDynamicLinks, isTrue);
     },
   );
+
+  test(
+    'BackendRuntimeConfig auto-switches to customApi runtime on rodnya production host',
+    () {
+      final config =
+          BackendRuntimeConfig.resolve(hostRaw: 'www.rodnya-tree.ru');
+
+      expect(config.publicAppUrl, 'https://rodnya-tree.ru');
+      expect(config.apiBaseUrl, 'https://api.rodnya-tree.ru');
+      expect(config.webSocketBaseUrl, 'wss://api.rodnya-tree.ru');
+      expect(config.enableLegacyDynamicLinks, isFalse);
+    },
+  );
 }
