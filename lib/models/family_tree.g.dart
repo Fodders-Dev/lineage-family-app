@@ -26,13 +26,16 @@ class FamilyTreeAdapter extends TypeAdapter<FamilyTree> {
       updatedAt: fields[6] as DateTime,
       isPrivate: fields[7] as bool,
       members: (fields[8] as List).cast<String>(),
+      publicSlug: fields[9] as String?,
+      isCertified: fields[10] as bool? ?? false,
+      certificationNote: fields[11] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, FamilyTree obj) {
     writer
-      ..writeByte(9)
+      ..writeByte(12)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -50,7 +53,13 @@ class FamilyTreeAdapter extends TypeAdapter<FamilyTree> {
       ..writeByte(7)
       ..write(obj.isPrivate)
       ..writeByte(8)
-      ..write(obj.members);
+      ..write(obj.members)
+      ..writeByte(9)
+      ..write(obj.publicSlug)
+      ..writeByte(10)
+      ..write(obj.isCertified)
+      ..writeByte(11)
+      ..write(obj.certificationNote);
   }
 
   @override

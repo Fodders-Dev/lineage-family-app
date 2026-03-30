@@ -34,9 +34,8 @@ class Comment {
       content: data['content'] ?? '',
       createdAt: (data['createdAt'] as Timestamp).toDate(),
       likeCount: data['likeCount'] ?? 0,
-      likedBy: data['likedBy'] != null 
-          ? List<String>.from(data['likedBy']) 
-          : [],
+      likedBy:
+          data['likedBy'] != null ? List<String>.from(data['likedBy']) : [],
     );
   }
 
@@ -52,4 +51,4 @@ class Comment {
       'likedBy': likedBy,
     };
   }
-} 
+}

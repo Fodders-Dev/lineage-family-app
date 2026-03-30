@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 import 'package:get_it/get_it.dart';
 
+import '../backend/interfaces/family_tree_service_interface.dart';
 import '../providers/tree_provider.dart';
-import '../services/family_service.dart';
 import '../models/family_person.dart';
-import '../services/auth_service.dart';
+import '../backend/interfaces/auth_service_interface.dart';
 
 class OfflineProfilesScreen extends StatefulWidget {
   const OfflineProfilesScreen({Key? key}) : super(key: key);
@@ -17,10 +16,10 @@ class OfflineProfilesScreen extends StatefulWidget {
 }
 
 class _OfflineProfilesScreenState extends State<OfflineProfilesScreen> {
-  final FamilyService _familyService = GetIt.I<FamilyService>();
-  final AuthService _authService = AuthService();
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  
+  final FamilyTreeServiceInterface _familyService =
+      GetIt.I<FamilyTreeServiceInterface>();
+  final AuthServiceInterface _authService = GetIt.I<AuthServiceInterface>();
+
   List<FamilyPerson>? _offlineProfiles;
   bool _isLoading = true;
   String _errorMessage = '';
@@ -32,10 +31,10 @@ class _OfflineProfilesScreenState extends State<OfflineProfilesScreen> {
     super.initState();
     // Получаем данные о дереве из провайдера ПОСЛЕ первого кадра
     WidgetsBinding.instance.addPostFrameCallback((_) {
-       final treeProvider = Provider.of<TreeProvider>(context, listen: false);
-       _selectedTreeId = treeProvider.selectedTreeId;
-       _selectedTreeName = treeProvider.selectedTreeName;
-       _loadOfflineProfiles();
+      final treeProvider = Provider.of<TreeProvider>(context, listen: false);
+      _selectedTreeId = treeProvider.selectedTreeId;
+      _selectedTreeName = treeProvider.selectedTreeName;
+      _loadOfflineProfiles();
     });
   }
 
@@ -47,15 +46,15 @@ class _OfflineProfilesScreenState extends State<OfflineProfilesScreen> {
       _offlineProfiles = null;
     });
 
-    final user = _auth.currentUser;
-    if (user == null) {
+    final currentUserId = _authService.currentUserId;
+    if (currentUserId == null) {
       setState(() {
         _isLoading = false;
         _errorMessage = 'Ошибка: Пользователь не авторизован.';
       });
       return;
     }
-    
+
     if (_selectedTreeId == null) {
       setState(() {
         _isLoading = false;
@@ -65,21 +64,24 @@ class _OfflineProfilesScreenState extends State<OfflineProfilesScreen> {
     }
 
     try {
-      final profiles = await _familyService.getOfflineProfilesByCreator(_selectedTreeId!, user.uid);
-       if (mounted) {
-         setState(() {
-           _offlineProfiles = profiles;
-           _isLoading = false;
-         });
-       }
+      final profiles = await _familyService.getOfflineProfilesByCreator(
+        _selectedTreeId!,
+        currentUserId,
+      );
+      if (mounted) {
+        setState(() {
+          _offlineProfiles = profiles;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       print('Ошибка загрузки оффлайн профилей: $e');
-       if (mounted) {
-         setState(() {
-           _isLoading = false;
-           _errorMessage = 'Не удалось загрузить список созданных профилей.';
-         });
-       }
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Не удалось загрузить список созданных профилей.';
+        });
+      }
     }
   }
 
@@ -129,26 +131,27 @@ class _OfflineProfilesScreenState extends State<OfflineProfilesScreen> {
         final person = _offlineProfiles![index];
         return ListTile(
           leading: CircleAvatar(
-            backgroundImage: person.photoUrl != null ? NetworkImage(person.photoUrl!) : null,
-            child: person.photoUrl == null 
-                  // Используем инициалы или иконку по полу
-                  ? Text(person.initials, style: TextStyle(color: Colors.white))
-                  // ? Icon(person.gender == Gender.male ? Icons.person : Icons.female, color: Colors.white)
-                  : null,
+            backgroundImage:
+                person.photoUrl != null ? NetworkImage(person.photoUrl!) : null,
+            child: person.photoUrl == null
+                // Используем инициалы или иконку по полу
+                ? Text(person.initials, style: TextStyle(color: Colors.white))
+                // ? Icon(person.gender == Gender.male ? Icons.person : Icons.female, color: Colors.white)
+                : null,
             backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
           ),
           title: Text(person.displayName),
-          subtitle: Text('Оффлайн-профиль' + (person.birthDate != null ? ', Род: ${person.birthDate!.year}' : '')),
+          subtitle: Text(
+            'Оффлайн-профиль' +
+                (person.birthDate != null
+                    ? ', Род: ${person.birthDate!.year}'
+                    : ''),
+          ),
           onTap: () {
-            // TODO: Решить, что делать при нажатии.
-            // Возможно, переход на экран редактирования?
-            // Или на экран деталей (если такой есть для оффлайн)?
-             ScaffoldMessenger.of(context).showSnackBar(
-               SnackBar(content: Text('Нажатие на оффлайн-профиль: ${person.displayName}')),
-             );
+            context.push('/relative/details/${person.id}');
           },
         );
       },
     );
   }
-} 
+}

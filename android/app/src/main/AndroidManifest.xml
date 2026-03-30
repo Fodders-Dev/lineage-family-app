@@ -73,12 +73,12 @@
         <!-- Meta-data для RuStore SDK -->
         <meta-data 
             android:name="ru.rustore.sdk.ApplicationId" 
-            android:value="ru.rustore.app.2063621085"/>
+            android:value="${rustoreApplicationId}"/>
 
-        <!-- RuStore Push SDK - ЗАМЕНИТЕ YOUR_RUSTORE_PUSH_PROJECT_ID -->
+        <!-- RuStore Push SDK -->
         <meta-data
             android:name="ru.rustore.sdk.pushclient.project_id"
-            android:value="q9oXlaEo25nBYnMe2cn3BtGpaBVWH0Mb"/>
+            android:value="${rustorePushProjectId}"/>
 
         <!-- RuStore Push SDK Service - ПЕРЕМЕЩЕНО ВНУТРЬ <application> -->
         <service

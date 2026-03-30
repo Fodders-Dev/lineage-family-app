@@ -40,7 +40,7 @@ class AppEvent {
     } else if (difference == 1) {
       return 'Завтра';
     } else if (difference > 1 && difference <= 7) {
-      return 'Через \$difference дн.'; // TODO: Склонение дней
+      return 'Через $difference ${_dayWord(difference)}';
     } else if (difference < 0) {
       return 'Прошло'; // На всякий случай
     } else {
@@ -48,4 +48,16 @@ class AppEvent {
       return DateFormat.MMMd('ru').format(date);
     }
   }
-} 
+
+  String _dayWord(int value) {
+    final mod10 = value % 10;
+    final mod100 = value % 100;
+    if (mod10 == 1 && mod100 != 11) {
+      return 'день';
+    }
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+      return 'дня';
+    }
+    return 'дней';
+  }
+}

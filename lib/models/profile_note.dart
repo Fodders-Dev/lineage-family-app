@@ -14,13 +14,16 @@ class ProfileNote {
   });
 
   // Фабричный конструктор для создания из Firestore документа
-  factory ProfileNote.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+  factory ProfileNote.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
     final data = doc.data()!;
     return ProfileNote(
       id: doc.id,
       title: data['title'] ?? '',
       content: data['content'] ?? '',
-      createdAt: data['createdAt'] ?? Timestamp.now(), // Предоставим значение по умолчанию
+      createdAt: data['createdAt'] ??
+          Timestamp.now(), // Предоставим значение по умолчанию
     );
   }
 
@@ -36,11 +39,11 @@ class ProfileNote {
   }
 
   // Добавим метод toMap для удобства при обновлении
-   Map<String, dynamic> toMap() {
+  Map<String, dynamic> toMap() {
     return {
       'title': title,
       'content': content,
       // createdAt не обновляем
     };
   }
-} 
+}

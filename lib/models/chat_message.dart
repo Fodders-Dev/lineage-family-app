@@ -25,7 +25,7 @@ class ChatMessage extends HiveObject {
   final List<String> participants;
   @HiveField(9)
   final String? senderName;
-  
+
   ChatMessage({
     required this.id,
     required this.chatId,
@@ -38,11 +38,11 @@ class ChatMessage extends HiveObject {
     required this.participants,
     this.senderName,
   });
-  
+
   DateTime getDateTime() {
     return timestamp;
   }
-  
+
   factory ChatMessage.fromMap(Map<String, dynamic> map) {
     DateTime parsedTimestamp;
     final ts = map['timestamp'];
@@ -64,12 +64,13 @@ class ChatMessage extends HiveObject {
       timestamp: parsedTimestamp,
       isRead: map['isRead'] ?? false,
       imageUrl: map['imageUrl'],
-      mediaUrls: map['mediaUrls'] != null ? List<String>.from(map['mediaUrls']) : null,
+      mediaUrls:
+          map['mediaUrls'] != null ? List<String>.from(map['mediaUrls']) : null,
       participants: List<String>.from(map['participants'] ?? []),
       senderName: map['senderName'],
     );
   }
-  
+
   Map<String, dynamic> toMap() {
     return {
       'chatId': chatId,
@@ -94,8 +95,12 @@ class ChatMessage extends HiveObject {
       timestamp: (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
       isRead: data['isRead'] ?? false,
       imageUrl: data['imageUrl'] as String?,
-      mediaUrls: (data['mediaUrls'] as List<dynamic>? ?? []).map((e) => e.toString()).toList(),
-      participants: (data['participants'] as List<dynamic>? ?? []).map((e) => e.toString()).toList(),
+      mediaUrls: (data['mediaUrls'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList(),
+      participants: (data['participants'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList(),
       senderName: data['senderName'] as String?,
     );
   }
@@ -122,4 +127,4 @@ class ChatMessage extends HiveObject {
       senderName: senderName,
     );
   }
-} 
+}

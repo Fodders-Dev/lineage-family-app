@@ -1,16 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart'; // Импортируем Provider
+import '../models/family_tree.dart';
 import '../models/user_profile.dart';
 import '../models/profile_note.dart'; // Импортируем модель заметки
-import '../services/auth_service.dart';
-import '../services/family_service.dart';
-import '../services/profile_service.dart'; // Импортируем сервис профиля
 import '../providers/tree_provider.dart'; // Импортируем TreeProvider
 import 'dart:async'; // Для Future
 import 'package:get_it/get_it.dart';
+import '../backend/interfaces/auth_service_interface.dart';
+import '../backend/interfaces/family_tree_service_interface.dart';
+import '../backend/interfaces/profile_service_interface.dart';
 
 // Примерный виджет для отображения статистики (можно вынести в отдельный файл)
 class _ProfileStatItem extends StatelessWidget {
@@ -29,29 +28,29 @@ class _ProfileStatItem extends StatelessWidget {
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
         SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(color: Colors.grey),
-        ),
+        Text(label, style: TextStyle(color: Colors.grey)),
       ],
     );
   }
 }
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({Key? key}) : super(key: key);
+  const ProfileScreen({super.key});
 
   @override
-  _ProfileScreenState createState() => _ProfileScreenState();
+  State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final AuthService _authService = AuthService();
-  final FamilyService _familyService = GetIt.I<FamilyService>();
-  final ProfileService _profileService = ProfileService(); // Добавляем сервис профиля
+  final AuthServiceInterface _authService = GetIt.I<AuthServiceInterface>();
+  final FamilyTreeServiceInterface _familyService =
+      GetIt.I<FamilyTreeServiceInterface>();
+  final ProfileServiceInterface _profileService =
+      GetIt.I<ProfileServiceInterface>();
   UserProfile? _userProfile;
   String? _currentUserId; // Храним ID текущего пользователя
   int _treeCount = 0;
+  int _relativeCount = 0;
   bool _isLoading = true;
   String _errorMessage = '';
 
@@ -59,6 +58,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void initState() {
     super.initState();
     _loadUserData();
+  }
+
+  Future<void> _signOut() async {
+    await _authService.signOut();
+    if (GetIt.I.isRegistered<TreeProvider>()) {
+      await GetIt.I<TreeProvider>().clearSelection();
+    }
+    if (mounted) {
+      context.go('/login');
+    }
   }
 
   Future<void> _loadUserData() async {
@@ -69,29 +78,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
     });
 
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
+      final userId = _authService.currentUserId;
+      if (userId == null) {
         throw Exception("Пользователь не авторизован");
       }
-      _currentUserId = user.uid; // Сохраняем ID
+      _currentUserId = userId; // Сохраняем ID
 
       // Загружаем профиль пользователя ИСПОЛЬЗУЯ СЕРВИС
       _userProfile = await _profileService.getUserProfile(_currentUserId!);
       if (_userProfile == null) {
-         throw Exception("Профиль пользователя не найден");
+        throw Exception("Профиль пользователя не найден");
       }
 
       // Загружаем количество деревьев
       final trees = await _familyService.getUserTrees();
       _treeCount = trees.length;
-
+      _relativeCount = await _loadRelativeCount(
+        currentUserId: userId,
+        trees: trees,
+      );
     } catch (e) {
-       if (mounted) {
-         setState(() {
-           _errorMessage = 'Ошибка загрузки данных: $e';
-         });
-       }
-      print('Ошибка при загрузке данных пользователя: $e');
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Ошибка загрузки данных: $e';
+        });
+      }
+      debugPrint('Ошибка при загрузке данных пользователя: $e');
     } finally {
       if (mounted) {
         setState(() {
@@ -101,11 +113,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<int> _loadRelativeCount({
+    required String currentUserId,
+    required List<FamilyTree> trees,
+  }) async {
+    final relativeIds = <String>{};
+
+    for (final tree in trees) {
+      try {
+        final relatives = await _familyService.getRelatives(tree.id);
+        for (final person in relatives) {
+          if (person.userId == currentUserId) {
+            continue;
+          }
+          relativeIds.add(person.id);
+        }
+      } catch (e) {
+        debugPrint('Ошибка при загрузке родственников для профиля: $e');
+      }
+    }
+
+    return relativeIds.length;
+  }
+
   // Функция для показа диалога добавления/редактирования заметки
   void _showAddEditNoteDialog({ProfileNote? note}) {
-    final _titleController = TextEditingController(text: note?.title ?? '');
-    final _contentController = TextEditingController(text: note?.content ?? '');
-    final _formKey = GlobalKey<FormState>();
+    final titleController = TextEditingController(text: note?.title ?? '');
+    final contentController = TextEditingController(text: note?.content ?? '');
+    final formKey = GlobalKey<FormState>();
     final bool isEditing = note != null;
 
     showDialog(
@@ -114,13 +149,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return AlertDialog(
           title: Text(isEditing ? 'Редактировать заметку' : 'Добавить заметку'),
           content: Form(
-            key: _formKey,
-            child: SingleChildScrollView( // Добавим прокрутку на случай длинного контента
+            key: formKey,
+            child: SingleChildScrollView(
+              // Добавим прокрутку на случай длинного контента
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   TextFormField(
-                    controller: _titleController,
+                    controller: titleController,
                     decoration: InputDecoration(labelText: 'Заголовок'),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
@@ -131,7 +167,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   SizedBox(height: 16),
                   TextFormField(
-                    controller: _contentController,
+                    controller: contentController,
                     decoration: InputDecoration(
                       labelText: 'Содержание',
                       alignLabelWithHint: true, // Выравниваем метку по верху
@@ -149,7 +185,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
           actions: [
-             if (isEditing) // Кнопка удаления только при редактировании
+            if (isEditing) // Кнопка удаления только при редактировании
               TextButton(
                 child: Text('Удалить', style: TextStyle(color: Colors.red)),
                 onPressed: () async {
@@ -158,7 +194,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     context: context,
                     builder: (context) => AlertDialog(
                       title: Text('Подтверждение'),
-                      content: Text('Вы уверены, что хотите удалить эту заметку?'),
+                      content: Text(
+                        'Вы уверены, что хотите удалить эту заметку?',
+                      ),
                       actions: [
                         TextButton(
                           child: Text('Отмена'),
@@ -174,13 +212,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                   if (confirm == true && _currentUserId != null) {
                     try {
-                      await _profileService.deleteProfileNote(_currentUserId!, note.id);
-                      Navigator.of(context).pop(); // Закрываем диалог редактирования
+                      await _profileService.deleteProfileNote(
+                        _currentUserId!,
+                        note.id,
+                      );
+                      if (!context.mounted) return;
+                      Navigator.of(
+                        context,
+                      ).pop(); // Закрываем диалог редактирования
                       ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Заметка удалена')));
+                        SnackBar(content: Text('Заметка удалена')),
+                      );
                     } catch (e) {
+                      if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Ошибка удаления: $e')));
+                        SnackBar(content: Text('Ошибка удаления: $e')),
+                      );
                     }
                   }
                 },
@@ -192,29 +239,42 @@ class _ProfileScreenState extends State<ProfileScreen> {
             TextButton(
               child: Text(isEditing ? 'Сохранить' : 'Добавить'),
               onPressed: () async {
-                if (_formKey.currentState!.validate() && _currentUserId != null) {
+                if (formKey.currentState!.validate() &&
+                    _currentUserId != null) {
                   try {
                     if (isEditing) {
                       // Создаем обновленную заметку (со старым id и createdAt)
                       final updatedNote = ProfileNote(
                         id: note.id,
-                        title: _titleController.text,
-                        content: _contentController.text,
-                        createdAt: note.createdAt, // Сохраняем исходную дату создания
+                        title: titleController.text,
+                        content: contentController.text,
+                        createdAt:
+                            note.createdAt, // Сохраняем исходную дату создания
                       );
-                      await _profileService.updateProfileNote(_currentUserId!, updatedNote);
+                      await _profileService.updateProfileNote(
+                        _currentUserId!,
+                        updatedNote,
+                      );
+                      if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Заметка обновлена')));
+                        SnackBar(content: Text('Заметка обновлена')),
+                      );
                     } else {
                       await _profileService.addProfileNote(
-                          _currentUserId!, _titleController.text, _contentController.text);
+                        _currentUserId!,
+                        titleController.text,
+                        contentController.text,
+                      );
+                      if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Заметка добавлена')));
+                        SnackBar(content: Text('Заметка добавлена')),
+                      );
                     }
                     Navigator.of(context).pop(); // Закрываем диалог
                   } catch (e) {
-                     ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Ошибка сохранения: $e')));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Ошибка сохранения: $e')),
+                    );
                   }
                 }
               },
@@ -229,20 +289,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     // Получаем TreeProvider, НЕ слушаем изменения здесь, только для нажатия кнопки
     final treeProvider = Provider.of<TreeProvider>(context, listen: false);
-    final selectedTreeId = treeProvider.selectedTreeId;
 
     return Scaffold(
       appBar: AppBar(
         title: Text(_userProfile?.displayName ?? 'Профиль'),
         leading: IconButton(
-           icon: Icon(Icons.arrow_back),
-           onPressed: () {
-             if (context.canPop()) {
-               context.pop();
-             } else {
-               context.go('/'); 
-             }
-           },
+          icon: Icon(Icons.arrow_back),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/');
+            }
+          },
         ),
         actions: [
           PopupMenuButton<String>(
@@ -250,9 +309,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               if (value == 'settings') {
                 context.push('/profile/settings');
               } else if (value == 'about') {
-                 context.push('/profile/about');
+                context.push('/profile/about');
               } else if (value == 'logout') {
-                _authService.signOut();
+                _signOut();
               }
             },
             itemBuilder: (BuildContext context) {
@@ -265,10 +324,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   value: 'about',
                   child: Text('О приложении'),
                 ),
-                PopupMenuItem<String>(
-                  value: 'logout',
-                  child: Text('Выйти'),
-                ),
+                PopupMenuItem<String>(value: 'logout', child: Text('Выйти')),
               ];
             },
           ),
@@ -277,11 +333,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
           : _errorMessage.isNotEmpty
-              ? Center(child: Padding( // Добавим отступы для ошибки
-                  padding: const EdgeInsets.all(16.0),
-                  child: Text(_errorMessage, textAlign: TextAlign.center),
-                ))
-              : _userProfile == null || _currentUserId == null // Проверяем и userId
+              ? Center(
+                  child: Padding(
+                    // Добавим отступы для ошибки
+                    padding: const EdgeInsets.all(16.0),
+                    child: Text(_errorMessage, textAlign: TextAlign.center),
+                  ),
+                )
+              : _userProfile == null ||
+                      _currentUserId == null // Проверяем и userId
                   ? Center(child: Text('Не удалось загрузить профиль.'))
                   : RefreshIndicator(
                       onRefresh: _loadUserData,
@@ -294,7 +354,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 children: [
                                   CircleAvatar(
                                     radius: 50,
-                                    backgroundImage: _userProfile!.photoURL != null
+                                    backgroundImage: _userProfile!.photoURL !=
+                                            null
                                         ? NetworkImage(_userProfile!.photoURL!)
                                         : null,
                                     child: _userProfile!.photoURL == null
@@ -303,31 +364,49 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   ),
                                   SizedBox(height: 16),
                                   Text(
-                                    _userProfile!.displayName ?? 'Имя не указано',
-                                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                                    _userProfile!.displayName,
+                                    style: TextStyle(
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                   SizedBox(height: 4),
-                                  if ((_userProfile!.city != null && _userProfile!.city!.isNotEmpty) || 
-                                      (_userProfile!.country != null && _userProfile!.country!.isNotEmpty))
-                                     Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          Icon(Icons.location_on, size: 16, color: Colors.grey),
-                                          SizedBox(width: 4),
-                                          Text(
-                                            '${_userProfile!.city ?? ''}${(_userProfile!.city != null && _userProfile!.city!.isNotEmpty && _userProfile!.country != null && _userProfile!.country!.isNotEmpty) ? ', ' : ''}${_userProfile!.country ?? ''}',
-                                            style: TextStyle(color: Colors.grey),
-                                          ),
-                                        ],
-                                      ),
+                                  if ((_userProfile!.city != null &&
+                                          _userProfile!.city!.isNotEmpty) ||
+                                      (_userProfile!.country != null &&
+                                          _userProfile!.country!.isNotEmpty))
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.location_on,
+                                          size: 16,
+                                          color: Colors.grey,
+                                        ),
+                                        SizedBox(width: 4),
+                                        Text(
+                                          '${_userProfile!.city ?? ''}${(_userProfile!.city != null && _userProfile!.city!.isNotEmpty && _userProfile!.country != null && _userProfile!.country!.isNotEmpty) ? ', ' : ''}${_userProfile!.country ?? ''}',
+                                          style: TextStyle(color: Colors.grey),
+                                        ),
+                                      ],
+                                    ),
                                   SizedBox(height: 16),
                                   // Статистика
                                   Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceEvenly,
                                     children: [
-                                      _ProfileStatItem(label: 'Постов', value: '0'),
-                                      _ProfileStatItem(label: 'Родственники', value: '0'),
-                                      _ProfileStatItem(label: 'Деревья', value: _treeCount.toString()),
+                                      _ProfileStatItem(
+                                          label: 'Постов', value: '0'),
+                                      _ProfileStatItem(
+                                        label: 'Родственники',
+                                        value: _relativeCount.toString(),
+                                      ),
+                                      _ProfileStatItem(
+                                        label: 'Деревья',
+                                        value: _treeCount.toString(),
+                                      ),
                                     ],
                                   ),
                                   SizedBox(height: 24),
@@ -338,22 +417,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                         child: OutlinedButton(
                                           onPressed: () {
                                             // Получаем ID выбранного дерева из провайдера
-                                            final currentSelectedTreeId = treeProvider.selectedTreeId;
-                                            
+                                            final currentSelectedTreeId =
+                                                treeProvider.selectedTreeId;
+
                                             if (currentSelectedTreeId == null) {
-                                               // Показываем сообщение, если дерево не выбрано
-                                             ScaffoldMessenger.of(context).showSnackBar(
-                                                 SnackBar(
-                                                   content: Text('Сначала выберите активное дерево на вкладке "Дерево" или "Родные"'),
-                                                   action: SnackBarAction(
-                                                     label: 'Выбрать',
-                                                     onPressed: () => context.go('/tree'), // Предлагаем перейти к выбору
-                                                   ),
-                                                 ),
-                                               );
+                                              // Показываем сообщение, если дерево не выбрано
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                SnackBar(
+                                                  content: Text(
+                                                    'Сначала выберите активное дерево на вкладке "Дерево" или "Родные"',
+                                                  ),
+                                                  action: SnackBarAction(
+                                                    label: 'Выбрать',
+                                                    onPressed: () => context.go(
+                                                      '/tree',
+                                                    ), // Предлагаем перейти к выбору
+                                                  ),
+                                                ),
+                                              );
                                             } else {
-                                               // Переходим на новый экран
-                                               context.push('/profile/offline_profiles');
+                                              // Переходим на новый экран
+                                              context.push(
+                                                  '/profile/offline_profiles');
                                             }
                                           },
                                           child: Text('Ваши профили'),
@@ -362,7 +449,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       SizedBox(width: 16),
                                       Expanded(
                                         child: ElevatedButton(
-                                          onPressed: () => context.push('/profile/edit'),
+                                          onPressed: () =>
+                                              context.push('/profile/edit'),
                                           child: Text('Редактировать'),
                                         ),
                                       ),
@@ -374,110 +462,145 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                           // --- НАЧАЛО: Секция для заметок ---
                           SliverPadding(
-                            padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 0), // Уменьшим нижний отступ
+                            padding: const EdgeInsets.fromLTRB(
+                              16.0,
+                              16.0,
+                              16.0,
+                              0,
+                            ), // Уменьшим нижний отступ
                             sliver: SliverToBoxAdapter(
-                               child: Row( // Используем Row для заголовка и кнопки
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                       Text(
-                                         'Заметки',
-                                         style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                                       ),
-                                       IconButton(
-                                         icon: Icon(Icons.add_circle_outline),
-                                         tooltip: 'Добавить заметку',
-                                         onPressed: () => _showAddEditNoteDialog(), // Вызываем диалог добавления
-                                       ),
-                                    ],
+                              child: Row(
+                                // Используем Row для заголовка и кнопки
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Заметки',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
+                                  IconButton(
+                                    icon: Icon(Icons.add_circle_outline),
+                                    tooltip: 'Добавить заметку',
+                                    onPressed: () =>
+                                        _showAddEditNoteDialog(), // Вызываем диалог добавления
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                           // Используем StreamBuilder для отображения заметок
-                           StreamBuilder<List<ProfileNote>>(
-                             stream: _profileService.getProfileNotesStream(_currentUserId!),
-                             builder: (context, snapshot) {
-                               if (snapshot.connectionState == ConnectionState.waiting) {
-                                 // Показываем индикатор загрузки только для секции заметок
-                                 return SliverToBoxAdapter(
-                                   child: Padding(
-                                     padding: const EdgeInsets.all(16.0),
-                                     child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                                   ),
-                                 );
-                               }
-                               if (snapshot.hasError) {
-                                 return SliverToBoxAdapter(
-                                   child: Padding(
-                                     padding: const EdgeInsets.all(16.0),
-                                     child: Text('Ошибка загрузки заметок: ${snapshot.error}'),
-                                   ),
-                                 );
-                               }
-                               if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                                 return SliverToBoxAdapter(
-                                   child: Padding(
-                                     padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 40.0), // Добавим отступы
-                                     child: Center(
-                                       child: Text(
-                                        'У вас пока нет заметок. Нажмите "+", чтобы добавить первую.',
-                                         textAlign: TextAlign.center,
-                                         style: TextStyle(color: Colors.grey),
-                                         ),
-                                     ),
-                                   ),
-                                 );
-                               }
-
-                               final notes = snapshot.data!;
-
-                               // Используем SliverGrid для отображения заметок
-                               return SliverPadding(
-                                 padding: const EdgeInsets.all(16.0),
-                                 sliver: SliverGrid(
-                                   gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                                     maxCrossAxisExtent: 200.0, // Макс. ширина элемента
-                                     mainAxisSpacing: 10.0,
-                                     crossAxisSpacing: 10.0,
-                                     childAspectRatio: 1.0, // Делаем карточки квадратными
-                                   ),
-                                   delegate: SliverChildBuilderDelegate(
-                                     (BuildContext context, int index) {
-                                       final note = notes[index];
-                                       return InkWell( // Делаем карточку кликабельной
-                                         onTap: () => _showAddEditNoteDialog(note: note), // Открываем диалог редактирования
-                                         child: Card(
-                                           elevation: 2,
-                                           child: Padding(
-                                             padding: const EdgeInsets.all(12.0),
-                                             child: Column(
-                                               crossAxisAlignment: CrossAxisAlignment.start,
-                                               children: [
-                                                 Text(
-                                                   note.title,
-                                                   style: TextStyle(fontWeight: FontWeight.bold),
-                                                   maxLines: 1,
-                                                   overflow: TextOverflow.ellipsis,
-                                                 ),
-                                                 SizedBox(height: 8),
-                                                 Expanded(
-                                                   child: Text(
-                                                     note.content,
-                                                     style: TextStyle(color: Colors.grey[700]),
-                                                     overflow: TextOverflow.ellipsis, // Обрезаем длинный текст
-                                                     maxLines: 4, // Ограничиваем количество строк
-                                     ),
-                                   ),
-                                ],
-                               ),
+                          // Используем StreamBuilder для отображения заметок
+                          StreamBuilder<List<ProfileNote>>(
+                            stream: _profileService.getProfileNotesStream(
+                              _currentUserId!,
                             ),
-                                         ),
-                                       );
-                                     },
-                                     childCount: notes.length,
-                                   ),
-                                 ),
-                               );
-                             },
+                            builder: (context, snapshot) {
+                              if (snapshot.connectionState ==
+                                  ConnectionState.waiting) {
+                                // Показываем индикатор загрузки только для секции заметок
+                                return SliverToBoxAdapter(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16.0),
+                                    child: Center(
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
+                                    ),
+                                  ),
+                                );
+                              }
+                              if (snapshot.hasError) {
+                                return SliverToBoxAdapter(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16.0),
+                                    child: Text(
+                                      'Ошибка загрузки заметок: ${snapshot.error}',
+                                    ),
+                                  ),
+                                );
+                              }
+                              if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                                return SliverToBoxAdapter(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16.0,
+                                      vertical: 40.0,
+                                    ), // Добавим отступы
+                                    child: Center(
+                                      child: Text(
+                                        'У вас пока нет заметок. Нажмите "+", чтобы добавить первую.',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(color: Colors.grey),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }
+
+                              final notes = snapshot.data!;
+
+                              // Используем SliverGrid для отображения заметок
+                              return SliverPadding(
+                                padding: const EdgeInsets.all(16.0),
+                                sliver: SliverGrid(
+                                  gridDelegate:
+                                      SliverGridDelegateWithMaxCrossAxisExtent(
+                                    maxCrossAxisExtent:
+                                        200.0, // Макс. ширина элемента
+                                    mainAxisSpacing: 10.0,
+                                    crossAxisSpacing: 10.0,
+                                    childAspectRatio:
+                                        1.0, // Делаем карточки квадратными
+                                  ),
+                                  delegate: SliverChildBuilderDelegate((
+                                    BuildContext context,
+                                    int index,
+                                  ) {
+                                    final note = notes[index];
+                                    return InkWell(
+                                      // Делаем карточку кликабельной
+                                      onTap: () => _showAddEditNoteDialog(
+                                        note: note,
+                                      ), // Открываем диалог редактирования
+                                      child: Card(
+                                        elevation: 2,
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(12.0),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                note.title,
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              SizedBox(height: 8),
+                                              Expanded(
+                                                child: Text(
+                                                  note.content,
+                                                  style: TextStyle(
+                                                    color: Colors.grey[700],
+                                                  ),
+                                                  overflow: TextOverflow
+                                                      .ellipsis, // Обрезаем длинный текст
+                                                  maxLines:
+                                                      4, // Ограничиваем количество строк
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }, childCount: notes.length),
+                                ),
+                              );
+                            },
                           ),
                           // --- КОНЕЦ: Секция для заметок ---
                         ],
@@ -485,4 +608,4 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
     );
   }
-} 
+}

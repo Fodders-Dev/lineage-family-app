@@ -8,7 +8,7 @@ class TreeNode extends StatelessWidget {
   final bool isEditMode;
   final Function(RelationType) onAddRelative;
   final VoidCallback onNodeTap;
-  
+
   const TreeNode({
     Key? key,
     required this.person,
@@ -16,7 +16,7 @@ class TreeNode extends StatelessWidget {
     required this.onAddRelative,
     required this.onNodeTap,
   }) : super(key: key);
-  
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -31,10 +31,7 @@ class TreeNode extends StatelessWidget {
               elevation: 4,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: BorderSide(
-                  color: _getGenderColor(),
-                  width: 2,
-                ),
+                side: BorderSide(color: _getGenderColor(), width: 2),
               ),
               child: Padding(
                 padding: EdgeInsets.all(8),
@@ -44,15 +41,15 @@ class TreeNode extends StatelessWidget {
                     // Фото
                     CircleAvatar(
                       radius: 30,
-                      backgroundImage: person.photoUrl != null 
-                          ? NetworkImage(person.photoUrl!) 
+                      backgroundImage: person.photoUrl != null
+                          ? NetworkImage(person.photoUrl!)
                           : null,
-                      child: person.photoUrl == null 
-                          ? Text(person.name[0].toUpperCase()) 
+                      child: person.photoUrl == null
+                          ? Text(person.name[0].toUpperCase())
                           : null,
                     ),
                     SizedBox(height: 8),
-                    
+
                     // Имя
                     Text(
                       person.name,
@@ -65,29 +62,30 @@ class TreeNode extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     SizedBox(height: 4),
-                    
+
                     // Годы жизни
                     Text(
                       _getYearsText(),
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[600],
-                      ),
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                     ),
-                    
+
                     // Статус (жив/умер)
                     Container(
                       margin: EdgeInsets.only(top: 4),
                       padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
-                        color: person.isAlive ? Colors.green[100] : Colors.grey[300],
+                        color: person.isAlive
+                            ? Colors.green[100]
+                            : Colors.grey[300],
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
                         person.isAlive ? 'Жив' : 'Умер',
                         style: TextStyle(
                           fontSize: 10,
-                          color: person.isAlive ? Colors.green[800] : Colors.grey[700],
+                          color: person.isAlive
+                              ? Colors.green[800]
+                              : Colors.grey[700],
                         ),
                       ),
                     ),
@@ -95,7 +93,7 @@ class TreeNode extends StatelessWidget {
                 ),
               ),
             ),
-            
+
             // Кнопки добавления родственников (только в режиме редактирования)
             if (isEditMode) ...[
               // Кнопка добавления родителя (сверху)
@@ -110,7 +108,7 @@ class TreeNode extends StatelessWidget {
                   ),
                 ),
               ),
-              
+
               // Кнопка добавления супруга (справа)
               Positioned(
                 top: 0,
@@ -123,7 +121,7 @@ class TreeNode extends StatelessWidget {
                   ),
                 ),
               ),
-              
+
               // Кнопка добавления ребенка (снизу)
               Positioned(
                 bottom: 0,
@@ -136,7 +134,7 @@ class TreeNode extends StatelessWidget {
                   ),
                 ),
               ),
-              
+
               // Кнопка добавления брата/сестры (слева)
               Positioned(
                 top: 0,
@@ -150,7 +148,7 @@ class TreeNode extends StatelessWidget {
                 ),
               ),
             ],
-            
+
             // Если это офлайн родственник (userId == null), показываем кнопку для замены
             if (isEditMode && person.userId == null)
               Positioned(
@@ -178,7 +176,7 @@ class TreeNode extends StatelessWidget {
       ),
     );
   }
-  
+
   Widget _buildAddButton({
     required IconData icon,
     required VoidCallback onPressed,
@@ -188,26 +186,19 @@ class TreeNode extends StatelessWidget {
         color: Colors.white,
         shape: BoxShape.circle,
         boxShadow: [
-          BoxShadow(
-            color: Colors.black26,
-            blurRadius: 2,
-            offset: Offset(0, 1),
-          ),
+          BoxShadow(color: Colors.black26, blurRadius: 2, offset: Offset(0, 1)),
         ],
       ),
       child: IconButton(
         icon: Icon(icon, size: 16),
         onPressed: onPressed,
         padding: EdgeInsets.all(4),
-        constraints: BoxConstraints(
-          minWidth: 24,
-          minHeight: 24,
-        ),
+        constraints: BoxConstraints(minWidth: 24, minHeight: 24),
         color: Colors.blue,
       ),
     );
   }
-  
+
   Color _getGenderColor() {
     switch (person.gender) {
       case Gender.male:
@@ -218,19 +209,17 @@ class TreeNode extends StatelessWidget {
         return Colors.grey;
     }
   }
-  
+
   String _getYearsText() {
-    String birthYear = person.birthDate != null 
-        ? person.birthDate!.year.toString() 
-        : '?';
-    
+    String birthYear =
+        person.birthDate != null ? person.birthDate!.year.toString() : '?';
+
     if (person.isAlive) {
       return birthYear;
     } else {
-      String deathYear = person.deathDate != null 
-          ? person.deathDate!.year.toString() 
-          : '?';
+      String deathYear =
+          person.deathDate != null ? person.deathDate!.year.toString() : '?';
       return '$birthYear - $deathYear';
     }
   }
-} 
+}

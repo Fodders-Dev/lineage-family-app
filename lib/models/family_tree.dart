@@ -23,7 +23,13 @@ class FamilyTree extends HiveObject {
   final bool isPrivate;
   @HiveField(8)
   final List<String> members;
-  
+  @HiveField(9)
+  final String? publicSlug;
+  @HiveField(10)
+  final bool isCertified;
+  @HiveField(11)
+  final String? certificationNote;
+
   FamilyTree({
     required this.id,
     required this.name,
@@ -34,8 +40,21 @@ class FamilyTree extends HiveObject {
     required this.updatedAt,
     required this.isPrivate,
     required this.members,
+    this.publicSlug,
+    this.isCertified = false,
+    this.certificationNote,
   });
-  
+
+  bool get isPublic => !isPrivate;
+
+  String get publicRouteId {
+    final slug = publicSlug?.trim();
+    if (slug != null && slug.isNotEmpty) {
+      return slug;
+    }
+    return id;
+  }
+
   factory FamilyTree.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
     return FamilyTree(
@@ -48,9 +67,12 @@ class FamilyTree extends HiveObject {
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       isPrivate: data['isPrivate'] ?? false,
       members: List<String>.from(data['members'] ?? []),
+      publicSlug: data['publicSlug']?.toString(),
+      isCertified: data['isCertified'] == true,
+      certificationNote: data['certificationNote']?.toString(),
     );
   }
-  
+
   Map<String, dynamic> toMap() {
     return {
       'name': name,
@@ -61,6 +83,9 @@ class FamilyTree extends HiveObject {
       'updatedAt': updatedAt,
       'isPrivate': isPrivate,
       'members': members,
+      'publicSlug': publicSlug,
+      'isCertified': isCertified,
+      'certificationNote': certificationNote,
     };
   }
 
@@ -78,7 +103,7 @@ class FamilyTree extends HiveObject {
                   : DateTime.now()))
           : DateTime.now(),
       updatedAt: data['updatedAt'] != null
-           ? (data['updatedAt'] is Timestamp
+          ? (data['updatedAt'] is Timestamp
               ? (data['updatedAt'] as Timestamp).toDate()
               : (data['updatedAt'] is String
                   ? DateTime.tryParse(data['updatedAt']) ?? DateTime.now()
@@ -87,6 +112,9 @@ class FamilyTree extends HiveObject {
       members: List<String>.from(data['members'] ?? []),
       isPrivate: data['isPrivate'] ?? true,
       memberIds: List<String>.from(data['memberIds'] ?? []),
+      publicSlug: data['publicSlug']?.toString(),
+      isCertified: data['isCertified'] == true,
+      certificationNote: data['certificationNote']?.toString(),
     );
   }
-} 
+}

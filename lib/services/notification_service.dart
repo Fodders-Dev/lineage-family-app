@@ -5,13 +5,35 @@ import 'package:permission_handler/permission_handler.dart'; // Добавляе
 // Используем alias для нашей модели, чтобы избежать конфликта имен
 import '../models/family_person.dart' as lineage_models;
 // <<< Добавляем импорты >>>
-import 'package:get_it/get_it.dart'; 
+import 'package:get_it/get_it.dart';
 import 'auth_service.dart';
 import 'package:firebase_auth/firebase_auth.dart'; // Нужен для FirebaseAuth.instance
 import 'dart:convert'; // Для jsonEncode/Decode
 import 'package:go_router/go_router.dart'; // Для навигации
 import '../navigation/app_router.dart'; // Для доступа к _rootNavigatorKey
 import 'package:flutter/material.dart';
+import '../backend/interfaces/family_tree_service_interface.dart';
+import '../backend/interfaces/notification_service_interface.dart';
+import '../providers/tree_provider.dart';
+
+class NoopNotificationService implements NotificationServiceInterface {
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<void> showBirthdayNotification(
+    lineage_models.FamilyPerson person,
+  ) async {}
+
+  @override
+  Future<void> showChatMessageNotification({
+    required String chatId,
+    required String senderId,
+    required String senderName,
+    required String messageText,
+    required int notificationId,
+  }) async {}
+}
 
 // Обработчик фоновых сообщений (должен быть top-level функцией)
 @pragma('vm:entry-point')
@@ -20,41 +42,49 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   // (когда приложение не запущено или свернуто)
   // Например, инициализировать Firebase, если еще не сделано
   // await Firebase.initializeApp(); // Обычно уже инициализировано
-  print("Handling a background message: ${message.messageId}");
+  debugPrint('Handling a background message: ${message.messageId}');
   // ВАЖНО: Не вызывайте здесь setState или другие UI-операции
   // Можно сохранить данные уведомления, чтобы показать их при открытии приложения
 }
 
 // НОВЫЙ Обработчик нажатия на уведомление Local Notifications (когда приложение было закрыто)
 @pragma('vm:entry-point')
-void onDidReceiveBackgroundNotificationResponseHandler(NotificationResponse response) {
+void onDidReceiveBackgroundNotificationResponseHandler(
+  NotificationResponse response,
+) {
   final String? payload = response.payload;
-  print('Notification clicked (terminated - top-level): id=${response.id}, payload=$payload');
+  debugPrint(
+    'Notification clicked (terminated - top-level): id=${response.id}, payload=$payload',
+  );
   // Здесь нельзя использовать context или плагины, требующие UI
   // Можно сохранить payload в SharedPreferences и обработать при запуске
 }
 
-class NotificationService {
+class NotificationService implements NotificationServiceInterface {
   final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
-  final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _localNotifications =
+      FlutterLocalNotificationsPlugin();
   // <<< Получаем Navigator Key для навигации >>>
   // Мы не можем получить GoRouter напрямую, но можем использовать ключ навигатора
   // Важно: Используем публичный ключ rootNavigatorKey из app_router.dart
-  final GlobalKey<NavigatorState> _navigatorKey = rootNavigatorKey; 
+  final GlobalKey<NavigatorState> _navigatorKey = rootNavigatorKey;
 
   // --- Каналы уведомлений (Android) ---
   // ID и Названия каналов
   static const String channelIdGeneral = 'general_notifications';
   static const String channelNameGeneral = 'Общие уведомления';
-  static const String channelDescGeneral = 'Уведомления о новостях, акциях и прочая информация';
+  static const String channelDescGeneral =
+      'Уведомления о новостях, акциях и прочая информация';
 
   static const String channelIdEvents = 'family_events';
   static const String channelNameEvents = 'Семейные события';
-  static const String channelDescEvents = 'Напоминания о днях рождения, годовщинах и других событиях';
+  static const String channelDescEvents =
+      'Напоминания о днях рождения, годовщинах и других событиях';
 
   // Метод для создания каналов
   Future<void> _createNotificationChannels() async {
-    const AndroidNotificationChannel generalChannel = AndroidNotificationChannel(
+    const AndroidNotificationChannel generalChannel =
+        AndroidNotificationChannel(
       channelIdGeneral,
       channelNameGeneral,
       description: channelDescGeneral,
@@ -69,16 +99,19 @@ class NotificationService {
     );
 
     await _localNotifications
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(generalChannel);
-    
+
     await _localNotifications
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(eventsChannel);
-    
-    print('Notification channels created.');
+
+    debugPrint('Notification channels created.');
   }
 
+  @override
   Future<void> initialize() async {
     if (kIsWeb) return; // Уведомления не работают так же в Web
 
@@ -99,7 +132,7 @@ class NotificationService {
     // 5. Настройка обработчиков сообщений
     _setupMessageHandlers();
 
-    print('NotificationService initialized.');
+    debugPrint('NotificationService initialized.');
   }
 
   Future<void> _requestPermissions() async {
@@ -113,17 +146,19 @@ class NotificationService {
       provisional: false, // true - для временных разрешений на iOS без запроса
       sound: true,
     );
-    print('FCM User granted permission: ${settings.authorizationStatus}');
+    debugPrint('FCM User granted permission: ${settings.authorizationStatus}');
 
     // --- Дополнительные запросы разрешений через permission_handler (особенно для Android) ---
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       // Запрос разрешения на показ уведомлений (Android 13+)
-      PermissionStatus notificationStatus = await Permission.notification.request();
-      print('Notification permission status: $notificationStatus');
-      if (notificationStatus.isDenied || notificationStatus.isPermanentlyDenied) {
+      PermissionStatus notificationStatus =
+          await Permission.notification.request();
+      debugPrint('Notification permission status: $notificationStatus');
+      if (notificationStatus.isDenied ||
+          notificationStatus.isPermanentlyDenied) {
         // Пользователь отказал. Можно показать объяснение и кнопку для открытия настроек.
         // openAppSettings();
-        print('Notification permission denied by user.');
+        debugPrint('Notification permission denied by user.');
       }
 
       // Запрос разрешения на точное планирование (если необходимо)
@@ -141,13 +176,16 @@ class NotificationService {
   Future<void> _initializeLocalNotifications() async {
     // Настройки для Android (используем иконку по умолчанию)
     const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('@drawable/ic_stat_notification'); // Иконка из AndroidManifest
+        AndroidInitializationSettings(
+      '@drawable/ic_stat_notification',
+    ); // Иконка из AndroidManifest
 
     // Настройки для iOS (запрос разрешений делается через FCM)
     final DarwinInitializationSettings initializationSettingsIOS =
         DarwinInitializationSettings();
 
-    final InitializationSettings initializationSettings = InitializationSettings(
+    final InitializationSettings initializationSettings =
+        InitializationSettings(
       android: initializationSettingsAndroid,
       iOS: initializationSettingsIOS,
     );
@@ -155,13 +193,14 @@ class NotificationService {
     await _localNotifications.initialize(
       initializationSettings,
       onDidReceiveNotificationResponse: _onDidReceiveNotificationResponse,
-      onDidReceiveBackgroundNotificationResponse: onDidReceiveBackgroundNotificationResponseHandler,
+      onDidReceiveBackgroundNotificationResponse:
+          onDidReceiveBackgroundNotificationResponseHandler,
     );
   }
 
   Future<void> _getFcmToken() async {
     String? token = await _firebaseMessaging.getToken();
-    print("Firebase Messaging Token: $token");
+    debugPrint('Firebase Messaging Token: $token');
     // <<< Вызываем обновление токена в Firestore >>>
     final userId = FirebaseAuth.instance.currentUser?.uid;
     if (userId != null && token != null) {
@@ -170,43 +209,49 @@ class NotificationService {
         final authService = GetIt.I<AuthService>();
         await authService.updateUserFcmToken(userId, token);
       } catch (e) {
-        print('Error getting AuthService or updating token in _getFcmToken: $e');
+        debugPrint(
+          'Error getting AuthService or updating token in _getFcmToken: $e',
+        );
       }
     }
     // <<< Конец вызова обновления >>>
 
     _firebaseMessaging.onTokenRefresh.listen((newToken) {
-      print("Firebase Messaging Token Refreshed: $newToken");
+      debugPrint('Firebase Messaging Token Refreshed: $newToken');
       // <<< Вызываем обновление токена при обновлении >>>
       final refreshedUserId = FirebaseAuth.instance.currentUser?.uid;
-       if (refreshedUserId != null) {
-         try {
-           final authService = GetIt.I<AuthService>();
-           authService.updateUserFcmToken(refreshedUserId, newToken);
-         } catch (e) {
-            print('Error getting AuthService or updating token in onTokenRefresh: $e');
-         }
-       }
-       // <<< Конец вызова обновления >>>
+      if (refreshedUserId != null) {
+        try {
+          final authService = GetIt.I<AuthService>();
+          authService.updateUserFcmToken(refreshedUserId, newToken);
+        } catch (e) {
+          debugPrint(
+            'Error getting AuthService or updating token in onTokenRefresh: $e',
+          );
+        }
+      }
+      // <<< Конец вызова обновления >>>
     });
   }
 
   void _setupMessageHandlers() {
     // Обработка сообщений, когда приложение находится на переднем плане (foreground)
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      print('Got a message whilst in the foreground!');
-      print('Message data: ${message.data}');
+      debugPrint('Got a message whilst in the foreground!');
+      debugPrint('Message data: ${message.data}');
 
       if (message.notification != null) {
-        print('Message also contained a notification: ${message.notification}');
+        debugPrint(
+          'Message also contained a notification: ${message.notification}',
+        );
         _showLocalNotification(message);
       }
     });
 
     // Обработка сообщений, когда приложение открыто из фона (terminated -> background/foreground)
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      print('Message clicked!');
-      print('Message data: ${message.data}');
+      debugPrint('Message clicked!');
+      debugPrint('Message data: ${message.data}');
       // Здесь можно навигировать пользователя на определенный экран
       // Например, если в data есть 'screen': GoRouter.of(context).go(message.data['screen']);
     });
@@ -219,10 +264,11 @@ class NotificationService {
   }
 
   Future<void> _checkForInitialMessage() async {
-    RemoteMessage? initialMessage = await _firebaseMessaging.getInitialMessage();
+    RemoteMessage? initialMessage =
+        await _firebaseMessaging.getInitialMessage();
     if (initialMessage != null) {
-      print('App opened by initial message: ${initialMessage.data}');
-       // Навигация на основе initialMessage.data
+      debugPrint('App opened by initial message: ${initialMessage.data}');
+      // Навигация на основе initialMessage.data
     }
   }
 
@@ -236,7 +282,11 @@ class NotificationService {
     // Иначе используем канал по умолчанию или наш 'general_notifications'
     String channelId = android?.channelId ?? channelIdGeneral;
 
-    if (notification != null && (android != null || apple != null || defaultTargetPlatform == TargetPlatform.iOS)) { // Adjusted condition for iOS
+    if (notification != null &&
+        (android != null ||
+            apple != null ||
+            defaultTargetPlatform == TargetPlatform.iOS)) {
+      // Adjusted condition for iOS
       await _localNotifications.show(
         notification.hashCode, // Уникальный ID уведомления
         notification.title,
@@ -265,40 +315,37 @@ class NotificationService {
   // Вспомогательные методы для получения данных канала по ID (упрощенно)
   String _getChannelNameById(String id) {
     if (id == channelIdEvents) return channelNameEvents;
-    return channelNameGeneral; 
+    return channelNameGeneral;
   }
+
   String _getChannelDescriptionById(String id) {
     if (id == channelIdEvents) return channelDescEvents;
-    return channelDescGeneral; 
+    return channelDescGeneral;
   }
-  Importance _getImportanceByChannelId(String id) {
-     if (id == channelIdEvents) return Importance.high;
-     return Importance.defaultImportance;
-  }
-   Priority _getPriorityByChannelId(String id) {
-     if (id == channelIdEvents) return Priority.high;
-     return Priority.defaultPriority;
-   }
 
+  Importance _getImportanceByChannelId(String id) {
+    if (id == channelIdEvents) return Importance.high;
+    return Importance.defaultImportance;
+  }
+
+  Priority _getPriorityByChannelId(String id) {
+    if (id == channelIdEvents) return Priority.high;
+    return Priority.defaultPriority;
+  }
 
   // --- Обработчики нажатий на уведомления (Local Notifications) ---
-
-  // Для старых версий iOS
-  void _onDidReceiveLocalNotification(
-      int id, String? title, String? body, String? payload) async {
-    print('onDidReceiveLocalNotification: id=$id, title=$title, payload=$payload');
-    // Показать диалог или выполнить действие
-  }
 
   // Когда пользователь нажимает на уведомление (приложение активно или в фоне)
   void _onDidReceiveNotificationResponse(NotificationResponse response) async {
     final String? payload = response.payload;
-    print('Notification clicked (foreground/background): id=${response.id}, payload=$payload');
+    debugPrint(
+      'Notification clicked (foreground/background): id=${response.id}, payload=$payload',
+    );
     if (payload != null) {
       _handlePayloadNavigation(payload);
     }
   }
-  
+
   // Старый обработчик удален, т.к. вынесен на верхний уровень
   // @pragma('vm:entry-point')
   // void _onDidReceiveBackgroundNotificationResponse(NotificationResponse response) {
@@ -306,13 +353,16 @@ class NotificationService {
   // }
 
   // --- Метод для показа УВЕДОМЛЕНИЯ О ДНЕ РОЖДЕНИЯ ---
-  Future<void> showBirthdayNotification(lineage_models.FamilyPerson person) async {
+  @override
+  Future<void> showBirthdayNotification(
+    lineage_models.FamilyPerson person,
+  ) async {
     if (kIsWeb) return;
 
     final String title = 'День рождения!';
     // Используем person.name вместо firstName/lastName
     final String body = 'Сегодня день рождения у ${person.name}!';
-    final int notificationId = person.id.hashCode; 
+    final int notificationId = person.id.hashCode;
 
     await _localNotifications.show(
       notificationId,
@@ -320,7 +370,7 @@ class NotificationService {
       body,
       NotificationDetails(
         android: AndroidNotificationDetails(
-          channelIdEvents, 
+          channelIdEvents,
           channelNameEvents,
           channelDescription: channelDescEvents,
           importance: Importance.high,
@@ -334,25 +384,27 @@ class NotificationService {
           subtitle: body,
         ),
       ),
-      payload: 'birthday_${person.id}', 
+      payload: 'birthday_${person.id}',
     );
     // Используем person.name
-    print('Showing birthday notification for ${person.name}'); 
+    debugPrint('Showing birthday notification for ${person.name}');
   }
 
   // <<< НОВЫЙ МЕТОД: Показ уведомления о новом сообщении >>>
+  @override
   Future<void> showChatMessageNotification({
     required String chatId, // ID чата, для группировки или навигации
     required String senderId, // <<< Добавляем ID отправителя
     required String senderName,
     required String messageText,
-    required int notificationId, // Уникальный ID для уведомления (можно использовать хэш сообщения)
+    required int
+        notificationId, // Уникальный ID для уведомления (можно использовать хэш сообщения)
   }) async {
-     if (kIsWeb) return;
+    if (kIsWeb) return;
 
-     final String shortMessage = messageText.length > 100 
-         ? messageText.substring(0, 97) + '...'
-         : messageText;
+    final String shortMessage = messageText.length > 100
+        ? '${messageText.substring(0, 97)}...'
+        : messageText;
 
     // <<< Формируем JSON payload >>>
     final payloadData = {
@@ -363,41 +415,46 @@ class NotificationService {
     final String payloadJson = jsonEncode(payloadData);
 
     await _localNotifications.show(
-     notificationId,
-     senderName, // Имя отправителя в заголовке
-     shortMessage, // Текст сообщения в теле
-     NotificationDetails(
-       android: AndroidNotificationDetails(
-         channelIdGeneral, 
-         channelNameGeneral,
-         channelDescription: channelDescGeneral,
-         importance: Importance.high,
-         priority: Priority.high,
-         icon: '@drawable/ic_stat_notification',
-       ),
-       iOS: DarwinNotificationDetails(
-         presentAlert: true,
-         presentBadge: true,
-         presentSound: true,
-         subtitle: shortMessage,
-       ),
-     ),
-     payload: payloadJson,
+      notificationId,
+      senderName, // Имя отправителя в заголовке
+      shortMessage, // Текст сообщения в теле
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          channelIdGeneral,
+          channelNameGeneral,
+          channelDescription: channelDescGeneral,
+          importance: Importance.high,
+          priority: Priority.high,
+          icon: '@drawable/ic_stat_notification',
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+          subtitle: shortMessage,
+        ),
+      ),
+      payload: payloadJson,
     );
-    print('Showing chat notification from $senderName with payload: $payloadJson');
+    debugPrint(
+      'Showing chat notification from $senderName with payload: $payloadJson',
+    );
   }
   // <<< КОНЕЦ НОВОГО МЕТОДА >>>
 
   // <<< НОВЫЙ МЕТОД: Обработка навигации по payload >>>
-  void _handlePayloadNavigation(String payload) {
+  Future<void> _handlePayloadNavigation(String payload) async {
     try {
       final data = jsonDecode(payload) as Map<String, dynamic>;
       final type = data['type'] as String?;
 
       if (type == 'chat') {
         final senderId = data['senderId'] as String?;
-        final chatId = data['chatId'] as String?; // chatId пока не используем для навигации
-        print('Handling chat notification click: senderId=$senderId, chatId=$chatId');
+        final chatId = data['chatId']
+            as String?; // chatId пока не используем для навигации
+        debugPrint(
+          'Handling chat notification click: senderId=$senderId, chatId=$chatId',
+        );
 
         if (senderId != null && _navigatorKey.currentState != null) {
           // Используем GoRouter через контекст навигатора или напрямую
@@ -408,36 +465,90 @@ class NotificationService {
           // Иначе, используем ключ навигатора. GoRouter интегрируется с Navigator 2.0
           // context.push() не сработает здесь напрямую.
           // Используем go() для перехода к абсолютному пути.
-           
+
           // Получаем GoRouter через контекст ключа
-           final context = _navigatorKey.currentContext;
-           if (context != null) {
-             // TODO: Получить имя и фото для перехода в чат? Или ChatScreen сам загрузит?
-             // Пока переходим только с ID
-             final route = '/chat/$senderId?relativeId=$senderId'; // Передаем senderId как userId и relativeId
-             print('Navigating to: $route');
-             GoRouter.of(context).go(route);
-           } else {
-             print('Error: Cannot get context from navigator key for navigation.');
-           }
+          final relativeId = await _resolveRelativeIdForUser(senderId);
+          if (relativeId == null || relativeId.isEmpty) {
+            debugPrint(
+              'Error: relativeId is missing for sender $senderId. Opening fallback profile route.',
+            );
+            _goToRoute('/user/$senderId');
+            return;
+          }
+
+          final route = '/chat/$senderId?relativeId=$relativeId';
+          debugPrint('Navigating to: $route');
+          _goToRoute(route);
         } else {
-          print('Error: senderId is null or navigator state is null.');
+          debugPrint('Error: senderId is null or navigator state is null.');
         }
       } else if (type == 'birthday') {
-         final personId = data['personId'] as String?;
-         print('Handling birthday notification click: personId=$personId');
-         if (personId != null && _navigatorKey.currentContext != null) {
-           final route = '/relative/details/$personId';
-           print('Navigating to: $route');
-           GoRouter.of(_navigatorKey.currentContext!).go(route);
-         }
+        final personId = data['personId'] as String?;
+        debugPrint('Handling birthday notification click: personId=$personId');
+        if (personId != null) {
+          final route = '/relative/details/$personId';
+          debugPrint('Navigating to: $route');
+          _goToRoute(route);
+        }
       } else {
-        print('Unknown notification payload type: $type');
+        debugPrint('Unknown notification payload type: $type');
       }
     } catch (e) {
-      print('Error handling notification payload: $e');
+      debugPrint('Error handling notification payload: $e');
     }
   }
-  // <<< КОНЕЦ МЕТОДА ОБРАБОТКИ НАВИГАЦИИ >>>
 
-} 
+  void _goToRoute(String route) {
+    final context = _navigatorKey.currentContext;
+    if (context == null) {
+      debugPrint(
+        'Error: Cannot get context from navigator key for navigation.',
+      );
+      return;
+    }
+    GoRouter.of(context).go(route);
+  }
+
+  Future<String?> _resolveRelativeIdForUser(String userId) async {
+    if (!GetIt.I.isRegistered<FamilyTreeServiceInterface>()) {
+      return null;
+    }
+
+    final familyTreeService = GetIt.I<FamilyTreeServiceInterface>();
+    final treeProvider =
+        GetIt.I.isRegistered<TreeProvider>() ? GetIt.I<TreeProvider>() : null;
+
+    final candidateTreeIds = <String>[];
+    final selectedTreeId = treeProvider?.selectedTreeId;
+    if (selectedTreeId != null && selectedTreeId.isNotEmpty) {
+      candidateTreeIds.add(selectedTreeId);
+    }
+
+    try {
+      final userTrees = await familyTreeService.getUserTrees();
+      for (final tree in userTrees) {
+        if (!candidateTreeIds.contains(tree.id)) {
+          candidateTreeIds.add(tree.id);
+        }
+      }
+    } catch (_) {
+      // Если список деревьев не загрузился, пробуем хотя бы выбранное.
+    }
+
+    for (final treeId in candidateTreeIds) {
+      try {
+        final relatives = await familyTreeService.getRelatives(treeId);
+        for (final person in relatives) {
+          if (person.userId == userId) {
+            return person.id;
+          }
+        }
+      } catch (_) {
+        // Переходим к следующему дереву.
+      }
+    }
+
+    return null;
+  }
+  // <<< КОНЕЦ МЕТОДА ОБРАБОТКИ НАВИГАЦИИ >>>
+}

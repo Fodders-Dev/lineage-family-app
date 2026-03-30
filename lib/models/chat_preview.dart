@@ -11,7 +11,7 @@ class ChatPreview {
   final Timestamp lastMessageTime;
   final int unreadCount;
   final String lastMessageSenderId;
-  
+
   ChatPreview({
     required this.id,
     required this.chatId,
@@ -24,7 +24,7 @@ class ChatPreview {
     required this.unreadCount,
     required this.lastMessageSenderId,
   });
-  
+
   factory ChatPreview.fromMap(Map<String, dynamic> map) {
     return ChatPreview(
       id: map['id'] ?? '',
@@ -39,4 +39,4 @@ class ChatPreview {
       lastMessageSenderId: map['lastMessageSenderId'] ?? '',
     );
   }
-} 
+}

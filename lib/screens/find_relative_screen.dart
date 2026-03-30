@@ -1,21 +1,28 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import '../models/user_profile.dart';
 import '../models/family_relation.dart';
-import '../services/family_service.dart';
+import 'package:get_it/get_it.dart';
+import 'package:go_router/go_router.dart';
+import '../backend/interfaces/auth_service_interface.dart';
+import '../backend/interfaces/family_tree_service_interface.dart';
+import '../backend/interfaces/profile_service_interface.dart';
 
 class FindRelativeScreen extends StatefulWidget {
   final String treeId;
-  
-  const FindRelativeScreen({Key? key, required this.treeId}) : super(key: key);
-  
+
+  const FindRelativeScreen({super.key, required this.treeId});
+
   @override
-  _FindRelativeScreenState createState() => _FindRelativeScreenState();
+  State<FindRelativeScreen> createState() => _FindRelativeScreenState();
 }
 
-class _FindRelativeScreenState extends State<FindRelativeScreen> with TickerProviderStateMixin {
-  final _searchController = TextEditingController();
+class _FindRelativeScreenState extends State<FindRelativeScreen>
+    with TickerProviderStateMixin {
+  final AuthServiceInterface _authService = GetIt.I<AuthServiceInterface>();
+  final FamilyTreeServiceInterface _familyTreeService =
+      GetIt.I<FamilyTreeServiceInterface>();
+  final ProfileServiceInterface _profileService =
+      GetIt.I<ProfileServiceInterface>();
   List<UserProfile> _searchResults = [];
   bool _isLoading = false;
   RelationType? _selectedRelation;
@@ -23,13 +30,13 @@ class _FindRelativeScreenState extends State<FindRelativeScreen> with TickerProv
   final _searchEmailController = TextEditingController();
   final _searchPhoneController = TextEditingController();
   final _searchUsernameController = TextEditingController();
-  
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
   }
-  
+
   @override
   void dispose() {
     _tabController.dispose();
@@ -38,7 +45,7 @@ class _FindRelativeScreenState extends State<FindRelativeScreen> with TickerProv
     _searchUsernameController.dispose();
     super.dispose();
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -63,72 +70,44 @@ class _FindRelativeScreenState extends State<FindRelativeScreen> with TickerProv
       ),
     );
   }
-  
+
   Future<void> _searchByEmail() async {
     final email = _searchEmailController.text.trim();
     if (email.isEmpty) return;
-    
+
     setState(() {
       _isLoading = true;
       _searchResults = [];
     });
-    
+
     try {
-      final querySnapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .where('email', isEqualTo: email)
-          .limit(1)
-          .get();
-      
-      if (querySnapshot.docs.isEmpty) {
+      final results = await _profileService.searchUsersByField(
+        field: 'email',
+        value: email,
+        limit: 1,
+      );
+      final availableResults = await _filterAvailableUsers(results);
+
+      if (!mounted) return;
+      if (availableResults.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Пользователь с таким email не найден')),
+          SnackBar(
+            content: Text('Подходящий пользователь с таким email не найден'),
+          ),
         );
         setState(() {
           _isLoading = false;
         });
         return;
       }
-      
-      final doc = querySnapshot.docs.first;
-      final userProfile = UserProfile.fromFirestore(doc);
-      
-      // Проверяем, не является ли этот пользователь нами самими
-      final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser?.uid == userProfile.id) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Вы не можете добавить себя в качестве родственника')),
-        );
-        setState(() {
-          _isLoading = false;
-        });
-        return;
-      }
-      
-      // Проверяем, не является ли этот пользователь уже родственником
-      final relationsQuery = await FirebaseFirestore.instance
-          .collection('family_relations')
-          .where('treeId', isEqualTo: widget.treeId)
-          .where('person1Id', isEqualTo: currentUser?.uid)
-          .where('person2Id', isEqualTo: userProfile.id)
-          .get();
-      
-      if (relationsQuery.docs.isNotEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Этот пользователь уже добавлен в ваши родственники')),
-        );
-        setState(() {
-          _isLoading = false;
-        });
-        return;
-      }
-      
+
       setState(() {
-        _searchResults = [userProfile];
+        _searchResults = availableResults;
         _isLoading = false;
       });
     } catch (e) {
-      print('Ошибка при поиске пользователя: $e');
+      debugPrint('Ошибка при поиске пользователя: $e');
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Произошла ошибка при поиске: $e')),
       );
@@ -137,140 +116,166 @@ class _FindRelativeScreenState extends State<FindRelativeScreen> with TickerProv
       });
     }
   }
-  
+
   Future<void> _searchByPhone() async {
     final phone = _searchPhoneController.text.trim();
     if (phone.isEmpty) return;
-    
+
     _searchUser({'field': 'phoneNumber', 'value': phone});
   }
-  
+
   Future<void> _searchByUsername() async {
     final username = _searchUsernameController.text.trim();
     if (username.isEmpty) return;
-    
+
     _searchUser({'field': 'username', 'value': username});
   }
-  
+
   Future<void> _searchUser(Map<String, String> query) async {
     setState(() {
       _isLoading = true;
       _searchResults = [];
     });
-    
+
     try {
-      final querySnapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .where(query['field']!, isEqualTo: query['value'])
-          .get();
-      
-      final results = querySnapshot.docs
-          .map((doc) => UserProfile.fromFirestore(doc))
-          .toList();
-      
+      final results = await _profileService.searchUsersByField(
+        field: query['field']!,
+        value: query['value']!,
+      );
+      final availableResults = await _filterAvailableUsers(results);
+
+      if (!mounted) return;
       setState(() {
-        _searchResults = results;
+        _searchResults = availableResults;
         _isLoading = false;
       });
     } catch (e) {
-      print('Ошибка поиска: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка поиска: $e')),
-      );
+      debugPrint('Ошибка поиска: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Ошибка поиска: $e')));
       setState(() {
         _isLoading = false;
       });
     }
   }
-  
-  Future<void> _sendRelationRequest(UserProfile user, RelationType relationType) async {
-    if (user == null || user.id.isEmpty) {
+
+  Future<void> _sendRelationRequest(
+    UserProfile user,
+    RelationType relationType,
+  ) async {
+    if (user.id.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Ошибка: информация о пользователе недоступна')),
       );
       return;
     }
-    
+
     setState(() {
       _isLoading = true;
     });
-    
+
     try {
-      final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) throw Exception('Вы не авторизованы');
-      
+      final currentUserId = _authService.currentUserId;
+      if (currentUserId == null) throw Exception('Вы не авторизованы');
+
       // Проверяем, не отправлен ли запрос уже
-      final existingRequestsQuery = await FirebaseFirestore.instance
-          .collection('relation_requests')
-          .where('treeId', isEqualTo: widget.treeId)
-          .where('senderId', isEqualTo: currentUser.uid)
-          .where('recipientId', isEqualTo: user.id)
-          .get();
-      
-      if (existingRequestsQuery.docs.isNotEmpty) {
+      final hasPendingRequest =
+          await _familyTreeService.hasPendingRelationRequest(
+        treeId: widget.treeId,
+        senderId: currentUserId,
+        recipientId: user.id,
+      );
+
+      if (!mounted) return;
+      if (hasPendingRequest) {
         setState(() {
           _isLoading = false;
         });
-        
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Запрос этому пользователю уже отправлен')),
         );
         return;
       }
-      
-      await FamilyService().sendRelationRequest(
+
+      await _familyTreeService.sendRelationRequest(
         treeId: widget.treeId,
         recipientId: user.id,
         relationType: relationType,
         message: 'Запрос на подтверждение родственной связи',
       );
-      
+
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Запрос успешно отправлен')),
-      );
-      
-      Navigator.pop(context);
-      
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Запрос успешно отправлен')));
+
+      context.pop();
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка: $e')),
-      );
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Ошибка: $e')));
     }
   }
 
+  Future<List<UserProfile>> _filterAvailableUsers(
+    List<UserProfile> users,
+  ) async {
+    final currentUserId = _authService.currentUserId;
+    final relatives = await _familyTreeService.getRelatives(widget.treeId);
+    final existingUserIds = relatives
+        .map((person) => person.userId)
+        .whereType<String>()
+        .where((userId) => userId.isNotEmpty)
+        .toSet();
+
+    return users.where((user) {
+      if (user.id.isEmpty) {
+        return false;
+      }
+      if (user.id == currentUserId) {
+        return false;
+      }
+      return !existingUserIds.contains(user.id);
+    }).toList();
+  }
+
   Widget _buildUserCard(UserProfile user) {
-    if (user == null) {
-      return SizedBox.shrink();
-    }
-    
-    final String displayName = user.displayName.isNotEmpty 
-        ? user.displayName 
-        : (user.firstName.isNotEmpty ? '${user.firstName} ${user.lastName}' : 'Пользователь');
-    
+    final String displayName = user.displayName.isNotEmpty
+        ? user.displayName
+        : (user.firstName.isNotEmpty
+            ? '${user.firstName} ${user.lastName}'
+            : 'Пользователь');
+
     return Card(
       margin: EdgeInsets.symmetric(vertical: 8),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundImage: user.photoURL != null ? NetworkImage(user.photoURL!) : null,
-          child: user.photoURL == null 
-              ? Text(displayName.isNotEmpty ? displayName[0].toUpperCase() : '?')
+          backgroundImage:
+              user.photoURL != null ? NetworkImage(user.photoURL!) : null,
+          child: user.photoURL == null
+              ? Text(
+                  displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
+                )
               : null,
         ),
         title: Text(displayName),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (user.email != null && user.email!.isNotEmpty)
-              Text(user.email!),
-            if (user.username != null && user.username!.isNotEmpty)
+            if (user.email.isNotEmpty) Text(user.email),
+            if (user.username.isNotEmpty)
               Text('@${user.username}', style: TextStyle(color: Colors.blue)),
           ],
         ),
@@ -278,19 +283,6 @@ class _FindRelativeScreenState extends State<FindRelativeScreen> with TickerProv
           icon: Icon(Icons.add_circle_outline, color: Colors.green),
           onPressed: () => _showRelationSelectDialog(user),
         ),
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(IconData icon, String text) {
-    return Padding(
-      padding: EdgeInsets.only(bottom: 8),
-      child: Row(
-        children: [
-          Icon(icon, size: 16, color: Colors.grey),
-          SizedBox(width: 8),
-          Text(text),
-        ],
       ),
     );
   }
@@ -322,18 +314,17 @@ class _FindRelativeScreenState extends State<FindRelativeScreen> with TickerProv
             Expanded(
               child: ListView.builder(
                 itemCount: _searchResults.length,
-                itemBuilder: (context, index) => _buildUserCard(_searchResults[index]),
+                itemBuilder: (context, index) =>
+                    _buildUserCard(_searchResults[index]),
               ),
             )
           else if (_searchEmailController.text.isNotEmpty)
-            Expanded(
-              child: Center(child: Text('Пользователь не найден')),
-            )
+            Expanded(child: Center(child: Text('Пользователь не найден'))),
         ],
       ),
     );
   }
-  
+
   Widget _buildPhoneSearchTab() {
     return Padding(
       padding: EdgeInsets.all(16),
@@ -361,18 +352,17 @@ class _FindRelativeScreenState extends State<FindRelativeScreen> with TickerProv
             Expanded(
               child: ListView.builder(
                 itemCount: _searchResults.length,
-                itemBuilder: (context, index) => _buildUserCard(_searchResults[index]),
+                itemBuilder: (context, index) =>
+                    _buildUserCard(_searchResults[index]),
               ),
             )
           else if (_searchPhoneController.text.isNotEmpty)
-            Expanded(
-              child: Center(child: Text('Пользователь не найден')),
-            )
+            Expanded(child: Center(child: Text('Пользователь не найден'))),
         ],
       ),
     );
   }
-  
+
   Widget _buildUsernameSearchTab() {
     return Padding(
       padding: EdgeInsets.all(16),
@@ -399,21 +389,20 @@ class _FindRelativeScreenState extends State<FindRelativeScreen> with TickerProv
             Expanded(
               child: ListView.builder(
                 itemCount: _searchResults.length,
-                itemBuilder: (context, index) => _buildUserCard(_searchResults[index]),
+                itemBuilder: (context, index) =>
+                    _buildUserCard(_searchResults[index]),
               ),
             )
           else if (_searchUsernameController.text.isNotEmpty)
-            Expanded(
-              child: Center(child: Text('Пользователь не найден')),
-            )
+            Expanded(child: Center(child: Text('Пользователь не найден'))),
         ],
       ),
     );
   }
-  
+
   Widget _buildRelationTypeDropdown() {
     return DropdownButtonFormField<RelationType>(
-      value: _selectedRelation,
+      initialValue: _selectedRelation,
       decoration: InputDecoration(
         border: OutlineInputBorder(),
         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -421,18 +410,9 @@ class _FindRelativeScreenState extends State<FindRelativeScreen> with TickerProv
       hint: Text('Выберите тип связи'),
       isExpanded: true,
       items: [
-        DropdownMenuItem(
-          value: RelationType.parent,
-          child: Text('Родитель'),
-        ),
-        DropdownMenuItem(
-          value: RelationType.child,
-          child: Text('Ребенок'),
-        ),
-        DropdownMenuItem(
-          value: RelationType.spouse,
-          child: Text('Супруг(а)'),
-        ),
+        DropdownMenuItem(value: RelationType.parent, child: Text('Родитель')),
+        DropdownMenuItem(value: RelationType.child, child: Text('Ребенок')),
+        DropdownMenuItem(value: RelationType.spouse, child: Text('Супруг(а)')),
         DropdownMenuItem(
           value: RelationType.sibling,
           child: Text('Брат/сестра'),
@@ -441,14 +421,8 @@ class _FindRelativeScreenState extends State<FindRelativeScreen> with TickerProv
           value: RelationType.cousin,
           child: Text('Двоюродный брат/сестра'),
         ),
-        DropdownMenuItem(
-          value: RelationType.uncle,
-          child: Text('Дядя'),
-        ),
-        DropdownMenuItem(
-          value: RelationType.aunt,
-          child: Text('Тётя'),
-        ),
+        DropdownMenuItem(value: RelationType.uncle, child: Text('Дядя')),
+        DropdownMenuItem(value: RelationType.aunt, child: Text('Тётя')),
         DropdownMenuItem(
           value: RelationType.grandparent,
           child: Text('Бабушка/дедушка'),
@@ -467,6 +441,9 @@ class _FindRelativeScreenState extends State<FindRelativeScreen> with TickerProv
   }
 
   void _showRelationSelectDialog(UserProfile user) {
+    setState(() {
+      _selectedRelation = null;
+    });
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -478,46 +455,19 @@ class _FindRelativeScreenState extends State<FindRelativeScreen> with TickerProv
             child: Text('Отмена'),
           ),
           TextButton(
-            onPressed: () => _sendRelationRequest(user, _selectedRelation!),
+            onPressed: () {
+              if (_selectedRelation == null) {
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(content: Text('Сначала выберите тип родства')),
+                );
+                return;
+              }
+              _sendRelationRequest(user, _selectedRelation!);
+            },
             child: Text('Добавить'),
           ),
         ],
       ),
     );
   }
-
-  Future<List<UserProfile>> _searchUsersByEmail(String email) async {
-    try {
-      final QuerySnapshot<Map<String, dynamic>> snapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .where('email', isEqualTo: email)
-          .limit(10)
-          .get();
-          
-      print('Найдено ${snapshot.docs.length} пользователей по email: $email');
-          
-      List<UserProfile> results = [];
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        print('Данные пользователя: $data');
-        
-        results.add(UserProfile.create(
-          id: doc.id,
-          email: data['email'] ?? '',
-          displayName: data['displayName'] ?? '',
-          firstName: data['firstName'] ?? '',
-          lastName: data['lastName'] ?? '',
-          middleName: data['middleName'] ?? '',
-          username: data['username'] ?? '',
-          photoURL: data['photoURL'],
-          phoneNumber: data['phoneNumber'] ?? '',
-        ));
-      }
-      
-      return results;
-    } catch (e) {
-      print('Ошибка при поиске пользователей по email: $e');
-      return [];
-    }
-  }
-} 
+}

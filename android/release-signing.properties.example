@@ -1,0 +1,4 @@
+storeFile=C:/path/to/lineage-release.keystore
+storePassword=change-me
+keyAlias=lineage
+keyPassword=change-me

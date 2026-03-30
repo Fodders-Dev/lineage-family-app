@@ -24,4 +24,4 @@ class VersionChangeEvent {
 typedef OnUpgradeNeededFunction = void Function(VersionChangeEvent event);
 typedef OnBlockedFunction = void Function(dynamic event);
 
-enum DatabaseOpenMode { readonly, readwrite, versionchange } 
+enum DatabaseOpenMode { readonly, readwrite, versionchange }

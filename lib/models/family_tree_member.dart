@@ -1,21 +1,22 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 enum MemberRole {
-  owner,      // Владелец (создатель) дерева
-  editor,     // Редактор (может изменять дерево)
-  viewer,     // Зритель (может только просматривать)
-  pending     // Ожидает принятия приглашения
+  owner, // Владелец (создатель) дерева
+  editor, // Редактор (может изменять дерево)
+  viewer, // Зритель (может только просматривать)
+  pending, // Ожидает принятия приглашения
 }
 
 class FamilyTreeMember {
-  final String id;            // Уникальный ID записи
-  final String treeId;        // ID семейного дерева
-  final String userId;        // ID пользователя
-  final MemberRole role;      // Роль пользователя
-  final DateTime addedAt;     // Когда добавлен
-  final String? addedBy;      // Кем добавлен
+  final String id; // Уникальный ID записи
+  final String treeId; // ID семейного дерева
+  final String userId; // ID пользователя
+  final MemberRole role; // Роль пользователя
+  final DateTime addedAt; // Когда добавлен
+  final String? addedBy; // Кем добавлен
   final DateTime? acceptedAt; // Когда принял приглашение
-  final String? relationToTree; // Описание отношения к дереву (например, "отец Ивана")
+  final String?
+      relationToTree; // Описание отношения к дереву (например, "отец Ивана")
 
   FamilyTreeMember({
     required this.id,
@@ -37,8 +38,8 @@ class FamilyTreeMember {
       role: _stringToMemberRole(data['role'] ?? 'viewer'),
       addedAt: (data['addedAt'] as Timestamp).toDate(),
       addedBy: data['addedBy'],
-      acceptedAt: data['acceptedAt'] != null 
-          ? (data['acceptedAt'] as Timestamp).toDate() 
+      acceptedAt: data['acceptedAt'] != null
+          ? (data['acceptedAt'] as Timestamp).toDate()
           : null,
       relationToTree: data['relationToTree'],
     );
@@ -59,20 +60,28 @@ class FamilyTreeMember {
   // Конвертация роли из строки
   static MemberRole _stringToMemberRole(String value) {
     switch (value) {
-      case 'owner': return MemberRole.owner;
-      case 'editor': return MemberRole.editor;
-      case 'pending': return MemberRole.pending;
-      default: return MemberRole.viewer;
+      case 'owner':
+        return MemberRole.owner;
+      case 'editor':
+        return MemberRole.editor;
+      case 'pending':
+        return MemberRole.pending;
+      default:
+        return MemberRole.viewer;
     }
   }
 
   // Конвертация роли в строку
   static String _memberRoleToString(MemberRole role) {
     switch (role) {
-      case MemberRole.owner: return 'owner';
-      case MemberRole.editor: return 'editor';
-      case MemberRole.pending: return 'pending';
-      case MemberRole.viewer: return 'viewer';
+      case MemberRole.owner:
+        return 'owner';
+      case MemberRole.editor:
+        return 'editor';
+      case MemberRole.pending:
+        return 'pending';
+      case MemberRole.viewer:
+        return 'viewer';
     }
   }
 
@@ -85,4 +94,4 @@ class FamilyTreeMember {
   bool isAccepted() {
     return role != MemberRole.pending;
   }
-} 
+}

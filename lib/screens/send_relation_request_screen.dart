@@ -1,104 +1,70 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import '../models/family_relation.dart';
 import '../models/user_profile.dart';
-import '../services/family_service.dart';
 import 'package:get_it/get_it.dart';
+import '../backend/interfaces/family_tree_service_interface.dart';
+import '../backend/interfaces/profile_service_interface.dart';
 
 class SendRelationRequestScreen extends StatefulWidget {
-  final String userId;
-  
-  const SendRelationRequestScreen({
-    Key? key,
-    required this.userId,
-  }) : super(key: key);
+  final String treeId;
+
+  const SendRelationRequestScreen({Key? key, required this.treeId})
+      : super(key: key);
 
   @override
-  _SendRelationRequestScreenState createState() => _SendRelationRequestScreenState();
+  _SendRelationRequestScreenState createState() =>
+      _SendRelationRequestScreenState();
 }
 
 class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
   final _searchController = TextEditingController();
   final _messageController = TextEditingController();
-  
+
   List<UserProfile> _searchResults = [];
   UserProfile? _selectedUser;
   RelationType? _selectedRelation;
   bool _isLoading = false;
   bool _isSearching = false;
-  
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FamilyService _familyService = GetIt.I<FamilyService>();
-  
+
+  final ProfileServiceInterface _profileService =
+      GetIt.I<ProfileServiceInterface>();
+  final FamilyTreeServiceInterface _familyService =
+      GetIt.I<FamilyTreeServiceInterface>();
+
   @override
   void dispose() {
     _searchController.dispose();
     _messageController.dispose();
     super.dispose();
   }
-  
+
   Future<void> _searchUsers(String query) async {
     if (query.length < 3) return;
-    
+
     setState(() {
       _isSearching = true;
       _searchResults = [];
     });
-    
+
     try {
-      // Поиск по имени
-      final nameSnapshot = await _firestore
-          .collection('users')
-          .where('displayName', isGreaterThanOrEqualTo: query)
-          .where('displayName', isLessThanOrEqualTo: query + '\uf8ff')
-          .limit(10)
-          .get();
-      
-      // Поиск по email
-      final emailSnapshot = await _firestore
-          .collection('users')
-          .where('email', isEqualTo: query)
-          .limit(1)
-          .get();
-      
-      // Поиск по телефону
-      final phoneSnapshot = await _firestore
-          .collection('users')
-          .where('phoneNumber', isEqualTo: query)
-          .where('isPhoneVerified', isEqualTo: true)
-          .limit(1)
-          .get();
-      
-      // Объединяем результаты
-      final Set<String> addedIds = {};
-      List<UserProfile> results = [];
-      
-      // Исключаем текущего пользователя из результатов
-      final currentUserId = _auth.currentUser?.uid;
-      
-      for (var doc in [...nameSnapshot.docs, ...emailSnapshot.docs, ...phoneSnapshot.docs]) {
-        if (!addedIds.contains(doc.id) && doc.id != currentUserId) {
-          addedIds.add(doc.id);
-          results.add(UserProfile.fromFirestore(doc));
-        }
-      }
-      
+      setState(() {
+        _searchResults = [];
+      });
+      final results = await _profileService.searchUsers(query);
       setState(() {
         _searchResults = results;
       });
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка поиска: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Ошибка поиска: $e')));
     } finally {
       setState(() {
         _isSearching = false;
       });
     }
   }
-  
+
   Future<void> _sendRequest() async {
     if (_selectedUser == null || _selectedRelation == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -106,41 +72,43 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
       );
       return;
     }
-    
+
     setState(() {
       _isLoading = true;
     });
-    
+
     try {
       await _familyService.sendRelationRequest(
-        treeId: widget.userId,
+        treeId: widget.treeId,
         recipientId: _selectedUser!.id,
         relationType: _selectedRelation!,
         message: _messageController.text,
       );
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Запрос на родство отправлен')),
-      );
-      
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Запрос на родство отправлен')));
+
       Navigator.pop(context);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка отправки запроса: $e')),
-      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Ошибка отправки запроса: $e')));
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Добавить родственника'),
-      ),
+      appBar: AppBar(title: Text('Добавить родственника')),
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -153,7 +121,6 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   SizedBox(height: 8),
-                  
                   TextField(
                     controller: _searchController,
                     decoration: InputDecoration(
@@ -167,7 +134,6 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
                     onSubmitted: _searchUsers,
                   ),
                   SizedBox(height: 16),
-                  
                   if (_isSearching)
                     Center(child: CircularProgressIndicator())
                   else if (_searchResults.isNotEmpty)
@@ -179,7 +145,6 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                         SizedBox(height: 8),
-                        
                         ListView.builder(
                           shrinkWrap: true,
                           physics: NeverScrollableScrollPhysics(),
@@ -187,7 +152,7 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
                           itemBuilder: (context, index) {
                             final user = _searchResults[index];
                             final isSelected = _selectedUser?.id == user.id;
-                            
+
                             return ListTile(
                               leading: CircleAvatar(
                                 backgroundImage: user.photoURL != null
@@ -200,7 +165,10 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
                               title: Text(user.displayName),
                               subtitle: Text(user.email ?? 'Email не указан'),
                               trailing: isSelected
-                                  ? Icon(Icons.check_circle, color: Colors.green)
+                                  ? Icon(
+                                      Icons.check_circle,
+                                      color: Colors.green,
+                                    )
                                   : null,
                               selected: isSelected,
                               onTap: () {
@@ -213,7 +181,6 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
                         ),
                       ],
                     ),
-                  
                   if (_selectedUser != null) ...[
                     SizedBox(height: 24),
                     Text(
@@ -221,7 +188,6 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     SizedBox(height: 8),
-                    
                     ListTile(
                       leading: CircleAvatar(
                         backgroundImage: _selectedUser!.photoURL != null
@@ -242,14 +208,12 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
                         },
                       ),
                     ),
-                    
                     SizedBox(height: 16),
                     Text(
                       'Тип родства',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     SizedBox(height: 8),
-                    
                     DropdownButtonFormField<RelationType>(
                       decoration: InputDecoration(
                         labelText: 'Кем приходится вам этот человек',
@@ -304,7 +268,6 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
                         });
                       },
                     ),
-                    
                     SizedBox(height: 16),
                     TextField(
                       controller: _messageController,
@@ -314,7 +277,6 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
                       ),
                       maxLines: 3,
                     ),
-                    
                     SizedBox(height: 24),
                     ElevatedButton(
                       onPressed: _sendRequest,
@@ -329,4 +291,4 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
             ),
     );
   }
-} 
+}

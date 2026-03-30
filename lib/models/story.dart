@@ -1,10 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'post.dart';
 
-enum StoryType {
-  text,
-  image,
-  video
-}
+enum StoryType { text, image, video }
 
 class Story {
   final String id;
@@ -18,8 +15,11 @@ class Story {
   final DateTime createdAt;
   final DateTime expiresAt; // История истекает через 24 часа
   final List<String> viewedBy; // ID пользователей, просмотревших историю
-  final String? familyTreeId; // ID семейного дерева, для которого создана история
+  final String?
+      familyTreeId; // ID семейного дерева, для которого создана история
   final bool isPublic; // Доступна всем или только членам дерева
+  final TreeContentScopeType scopeType;
+  final List<String> anchorPersonIds;
 
   Story({
     required this.id,
@@ -35,6 +35,8 @@ class Story {
     this.viewedBy = const [],
     this.familyTreeId,
     this.isPublic = false,
+    this.scopeType = TreeContentScopeType.wholeTree,
+    this.anchorPersonIds = const <String>[],
   });
 
   factory Story.fromFirestore(DocumentSnapshot doc) {
@@ -50,11 +52,16 @@ class Story {
       thumbnailUrl: data['thumbnailUrl'],
       createdAt: (data['createdAt'] as Timestamp).toDate(),
       expiresAt: (data['expiresAt'] as Timestamp).toDate(),
-      viewedBy: data['viewedBy'] != null 
-          ? List<String>.from(data['viewedBy']) 
-          : [],
+      viewedBy:
+          data['viewedBy'] != null ? List<String>.from(data['viewedBy']) : [],
       familyTreeId: data['familyTreeId'],
       isPublic: data['isPublic'] ?? false,
+      scopeType: data['scopeType'] == 'branches'
+          ? TreeContentScopeType.branches
+          : TreeContentScopeType.wholeTree,
+      anchorPersonIds: data['anchorPersonIds'] != null
+          ? List<String>.from(data['anchorPersonIds'])
+          : const <String>[],
     );
   }
 
@@ -72,34 +79,43 @@ class Story {
       'viewedBy': viewedBy,
       'familyTreeId': familyTreeId,
       'isPublic': isPublic,
+      'scopeType':
+          scopeType == TreeContentScopeType.branches ? 'branches' : 'wholeTree',
+      'anchorPersonIds': anchorPersonIds,
     };
   }
-  
+
   // Проверка, просмотрел ли пользователь историю
   bool isViewedBy(String userId) {
     return viewedBy.contains(userId);
   }
-  
+
   // Проверка, истекла ли история
   bool isExpired() {
     return DateTime.now().isAfter(expiresAt);
   }
-  
+
   // Преобразование строки в тип истории
   static StoryType _stringToStoryType(String value) {
     switch (value) {
-      case 'image': return StoryType.image;
-      case 'video': return StoryType.video;
-      default: return StoryType.text;
+      case 'image':
+        return StoryType.image;
+      case 'video':
+        return StoryType.video;
+      default:
+        return StoryType.text;
     }
   }
-  
+
   // Преобразование типа истории в строку
   static String _storyTypeToString(StoryType type) {
     switch (type) {
-      case StoryType.image: return 'image';
-      case StoryType.video: return 'video';
-      case StoryType.text: return 'text';
+      case StoryType.image:
+        return 'image';
+      case StoryType.video:
+        return 'video';
+      case StoryType.text:
+        return 'text';
     }
   }
-} 
+}

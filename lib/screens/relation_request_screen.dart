@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:get_it/get_it.dart';
 import '../models/family_relation.dart';
 import '../models/family_person.dart';
+import '../backend/interfaces/family_tree_service_interface.dart';
 
 class SendRelationRequestScreen extends StatefulWidget {
   final String treeId;
   final String treeName;
-  final FamilyPerson offlineRelative; // Офлайн родственник, который будет заменен
+  final FamilyPerson
+      offlineRelative; // Офлайн родственник, который будет заменен
 
   const SendRelationRequestScreen({
     Key? key,
@@ -17,21 +18,22 @@ class SendRelationRequestScreen extends StatefulWidget {
   }) : super(key: key);
 
   @override
-  _SendRelationRequestScreenState createState() => _SendRelationRequestScreenState();
+  _SendRelationRequestScreenState createState() =>
+      _SendRelationRequestScreenState();
 }
 
 class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
   final _emailController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  final FamilyTreeServiceInterface _familyTreeService =
+      GetIt.I<FamilyTreeServiceInterface>();
   bool _isLoading = false;
   RelationType _relationType = RelationType.other;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Отправить запрос на родство'),
-      ),
+      appBar: AppBar(title: Text('Отправить запрос на родство')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Form(
@@ -74,9 +76,7 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
               SizedBox(height: 8),
               DropdownButtonFormField<RelationType>(
                 value: _relationType,
-                decoration: InputDecoration(
-                  border: OutlineInputBorder(),
-                ),
+                decoration: InputDecoration(border: OutlineInputBorder()),
                 items: RelationType.values.map((type) {
                   return DropdownMenuItem<RelationType>(
                     value: type,
@@ -108,11 +108,16 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
 
   String _getRelationTypeText(RelationType type) {
     switch (type) {
-      case RelationType.parent: return 'Родитель';
-      case RelationType.child: return 'Ребенок';
-      case RelationType.spouse: return 'Супруг(а)';
-      case RelationType.sibling: return 'Брат/Сестра';
-      default: return 'Другое';
+      case RelationType.parent:
+        return 'Родитель';
+      case RelationType.child:
+        return 'Ребенок';
+      case RelationType.spouse:
+        return 'Супруг(а)';
+      case RelationType.sibling:
+        return 'Брат/Сестра';
+      default:
+        return 'Другое';
     }
   }
 
@@ -124,49 +129,25 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
     });
 
     try {
-      final FirebaseFirestore firestore = FirebaseFirestore.instance;
-      final String currentUserId = FirebaseAuth.instance.currentUser!.uid;
-
-      // Ищем пользователя по email
-      final userQuery = await firestore
-          .collection('users')
-          .where('email', isEqualTo: _emailController.text.trim())
-          .get();
-
-      if (userQuery.docs.isEmpty) {
-        throw Exception('Пользователь с таким email не найден');
-      }
-
-      final targetUserId = userQuery.docs.first.id;
-      
-      // Проверяем, что пользователь не отправляет запрос самому себе
-      if (targetUserId == currentUserId) {
-        throw Exception('Нельзя отправить запрос самому себе');
-      }
-
-      // Создаем запрос на родство
-      await firestore.collection('relation_requests').add({
-        'senderId': currentUserId,
-        'recipientId': targetUserId,
-        'treeId': widget.treeId,
-        'offlineRelativeId': widget.offlineRelative.id,
-        'relationType': _relationType.toString().split('.').last,
-        'status': 'pending',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Запрос отправлен')),
+      await _familyTreeService.sendOfflineRelationRequestByEmail(
+        treeId: widget.treeId,
+        email: _emailController.text.trim(),
+        offlineRelativeId: widget.offlineRelative.id,
+        relationType: _relationType,
       );
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Запрос отправлен')));
       Navigator.pop(context);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Ошибка: $e')));
     } finally {
       setState(() {
         _isLoading = false;
       });
     }
   }
-} 
+}

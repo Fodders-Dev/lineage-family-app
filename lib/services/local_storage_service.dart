@@ -1,5 +1,6 @@
 import 'package:hive_flutter/hive_flutter.dart';
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import '../models/user_profile.dart';
 import '../models/family_tree.dart';
 import '../models/family_person.dart';
@@ -11,7 +12,6 @@ import '../models/chat_message.dart';
 // import '../models/family_person.g.dart';
 // import '../models/family_relation.g.dart';
 // import '../models/chat_message.g.dart';
-import 'dart:convert';
 
 // Используем Hive для локального хранилища
 class LocalStorageService {
@@ -28,7 +28,6 @@ class LocalStorageService {
   // Ключ: treeId, Значение: Map<String, RelationType>
   // Внутренний Map: Ключ - пара ID (id1_id2, отсортированные), Значение - отношение id1 к id2 (в порядке ключа!)
   final Map<String, Map<String, RelationType>> _relationCache = {};
-
 
   LocalStorageService._(); // Приватный конструктор
 
@@ -63,9 +62,10 @@ class LocalStorageService {
       Hive.registerAdapter(GenderAdapter()); // Регистрируем адаптер для Gender
     }
     if (!Hive.isAdapterRegistered(RelationTypeAdapter().typeId)) {
-       Hive.registerAdapter(RelationTypeAdapter()); // Регистрируем адаптер для RelationType
+      Hive.registerAdapter(
+        RelationTypeAdapter(),
+      ); // Регистрируем адаптер для RelationType
     }
-
 
     // Открываем все необходимые боксы
     await Hive.openBox<UserProfile>(_boxUsers);
@@ -75,7 +75,7 @@ class LocalStorageService {
     await Hive.openBox<ChatMessage>(_boxMessages);
 
     instance._isInitialized = true;
-    print("LocalStorage: Using Hive for local data.");
+    debugPrint('LocalStorage: Using Hive for local data.');
     return instance;
   }
 
@@ -90,14 +90,14 @@ class LocalStorageService {
     return box.get(userId);
   }
 
-  // --- NEW: Удаление пользователя из кэша --- 
+  // --- NEW: Удаление пользователя из кэша ---
   Future<void> deleteUser(String userId) async {
     try {
-       final box = Hive.box<UserProfile>(_boxUsers);
-       await box.delete(userId);
-       print('LocalStorage: User $userId deleted from cache.');
+      final box = Hive.box<UserProfile>(_boxUsers);
+      await box.delete(userId);
+      debugPrint('LocalStorage: User $userId deleted from cache.');
     } catch (e) {
-      print('LocalStorage: Error deleting user $userId: $e');
+      debugPrint('LocalStorage: Error deleting user $userId: $e');
       // Решаем, нужно ли пробрасывать ошибку
     }
   }
@@ -109,31 +109,37 @@ class LocalStorageService {
     await box.put(tree.id, tree);
   }
 
-  // --- NEW: Сохранение списка деревьев --- 
+  // --- NEW: Сохранение списка деревьев ---
   Future<void> saveTrees(List<FamilyTree> trees) async {
     if (trees.isEmpty) return;
     try {
       final box = Hive.box<FamilyTree>(_boxTrees);
       // Используем putAll для эффективного сохранения списка
-      final Map<String, FamilyTree> treesMap = { for (var t in trees) t.id : t };
+      final Map<String, FamilyTree> treesMap = {for (var t in trees) t.id: t};
       await box.putAll(treesMap);
-      print('LocalStorage: Saved ${trees.length} trees to cache.');
+      debugPrint('LocalStorage: Saved ${trees.length} trees to cache.');
     } catch (e) {
-       print('LocalStorage: Error saving trees: $e');
+      debugPrint('LocalStorage: Error saving trees: $e');
     }
   }
   // --- END NEW ---
 
   Future<List<FamilyTree>> getAllTrees() async {
-    print('[LocalStorageService] Attempting to get all trees from box $_boxTrees...');
+    debugPrint(
+      '[LocalStorageService] Attempting to get all trees from box $_boxTrees...',
+    );
     final box = Hive.box<FamilyTree>(_boxTrees);
-    print('[LocalStorageService] Box ${_boxTrees} opened. Contains ${box.length} keys: ${box.keys.toList()}');
+    debugPrint(
+      '[LocalStorageService] Box $_boxTrees opened. Contains ${box.length} keys: ${box.keys.toList()}',
+    );
     final List<FamilyTree> trees = box.values.toList();
-    print('[LocalStorageService] Retrieved ${trees.length} trees from box values.');
+    debugPrint(
+      '[LocalStorageService] Retrieved ${trees.length} trees from box values.',
+    );
     return trees;
   }
 
-   Future<FamilyTree?> getTree(String treeId) async {
+  Future<FamilyTree?> getTree(String treeId) async {
     final box = Hive.box<FamilyTree>(_boxTrees);
     return box.get(treeId);
   }
@@ -154,10 +160,12 @@ class LocalStorageService {
     return box.values.where((person) => person.treeId == treeId).toList();
   }
 
-   Future<void> savePersons(List<FamilyPerson> persons) async {
-     if (persons.isEmpty) return;
+  Future<void> savePersons(List<FamilyPerson> persons) async {
+    if (persons.isEmpty) return;
     final box = Hive.box<FamilyPerson>(_boxPersons);
-    final Map<String, FamilyPerson> personsMap = { for (var p in persons) p.id : p };
+    final Map<String, FamilyPerson> personsMap = {
+      for (var p in persons) p.id: p,
+    };
     await box.putAll(personsMap);
   }
 
@@ -169,15 +177,17 @@ class LocalStorageService {
     clearRelationCacheForTree(relation.treeId);
   }
 
-   Future<void> saveRelations(List<FamilyRelation> relations) async {
-     if (relations.isEmpty) return;
+  Future<void> saveRelations(List<FamilyRelation> relations) async {
+    if (relations.isEmpty) return;
     final box = Hive.box<FamilyRelation>(_boxRelations);
-    final Map<String, FamilyRelation> relationsMap = { for (var r in relations) r.id : r };
+    final Map<String, FamilyRelation> relationsMap = {
+      for (var r in relations) r.id: r,
+    };
     await box.putAll(relationsMap);
-     // При сохранении связей инвалидируем кеш в памяти для затронутых деревьев
+    // При сохранении связей инвалидируем кеш в памяти для затронутых деревьев
     final treeIds = relations.map((r) => r.treeId).toSet();
     for (var treeId in treeIds) {
-       clearRelationCacheForTree(treeId);
+      clearRelationCacheForTree(treeId);
     }
   }
 
@@ -196,12 +206,19 @@ class LocalStorageService {
 
   /// Получает закешированное отношение между двумя людьми в дереве.
   /// Возвращает отношение ОТ user1 К user2.
-  RelationType? getCachedRelationBetween(String treeId, String user1Id, String user2Id) {
+  RelationType? getCachedRelationBetween(
+    String treeId,
+    String user1Id,
+    String user2Id,
+  ) {
     final treeCache = _relationCache[treeId];
     if (treeCache == null) {
       return null; // Нет кеша для этого дерева
     }
-    final pairKey = _getRelationCacheKey(user1Id, user2Id); // Генерируем ключ 'id1_id2'
+    final pairKey = _getRelationCacheKey(
+      user1Id,
+      user2Id,
+    ); // Генерируем ключ 'id1_id2'
     final cachedRelation = treeCache[pairKey]; // Получаем отношение id1 к id2
 
     if (cachedRelation != null) {
@@ -209,36 +226,49 @@ class LocalStorageService {
       final isDirectOrder = user1Id.compareTo(user2Id) < 0;
       // Если порядок прямой (user1Id = id1), возвращаем как есть.
       // Если порядок обратный (user1Id = id2), возвращаем зеркальное отношение.
-      return isDirectOrder ? cachedRelation : FamilyRelation.getMirrorRelation(cachedRelation);
+      return isDirectOrder
+          ? cachedRelation
+          : FamilyRelation.getMirrorRelation(cachedRelation);
     }
     return null; // Не найдено в кеше для этой пары
   }
 
   /// Кеширует отношение между двумя людьми в дереве.
   /// `relation` - это отношение ОТ user1 К user2.
-  void cacheRelationBetween(String treeId, String user1Id, String user2Id, RelationType relation) {
-    _relationCache.putIfAbsent(treeId, () => {}); // Создаем кеш для дерева, если его нет
-    final pairKey = _getRelationCacheKey(user1Id, user2Id); // Генерируем ключ 'id1_id2'
+  void cacheRelationBetween(
+    String treeId,
+    String user1Id,
+    String user2Id,
+    RelationType relation,
+  ) {
+    _relationCache.putIfAbsent(
+      treeId,
+      () => {},
+    ); // Создаем кеш для дерева, если его нет
+    final pairKey = _getRelationCacheKey(
+      user1Id,
+      user2Id,
+    ); // Генерируем ключ 'id1_id2'
 
     // Определяем, какое отношение сохранить (id1 к id2)
-    final relationToCache = user1Id.compareTo(user2Id) < 0 
+    final relationToCache = user1Id.compareTo(user2Id) < 0
         ? relation // Если user1Id=id1, сохраняем переданное отношение
-        : FamilyRelation.getMirrorRelation(relation); // Если user1Id=id2, сохраняем зеркальное
+        : FamilyRelation.getMirrorRelation(
+            relation,
+          ); // Если user1Id=id2, сохраняем зеркальное
 
     _relationCache[treeId]![pairKey] = relationToCache;
     // print('Cached relation for $treeId: $pairKey = $relationToCache'); // Для отладки
   }
 
-
   /// Очищает кеш отношений для конкретного дерева.
   void clearRelationCacheForTree(String treeId) {
-     final removed = _relationCache.remove(treeId);
-     if (removed != null) {
-       print('Relation cache cleared for tree $treeId');
-     }
+    final removed = _relationCache.remove(treeId);
+    if (removed != null) {
+      debugPrint('Relation cache cleared for tree $treeId');
+    }
   }
   // --- Конец методов кеширования связей ---
-
 
   // --- Операции с сообщениями ---
   Future<void> saveMessage(ChatMessage message) async {
@@ -256,7 +286,7 @@ class LocalStorageService {
 
   // --- Очистка кэша ---
   Future<void> clearCache() async {
-    print("LocalStorage: Clearing all Hive boxes...");
+    debugPrint('LocalStorage: Clearing all Hive boxes...');
     try {
       await Hive.box<UserProfile>(_boxUsers).clear();
       await Hive.box<FamilyTree>(_boxTrees).clear();
@@ -264,9 +294,9 @@ class LocalStorageService {
       await Hive.box<FamilyRelation>(_boxRelations).clear();
       await Hive.box<ChatMessage>(_boxMessages).clear();
       _relationCache.clear(); // Очищаем и кеш отношений в памяти
-      print("LocalStorage: All Hive boxes and relation cache cleared.");
+      debugPrint('LocalStorage: All Hive boxes and relation cache cleared.');
     } catch (e) {
-      print("Error clearing Hive cache: $e");
+      debugPrint('Error clearing Hive cache: $e');
       // Можно попытаться удалить файлы боксов, если clear не сработал
       // await Hive.deleteBoxFromDisk(_boxUsers);
       // ... и т.д.
@@ -277,12 +307,16 @@ class LocalStorageService {
 
   Future<void> deleteRelative(String personId) async {
     final box = Hive.box<FamilyPerson>(_boxPersons);
-    final person = box.get(personId); // Получаем перед удалением, чтобы узнать treeId
+    final person = box.get(
+      personId,
+    ); // Получаем перед удалением, чтобы узнать treeId
     await box.delete(personId);
     if (person != null) {
-       clearRelationCacheForTree(person.treeId); // Очищаем кеш связей для дерева удаленного
+      clearRelationCacheForTree(
+        person.treeId,
+      ); // Очищаем кеш связей для дерева удаленного
     }
-    print("LocalStorage: Deleted person $personId");
+    debugPrint('LocalStorage: Deleted person $personId');
   }
 
   Future<void> deleteRelationsByPersonId(String treeId, String personId) async {
@@ -290,17 +324,21 @@ class LocalStorageService {
     // Находим ключи отношений для удаления
     final keysToDelete = box.keys.where((key) {
       final relation = box.get(key);
-      return relation != null && 
-             relation.treeId == treeId && 
-             (relation.person1Id == personId || relation.person2Id == personId);
+      return relation != null &&
+          relation.treeId == treeId &&
+          (relation.person1Id == personId || relation.person2Id == personId);
     }).toList();
 
     if (keysToDelete.isNotEmpty) {
       await box.deleteAll(keysToDelete);
       clearRelationCacheForTree(treeId); // Очищаем кеш связей для дерева
-      print("LocalStorage: Deleted ${keysToDelete.length} relations involving person $personId in tree $treeId");
+      debugPrint(
+        "LocalStorage: Deleted ${keysToDelete.length} relations involving person $personId in tree $treeId",
+      );
     } else {
-      print("LocalStorage: No relations found to delete for person $personId in tree $treeId");
+      debugPrint(
+        "LocalStorage: No relations found to delete for person $personId in tree $treeId",
+      );
     }
   }
 
@@ -316,4 +354,4 @@ class LocalStorageService {
 // UserProfile, FamilyTree, FamilyPerson, FamilyRelation, ChatMessage
 // А также для любых Enum, например, Gender.
 // Запустите build_runner для генерации адаптеров:
-// flutter pub run build_runner build --delete-conflicting-outputs 
+// flutter pub run build_runner build --delete-conflicting-outputs

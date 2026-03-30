@@ -25,7 +25,8 @@ class EventCard extends StatelessWidget {
             padding: const EdgeInsets.all(12.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween, // Распределяем пространство
+              mainAxisAlignment:
+                  MainAxisAlignment.spaceBetween, // Распределяем пространство
               children: [
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -40,7 +41,11 @@ class EventCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    Icon(event.icon, size: 18, color: Theme.of(context).colorScheme.primary),
+                    Icon(
+                      event.icon,
+                      size: 18,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -68,4 +73,4 @@ class EventCard extends StatelessWidget {
       ),
     );
   }
-} 
+}

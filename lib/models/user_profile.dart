@@ -48,7 +48,7 @@ class UserProfile extends HiveObject {
   final List<String>? accessibleTreeIds;
   @HiveField(20)
   final List<String>? fcmTokens;
-  
+
   UserProfile({
     required this.id,
     required this.email,
@@ -72,21 +72,28 @@ class UserProfile extends HiveObject {
     this.accessibleTreeIds,
     this.fcmTokens,
   });
-  
+
   factory UserProfile.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
-    
+
     // Конвертируем строковое представление пола в enum
     Gender? userGender;
     if (data['gender'] != null) {
       switch (data['gender']) {
-        case 'male': userGender = Gender.male; break;
-        case 'female': userGender = Gender.female; break;
-        case 'other': userGender = Gender.other; break;
-        default: userGender = Gender.unknown;
+        case 'male':
+          userGender = Gender.male;
+          break;
+        case 'female':
+          userGender = Gender.female;
+          break;
+        case 'other':
+          userGender = Gender.other;
+          break;
+        default:
+          userGender = Gender.unknown;
       }
     }
-    
+
     return UserProfile(
       id: doc.id,
       email: data['email'] ?? '',
@@ -99,27 +106,33 @@ class UserProfile extends HiveObject {
       phoneNumber: data['phoneNumber'] ?? '',
       isPhoneVerified: data['isPhoneVerified'] ?? false,
       gender: userGender,
-      birthDate: data['birthDate'] != null 
-          ? (data['birthDate'] as Timestamp).toDate() 
+      birthDate: data['birthDate'] != null
+          ? (data['birthDate'] as Timestamp).toDate()
           : null,
       country: data['country'] as String?,
       city: data['city'],
-      createdAt: data['createdAt'] != null 
-          ? (data['createdAt'] as Timestamp).toDate() 
+      createdAt: data['createdAt'] != null
+          ? (data['createdAt'] as Timestamp).toDate()
           : DateTime.now(),
-      updatedAt: data['updatedAt'] != null 
-          ? (data['updatedAt'] as Timestamp).toDate() 
+      updatedAt: data['updatedAt'] != null
+          ? (data['updatedAt'] as Timestamp).toDate()
           : null,
-      lastLoginAt: data['lastLoginAt'] != null 
-          ? (data['lastLoginAt'] as Timestamp).toDate() 
+      lastLoginAt: data['lastLoginAt'] != null
+          ? (data['lastLoginAt'] as Timestamp).toDate()
           : null,
       countryCode: data['countryCode'],
-      creatorOfTreeIds: (data['creatorOfTreeIds'] as List<dynamic>? ?? []).map((e) => e.toString()).toList(),
-      accessibleTreeIds: (data['accessibleTreeIds'] as List<dynamic>? ?? []).map((e) => e.toString()).toList(),
-      fcmTokens: (data['fcmTokens'] as List<dynamic>? ?? []).map((e) => e.toString()).toList(),
+      creatorOfTreeIds: (data['creatorOfTreeIds'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList(),
+      accessibleTreeIds: (data['accessibleTreeIds'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList(),
+      fcmTokens: (data['fcmTokens'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList(),
     );
   }
-  
+
   Map<String, dynamic> toMap() {
     return {
       'email': email,
@@ -137,23 +150,26 @@ class UserProfile extends HiveObject {
       'city': city,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
-      'lastLoginAt': lastLoginAt != null ? Timestamp.fromDate(lastLoginAt!) : null,
+      'lastLoginAt':
+          lastLoginAt != null ? Timestamp.fromDate(lastLoginAt!) : null,
       'countryCode': countryCode,
       if (creatorOfTreeIds != null) 'creatorOfTreeIds': creatorOfTreeIds,
       if (accessibleTreeIds != null) 'accessibleTreeIds': accessibleTreeIds,
       if (fcmTokens != null) 'fcmTokens': fcmTokens,
     };
   }
-  
+
   String get fullName {
     if (firstName.isNotEmpty || lastName.isNotEmpty) {
-      return [firstName, middleName, lastName]
-          .where((part) => part.isNotEmpty)
-          .join(' ');
+      return [
+        firstName,
+        middleName,
+        lastName,
+      ].where((part) => part.isNotEmpty).join(' ');
     }
     return displayName;
   }
-  
+
   UserProfile copyWith({
     String? id,
     String? email,
@@ -254,10 +270,17 @@ class UserProfile extends HiveObject {
     Gender? userGender;
     if (map['gender'] != null) {
       switch (map['gender']) {
-        case 'male': userGender = Gender.male; break;
-        case 'female': userGender = Gender.female; break;
-        case 'other': userGender = Gender.other; break;
-        default: userGender = Gender.unknown;
+        case 'male':
+          userGender = Gender.male;
+          break;
+        case 'female':
+          userGender = Gender.female;
+          break;
+        case 'other':
+          userGender = Gender.other;
+          break;
+        default:
+          userGender = Gender.unknown;
       }
     }
 
@@ -269,18 +292,30 @@ class UserProfile extends HiveObject {
       firstName: map['firstName'] ?? '',
       lastName: map['lastName'] ?? '',
       middleName: map['middleName'],
-      birthDate: map['birthDate'] != null ? (map['birthDate'] as Timestamp).toDate() : null,
+      birthDate: map['birthDate'] != null
+          ? (map['birthDate'] as Timestamp).toDate()
+          : null,
       gender: userGender,
       phoneNumber: map['phoneNumber'] ?? '',
       country: map['country'] as String?,
       city: map['city'],
-      createdAt: map['createdAt'] != null ? (map['createdAt'] as Timestamp).toDate() : DateTime.now(),
-      updatedAt: map['updatedAt'] != null ? (map['updatedAt'] as Timestamp).toDate() : DateTime.now(),
+      createdAt: map['createdAt'] != null
+          ? (map['createdAt'] as Timestamp).toDate()
+          : DateTime.now(),
+      updatedAt: map['updatedAt'] != null
+          ? (map['updatedAt'] as Timestamp).toDate()
+          : DateTime.now(),
       username: map['username'] ?? '',
       isPhoneVerified: map['isPhoneVerified'] ?? false,
-      creatorOfTreeIds: (map['creatorOfTreeIds'] as List<dynamic>? ?? []).map((e) => e.toString()).toList(),
-      accessibleTreeIds: (map['accessibleTreeIds'] as List<dynamic>? ?? []).map((e) => e.toString()).toList(),
-      fcmTokens: (map['fcmTokens'] as List<dynamic>? ?? []).map((e) => e.toString()).toList(),
+      creatorOfTreeIds: (map['creatorOfTreeIds'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList(),
+      accessibleTreeIds: (map['accessibleTreeIds'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList(),
+      fcmTokens: (map['fcmTokens'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList(),
     );
   }
-} 
+}

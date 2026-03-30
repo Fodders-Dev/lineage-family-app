@@ -3,16 +3,12 @@ import 'package:flutter/material.dart';
 class ErrorHandler extends StatelessWidget {
   final Widget child;
   final Function? onRetry;
-  
-  const ErrorHandler({
-    Key? key,
-    required this.child,
-    this.onRetry,
-  }) : super(key: key);
-  
+
+  const ErrorHandler({super.key, required this.child, this.onRetry});
+
   @override
   Widget build(BuildContext context) {
-    return ErrorWidget.builder = (FlutterErrorDetails errorDetails) {
+    ErrorWidget.builder = (FlutterErrorDetails errorDetails) {
       return Scaffold(
         body: Center(
           child: Padding(
@@ -24,10 +20,7 @@ class ErrorHandler extends StatelessWidget {
                 SizedBox(height: 16),
                 Text(
                   'Произошла ошибка',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 ),
                 SizedBox(height: 8),
                 Text(
@@ -51,16 +44,3 @@ class ErrorHandler extends StatelessWidget {
     return child;
   }
 }
-
-// Затем в main.dart оборачиваем MaterialApp в ErrorHandler
-void main() {
-  // ...
-  runApp(
-    ErrorHandler(
-      child: MyApp(),
-      onRetry: () {
-        // Перезапуск приложения или другая логика восстановления
-      },
-    ),
-  );
-} 

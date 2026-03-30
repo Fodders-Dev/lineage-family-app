@@ -7,6 +7,30 @@ plugins {
 
 apply plugin: 'com.google.gms.google-services'
 
+def releaseSigningProperties = new Properties()
+def releaseSigningPropertiesPath = System.getenv("LINEAGE_RELEASE_SIGNING_PROPERTIES")
+def releaseSigningPropertiesFile = releaseSigningPropertiesPath
+        ? file(releaseSigningPropertiesPath)
+        : rootProject.file("release-signing.properties")
+
+if (releaseSigningPropertiesFile.exists()) {
+    println "Reading release signing properties from: ${releaseSigningPropertiesFile.absolutePath}"
+    releaseSigningProperties.load(new FileInputStream(releaseSigningPropertiesFile))
+}
+
+def releaseStoreFile = (releaseSigningProperties['storeFile'] ?: System.getenv("LINEAGE_KEYSTORE_FILE"))?.toString()
+def releaseStorePassword = (releaseSigningProperties['storePassword'] ?: System.getenv("LINEAGE_KEYSTORE_PASSWORD"))?.toString()
+def releaseKeyAlias = (releaseSigningProperties['keyAlias'] ?: System.getenv("LINEAGE_KEY_ALIAS"))?.toString()
+def releaseKeyPassword = (releaseSigningProperties['keyPassword'] ?: System.getenv("LINEAGE_KEY_PASSWORD"))?.toString()
+def hasReleaseSigning = [releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword]
+        .every { it != null && !it.trim().isEmpty() }
+def rustoreApplicationId = (System.getenv("LINEAGE_RUSTORE_APPLICATION_ID")
+        ?: findProperty("lineageRustoreApplicationId")
+        ?: "ru.rustore.app.2063621085").toString()
+def rustorePushProjectId = (System.getenv("LINEAGE_RUSTORE_PUSH_PROJECT_ID")
+        ?: findProperty("lineageRustorePushProjectId")
+        ?: "q9oXlaEo25nBYnMe2cn3BtGpaBVWH0Mb").toString()
+
 android {
     namespace = "com.ahjkuio.lineage_family_app"
     compileSdk = flutter.compileSdkVersion
@@ -15,6 +39,7 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+        coreLibraryDesugaringEnabled true
     }
 
     kotlinOptions {
@@ -23,21 +48,13 @@ android {
 
     signingConfigs {
         release {
-            // Возвращаем АБСОЛЮТНЫЙ ПУТЬ, т.к. относительные не работают в release
-            def keystorePropertiesFile = file("/home/kuznetsov/AndroidStudioProjects/lineage_family_app/android/release-signing.properties")
-            // def keystorePropertiesFile = rootProject.file("android/release-signing.properties") // Не сработал в release
-            // def keystorePropertiesFile = file("${rootDir}/android/release-signing.properties") // Не сработал в release
-            if (keystorePropertiesFile.exists()) {
-                println "Reading signing properties from: ${keystorePropertiesFile.absolutePath}"
-                def keystoreProperties = new Properties()
-                keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
-
-                storeFile file(keystoreProperties['storeFile'])
-                storePassword keystoreProperties['storePassword']
-                keyAlias keystoreProperties['keyAlias']
-                keyPassword keystoreProperties['keyPassword']
+            if (hasReleaseSigning) {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
             } else {
-                println "Warning: Signing config file ${keystorePropertiesFile.absolutePath} not found. Release build may not be signed correctly."
+                println "Warning: release signing config is missing. Set LINEAGE_RELEASE_SIGNING_PROPERTIES or LINEAGE_KEYSTORE_* env vars."
             }
         }
     }
@@ -47,19 +64,29 @@ android {
         applicationId = "com.ahjkuio.lineage_family_app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = 23
+        minSdkVersion = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders += [
+                rustoreApplicationId : rustoreApplicationId,
+                rustorePushProjectId : rustorePushProjectId,
+        ]
     }
 
     buildTypes {
         release {
-            signingConfig signingConfigs.release
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.5"
 }

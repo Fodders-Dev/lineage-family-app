@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+enum TreeContentScopeType { wholeTree, branches }
+
 class Post {
   final String id;
   final String treeId;
@@ -12,6 +14,8 @@ class Post {
   final List<String> likedBy; // Список user ID
   final int commentCount;
   final bool isPublic;
+  final TreeContentScopeType scopeType;
+  final List<String> anchorPersonIds;
 
   // Геттер для удобства
   int get likeCount => likedBy.length;
@@ -28,7 +32,10 @@ class Post {
     List<String>? likedBy, // Делаем nullable для удобства в fromFirestore
     this.commentCount = 0,
     this.isPublic = false,
-  }) : likedBy = likedBy ?? []; // Инициализируем пустым списком, если null
+    this.scopeType = TreeContentScopeType.wholeTree,
+    List<String>? anchorPersonIds,
+  })  : likedBy = likedBy ?? [],
+        anchorPersonIds = anchorPersonIds ?? [];
 
   factory Post.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
@@ -39,11 +46,19 @@ class Post {
       authorName: data['authorName'] ?? 'Аноним',
       authorPhotoUrl: data['authorPhotoUrl'] as String?,
       content: data['content'] ?? '',
-      imageUrls: (data['imageUrls'] as List<dynamic>? ?? []).map((e) => e.toString()).toList(),
+      imageUrls: (data['imageUrls'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList(),
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      likedBy: (data['likedBy'] as List<dynamic>? ?? []).map((e) => e.toString()).toList(),
+      likedBy: (data['likedBy'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList(),
       commentCount: data['commentCount'] ?? 0,
       isPublic: data['isPublic'] ?? false,
+      scopeType: _scopeTypeFromString(data['scopeType']?.toString()),
+      anchorPersonIds: (data['anchorPersonIds'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList(),
     );
   }
 
@@ -59,6 +74,26 @@ class Post {
       'likedBy': likedBy,
       'commentCount': commentCount,
       'isPublic': isPublic,
+      'scopeType': _scopeTypeToString(scopeType),
+      'anchorPersonIds': anchorPersonIds,
     };
   }
-} 
+
+  static TreeContentScopeType _scopeTypeFromString(String? value) {
+    switch (value) {
+      case 'branches':
+        return TreeContentScopeType.branches;
+      default:
+        return TreeContentScopeType.wholeTree;
+    }
+  }
+
+  static String _scopeTypeToString(TreeContentScopeType value) {
+    switch (value) {
+      case TreeContentScopeType.branches:
+        return 'branches';
+      case TreeContentScopeType.wholeTree:
+        return 'wholeTree';
+    }
+  }
+}

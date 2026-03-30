@@ -1,20 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../backend/backend_runtime_config.dart';
 import '../models/family_tree.dart';
 import '../models/family_tree_member.dart';
-import '../screens/family_tree/create_tree_screen.dart';
-import '../screens/relatives_screen.dart';
 import '../providers/tree_provider.dart';
-import '../services/profile_service.dart';
-import '../models/user_profile.dart';
 import 'package:get_it/get_it.dart';
-import '../services/invitation_service.dart';
-import '../services/local_storage_service.dart';
-import '../services/sync_service.dart';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import '../backend/interfaces/auth_service_interface.dart';
+import '../backend/interfaces/family_tree_service_interface.dart';
+import '../backend/models/tree_invitation.dart';
+import '../services/crashlytics_service.dart';
+import '../services/public_tree_link_service.dart';
 
 class TreesScreen extends StatefulWidget {
   const TreesScreen({Key? key}) : super(key: key);
@@ -23,53 +20,56 @@ class TreesScreen extends StatefulWidget {
   _TreesScreenState createState() => _TreesScreenState();
 }
 
-class _TreesScreenState extends State<TreesScreen> with SingleTickerProviderStateMixin {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final ProfileService _profileService = ProfileService();
-  final InvitationService _invitationService = GetIt.I<InvitationService>();
+class _TreesScreenState extends State<TreesScreen>
+    with SingleTickerProviderStateMixin {
+  final AuthServiceInterface _authService = GetIt.I<AuthServiceInterface>();
+  final FamilyTreeServiceInterface _familyTreeService =
+      GetIt.I<FamilyTreeServiceInterface>();
+  final CrashlyticsService _crashlyticsService = CrashlyticsService();
   late TabController _tabController;
-  
+
   // Переменные для хранения состояния
   List<FamilyTree> _myTrees = [];
   bool _isLoading = false;
-  
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    
-    _tabController.addListener(_handleTabSelection); // Используем метод-обработчик
-    
+
+    _tabController.addListener(
+      _handleTabSelection,
+    ); // Используем метод-обработчик
+
     // Загружаем деревья для первой вкладки при инициализации
-    _loadUserTrees(); 
+    _loadUserTrees();
   }
-  
+
   @override
   void dispose() {
     _tabController.removeListener(_handleTabSelection); // Удаляем слушателя
     _tabController.dispose();
     super.dispose();
   }
-  
+
   // Метод-обработчик для слушателя
   void _handleTabSelection() {
     // Загружаем деревья только когда выбрана первая вкладка (индекс 0)
     // и когда переход между вкладками завершен (!indexIsChanging)
     if (!_tabController.indexIsChanging && _tabController.index == 0) {
-       print("[_TreesScreen] Tab changed to 'Мои деревья', reloading trees...");
-       _loadUserTrees(); // Вызываем загрузку/обновление
+      print("[_TreesScreen] Tab changed to 'Мои деревья', reloading trees...");
+      _loadUserTrees(); // Вызываем загрузку/обновление
     }
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Семейные деревья'),
+        title: const Text('Семейные деревья'),
         bottom: TabBar(
           controller: _tabController,
-          tabs: [
+          tabs: const [
             Tab(text: 'Мои деревья'),
             Tab(text: 'Приглашения'),
           ],
@@ -77,213 +77,181 @@ class _TreesScreenState extends State<TreesScreen> with SingleTickerProviderStat
       ),
       body: TabBarView(
         controller: _tabController,
-        children: [
-          _buildMyTreesTab(),
-          _buildInvitationsTab(),
-        ],
+        children: [_buildMyTreesTab(), _buildInvitationsTab()],
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: FloatingActionButton.extended(
         onPressed: _navigateToCreateTree,
-        child: Icon(Icons.add),
+        icon: const Icon(Icons.add),
+        label: const Text('Новое дерево'),
         tooltip: 'Создать семейное дерево',
       ),
     );
   }
-  
+
   Widget _buildMyTreesTab() {
-    final userId = _auth.currentUser?.uid;
+    final userId = _authService.currentUserId;
     if (userId == null) {
-      return Center(
-        child: Text('Необходимо войти в систему'),
-      );
+      return Center(child: Text('Необходимо войти в систему'));
     }
-    
+
     if (_isLoading) {
       return Center(child: CircularProgressIndicator());
     }
-    
+
     if (_myTrees.isEmpty) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.family_restroom,
-              size: 64,
-              color: Colors.grey,
-            ),
-            SizedBox(height: 16),
-            Text(
-              'У вас пока нет семейных деревьев',
-              style: TextStyle(
-                fontSize: 18,
-                color: Colors.grey[700],
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.family_restroom, size: 64, color: Colors.grey),
+              const SizedBox(height: 16),
+              Text(
+                'У вас пока нет семейных деревьев',
+                style: TextStyle(fontSize: 18, color: Colors.grey[700]),
+                textAlign: TextAlign.center,
               ),
-            ),
-            SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _navigateToCreateTree,
-              child: Text('Создать новое дерево'),
-            ),
-          ],
+              const SizedBox(height: 8),
+              Text(
+                'Создайте своё дерево или примите приглашение. После этого можно будет открыть схему семьи и редактировать её без лишних переходов.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton.icon(
+                onPressed: _navigateToCreateTree,
+                icon: const Icon(Icons.add),
+                label: const Text('Создать новое дерево'),
+              ),
+            ],
+          ),
         ),
       );
     }
-    
+
     return RefreshIndicator(
       onRefresh: _refreshTrees,
-      child: ListView.builder(
-        padding: EdgeInsets.all(16),
-        itemCount: _myTrees.length,
-        itemBuilder: (context, index) {
-          final tree = _myTrees[index];
-          return Card(
-            elevation: 2,
-            margin: EdgeInsets.only(bottom: 16),
-            child: ListTile(
-              title: Text(tree.name),
-              subtitle: Text(
-                tree.description.isEmpty 
-                    ? 'Создано: ${tree.createdAt.day}.${tree.createdAt.month}.${tree.createdAt.year}'
-                    : tree.description
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        children: [
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Theme.of(
+                context,
+              ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
               ),
-              leading: CircleAvatar(
-                child: Icon(Icons.account_tree),
-              ),
-              onTap: () {
-                Provider.of<TreeProvider>(context, listen: false)
-                    .selectTree(tree.id, tree.name);
-                context.go('/relatives');
-              },
             ),
-          );
-        },
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Быстрый вход в дерево',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Открывайте нужное дерево сразу в интерактивной схеме. Количество веток: ${_myTrees.length}.',
+                ),
+              ],
+            ),
+          ),
+          ...(() {
+            final selectedTreeId = context.select<TreeProvider, String?>(
+              (provider) => provider.selectedTreeId,
+            );
+            return _myTrees.map((tree) {
+              final role = tree.creatorId == _authService.currentUserId
+                  ? MemberRole.owner
+                  : MemberRole.editor;
+              return TreeCard(
+                tree: tree,
+                role: role,
+                isSelected: selectedTreeId == tree.id,
+                onCopyPublicLink:
+                    tree.isPublic ? () => _copyPublicLink(tree) : null,
+                onTap: () => _openTree(tree),
+              );
+            });
+          })(),
+        ],
       ),
     );
   }
-  
+
   Widget _buildInvitationsTab() {
-    final userId = _auth.currentUser?.uid;
+    final userId = _authService.currentUserId;
     if (userId == null) {
-      return Center(
-        child: Text('Необходимо войти в систему'),
-      );
+      return Center(child: Text('Необходимо войти в систему'));
     }
-    
+
     return RefreshIndicator(
       onRefresh: () async {
         setState(() {});
         return Future.value();
       },
-      child: StreamBuilder<QuerySnapshot>(
-        stream: _firestore
-            .collection('tree_members')
-            .where('userId', isEqualTo: userId)
-            .where('role', isEqualTo: 'pending')
-            .snapshots(),
+      child: StreamBuilder<List<TreeInvitation>>(
+        stream: _familyTreeService.getPendingTreeInvitations(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return Center(child: CircularProgressIndicator());
           }
-          
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    Icons.mail,
-                    size: 64,
-                    color: Colors.grey,
-                  ),
+                  Icon(Icons.mail, size: 64, color: Colors.grey),
                   SizedBox(height: 16),
                   Text(
                     'У вас нет приглашений в семейные деревья',
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.grey[700],
-                    ),
+                    style: TextStyle(fontSize: 18, color: Colors.grey[700]),
                   ),
                 ],
               ),
             );
           }
-          
-          // Получаем список идентификаторов деревьев
-          final invitations = snapshot.data!.docs;
-          final treeIds = invitations
-              .map((doc) => doc['treeId'] as String)
-              .toList();
-          
-          return FutureBuilder<List<DocumentSnapshot>>(
-            future: Future.wait(
-              treeIds.map((id) => _firestore.collection('family_trees').doc(id).get())
-            ),
-            builder: (context, treesSnapshot) {
-              if (!treesSnapshot.hasData) {
-                return Center(child: CircularProgressIndicator());
-              }
-              
-              final trees = treesSnapshot.data!
-                  .where((doc) => doc.exists)
-                  .map((doc) => FamilyTree.fromFirestore(doc))
-                  .toList();
-              
-              if (trees.isEmpty) {
-                return Center(
-                  child: Text('Не удалось загрузить приглашения'),
-                );
-              }
-              
-              return ListView.builder(
-                itemCount: trees.length,
-                itemBuilder: (context, index) {
-                  final tree = trees[index];
-                  final invitation = invitations
-                      .firstWhere((doc) => doc['treeId'] == tree.id);
-                  final invitationId = invitation.id;
-                  
-                  return InvitationCard(
-                    tree: tree,
-                    invitedBy: invitation['addedBy'] as String?,
-                    onAccept: () => _handleInvitation(invitationId, true),
-                    onDecline: () => _handleInvitation(invitationId, false),
-                  );
-                },
-              );
-            },
+
+          final invitations = snapshot.data!;
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: invitations
+                .map(
+                  (invitation) => InvitationCard(
+                    tree: invitation.tree,
+                    invitedBy: invitation.invitedBy,
+                    onAccept: () =>
+                        _handleInvitation(invitation.invitationId, true),
+                    onDecline: () =>
+                        _handleInvitation(invitation.invitationId, false),
+                  ),
+                )
+                .toList(),
           );
         },
       ),
     );
   }
-  
+
   Future<void> _handleInvitation(String invitationId, bool accept) async {
     try {
-      if (accept) {
-        // Принять приглашение
-        await _firestore
-            .collection('tree_members')
-            .doc(invitationId)
-            .update({
-              'role': 'viewer',
-              'acceptedAt': FieldValue.serverTimestamp(),
-            });
-            
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Приглашение принято')),
-        );
-      } else {
-        // Отклонить приглашение
-        await _firestore
-            .collection('tree_members')
-            .doc(invitationId)
-            .delete();
-            
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Приглашение отклонено')),
-        );
+      await _familyTreeService.respondToTreeInvitation(invitationId, accept);
+      if (!mounted) {
+        return;
       }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            accept ? 'Приглашение принято' : 'Приглашение отклонено',
+          ),
+        ),
+      );
     } catch (e) {
       print('Ошибка при обработке приглашения: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -291,151 +259,128 @@ class _TreesScreenState extends State<TreesScreen> with SingleTickerProviderStat
       );
     }
   }
-  
-  // --- НОВАЯ РЕАЛИЗАЦИЯ ЗАГРУЗКИ ДЕРЕВЬЕВ --- 
+
+  // --- НОВАЯ РЕАЛИЗАЦИЯ ЗАГРУЗКИ ДЕРЕВЬЕВ ---
   Future<void> _loadUserTrees() async {
-    print('[_loadUserTrees] Method called.');
     if (!mounted) return;
-    
+
     setState(() {
       _isLoading = true;
-      print('[_loadUserTrees] Setting _isLoading = true');
     });
-    
-    final userId = _auth.currentUser?.uid;
+
+    final userId = _authService.currentUserId;
     if (userId == null) {
-      print('[_loadUserTrees] Error: User not logged in.');
-       if (mounted) {
+      if (mounted) {
         setState(() {
           _isLoading = false;
-           // Можно добавить сообщение об ошибке
         });
-       }
+      }
       return;
     }
-    
+
     try {
-       print('[_loadUserTrees] Загрузка всех деревьев из LocalStorageService...');
-       print('[_loadUserTrees] Getting LocalStorageService instance...');
-       final localStorageService = GetIt.I<LocalStorageService>();
-       print('[_loadUserTrees] Calling localStorageService.getAllTrees()...');
-      final cachedTrees = await localStorageService.getAllTrees(); // Получаем из кэша
-       print('[_loadUserTrees] Received ${cachedTrees.length} trees from LocalStorageService: ${cachedTrees.map((t) => t.id).toList()}');
-       
+      final trees = await _familyTreeService.getUserTrees();
+
       if (mounted) {
-         setState(() {
-            _myTrees = cachedTrees;
-           _isLoading = false; // Показываем закэшированные данные
-            print('[_loadUserTrees] Inside setState: Setting _myTrees (count: ${cachedTrees.length}) and _isLoading = false');
-         });
+        setState(() {
+          _myTrees = trees;
+          _isLoading = false;
+        });
       }
-      
-       // --- Фоновая синхронизация (опционально, но рекомендуется) ---
-       // Запускаем синхронизацию после отображения кэша, не дожидаясь ее завершения
-       print('[_loadUserTrees] Triggering background sync...');
-       final syncService = GetIt.I<SyncService>();
-       // Используем syncData() для полной синхронизации или 
-       // нужен специфичный метод syncTrees(), если он есть.
-       // syncService.syncData().then((_) {
-       //    print('[_loadUserTrees] Background sync completed. Reloading from cache...');
-       //    // После синхронизации можно перезагрузить из кэша для обновления UI,
-       //    // если syncData сам не обновляет состояние через провайдеры.
-       //    _loadUserTrees(); // Рекурсивный вызов - осторожно! Лучше слушать изменения
-       // }).catchError((e) {
-       //    print('[_loadUserTrees] Background sync failed: $e');
-       // });
-       // Пока просто вызываем syncData без ожидания и перезагрузки
-       syncService.syncData().catchError((e) {
-         print('[_loadUserTrees] Background sync failed: $e');
-       });
-       // ---------------------------------------------------------
-       
     } catch (e, stackTrace) {
-       print('[_loadUserTrees] Error loading trees: $e\n$stackTrace');
-       FirebaseCrashlytics.instance.recordError(e, stackTrace, reason: 'LoadUserTreesError');
-       if (mounted) {
-         setState(() {
-            _isLoading = false;
-            // Показать сообщение об ошибке
-         });
-       }
+      _crashlyticsService.logError(e, stackTrace, reason: 'LoadUserTreesError');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
   // --- КОНЕЦ НОВОЙ РЕАЛИЗАЦИИ ---
 
   void _navigateToCreateTree() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => CreateTreeScreen(),
-      ),
-    ).then((_) {
+    context.push('/trees/create').then((_) {
       _loadUserTrees();
     });
   }
 
-  // --- РЕАЛИЗАЦИЯ REFRESH --- 
+  // --- РЕАЛИЗАЦИЯ REFRESH ---
   Future<void> _refreshTrees() async {
-    print('[_refreshTrees] Pull-to-refresh triggered.');
-    final userId = _auth.currentUser?.uid;
+    final userId = _authService.currentUserId;
     if (userId == null) {
-      print('[_refreshTrees] Error: User not logged in.');
-      return; // Ничего не делаем, если юзера нет
+      return;
     }
-    
-    // Показываем индикатор загрузки, если нужно (onRefresh уже показывает)
-    // setState(() { _isLoading = true; });
-    
+
     try {
-       print('[_refreshTrees] Forcing sync...');
-       final syncService = GetIt.I<SyncService>();
-       // Запускаем полную синхронизацию и ДОЖИДАЕМСЯ ее
-       await syncService.syncData();
-       print('[_refreshTrees] Sync completed.');
-       
-       // После синхронизации перезагружаем данные из кэша (который должен был обновиться)
-       await _loadUserTrees();
+      await _loadUserTrees();
     } catch (e, stackTrace) {
-       print('[_refreshTrees] Error during refresh: $e\n$stackTrace');
-       FirebaseCrashlytics.instance.recordError(e, stackTrace, reason: 'RefreshTreesError');
-       if (mounted) {
-          // Можно показать SnackBar с ошибкой
-          ScaffoldMessenger.of(context).showSnackBar(
-             SnackBar(content: Text('Ошибка обновления списка деревьев')),
-          );
-          // Убедимся, что индикатор загрузки скрыт
-          // setState(() { _isLoading = false; });
-       }
+      _crashlyticsService.logError(e, stackTrace, reason: 'RefreshTreesError');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка обновления списка деревьев')),
+        );
+      }
     }
   }
+
+  Future<void> _openTree(FamilyTree tree) async {
+    await Provider.of<TreeProvider>(context, listen: false).selectTree(
+      tree.id,
+      tree.name,
+    );
+    if (!mounted) {
+      return;
+    }
+    final encodedName = Uri.encodeComponent(tree.name);
+    context.go('/tree/view/${tree.id}?name=$encodedName');
+  }
+
+  Future<void> _copyPublicLink(FamilyTree tree) async {
+    final publicUri = PublicTreeLinkService.buildPublicTreeUri(
+      tree.publicRouteId,
+      publicAppUrl: BackendRuntimeConfig.current.publicAppUrl,
+    );
+    await Clipboard.setData(ClipboardData(text: publicUri.toString()));
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Публичная ссылка скопирована.')),
+    );
+  }
+
   // --- КОНЕЦ РЕАЛИЗАЦИИ REFRESH ---
 }
 
 class TreeCard extends StatelessWidget {
   final FamilyTree tree;
   final MemberRole role;
+  final bool isSelected;
+  final VoidCallback? onCopyPublicLink;
   final VoidCallback onTap;
-  
+
   const TreeCard({
     Key? key,
     required this.tree,
     required this.role,
+    this.isSelected = false,
+    this.onCopyPublicLink,
     required this.onTap,
   }) : super(key: key);
-  
+
   @override
   Widget build(BuildContext context) {
     String roleText;
     IconData roleIcon;
-    
+
     switch (role) {
       case MemberRole.owner:
         roleText = 'Создатель';
         roleIcon = Icons.star;
         break;
       case MemberRole.editor:
-        roleText = 'Редактор';
-        roleIcon = Icons.edit;
+        roleText = 'Участник';
+        roleIcon = Icons.groups_2_outlined;
         break;
       case MemberRole.viewer:
         roleText = 'Просмотр';
@@ -445,9 +390,14 @@ class TreeCard extends StatelessWidget {
         roleText = 'Неизвестно';
         roleIcon = Icons.question_mark;
     }
-    
+
     return Card(
       margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: isSelected
+          ? Theme.of(context).colorScheme.primaryContainer.withValues(
+                alpha: 0.5,
+              )
+          : null,
       child: InkWell(
         onTap: onTap,
         child: Padding(
@@ -458,7 +408,9 @@ class TreeCard extends StatelessWidget {
                 width: 60,
                 height: 60,
                 decoration: BoxDecoration(
-                  color: Theme.of(context).primaryColor.withOpacity(0.2),
+                  color: Theme.of(
+                    context,
+                  ).primaryColor.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
@@ -479,14 +431,39 @@ class TreeCard extends StatelessWidget {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+                    SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        _MetaChip(
+                          icon: tree.isPrivate
+                              ? Icons.lock_outline
+                              : Icons.public,
+                          label: tree.isPrivate ? 'Приватное' : 'Публичное',
+                        ),
+                        if (tree.isCertified)
+                          _MetaChip(
+                            icon: Icons.verified_outlined,
+                            label: 'Сертифицировано',
+                            highlighted: true,
+                          ),
+                        if (isSelected)
+                          _MetaChip(
+                            icon: Icons.check_circle_outline,
+                            label: 'Открыто сейчас',
+                            highlighted: true,
+                          ),
+                      ],
+                    ),
                     SizedBox(height: 4),
                     Text(
-                      tree.description,
+                      tree.description.isEmpty
+                          ? 'Описание пока не добавлено'
+                          : tree.description,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.grey[600],
-                      ),
+                      style: TextStyle(color: Colors.grey[600]),
                     ),
                     SizedBox(height: 8),
                     Row(
@@ -505,11 +482,7 @@ class TreeCard extends StatelessWidget {
                           ),
                         ),
                         SizedBox(width: 12),
-                        Icon(
-                          Icons.people,
-                          size: 16,
-                          color: Colors.grey[600],
-                        ),
+                        Icon(Icons.people, size: 16, color: Colors.grey[600]),
                         SizedBox(width: 4),
                         Text(
                           '${tree.memberIds.length} ${_getMembersText(tree.memberIds.length)}',
@@ -520,9 +493,30 @@ class TreeCard extends StatelessWidget {
                         ),
                       ],
                     ),
+                    if (tree.isCertified &&
+                        tree.certificationNote != null &&
+                        tree.certificationNote!.trim().isNotEmpty) ...[
+                      SizedBox(height: 8),
+                      Text(
+                        tree.certificationNote!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
+              if (onCopyPublicLink != null)
+                IconButton(
+                  tooltip: 'Скопировать публичную ссылку',
+                  onPressed: onCopyPublicLink,
+                  icon: const Icon(Icons.link_outlined),
+                ),
               Icon(Icons.arrow_forward_ios, size: 16),
             ],
           ),
@@ -530,11 +524,60 @@ class TreeCard extends StatelessWidget {
       ),
     );
   }
-  
+
   String _getMembersText(int count) {
     if (count == 1) return 'участник';
     if (count >= 2 && count <= 4) return 'участника';
     return 'участников';
+  }
+}
+
+class _MetaChip extends StatelessWidget {
+  const _MetaChip({
+    required this.icon,
+    required this.label,
+    this.highlighted = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: highlighted
+            ? colorScheme.primaryContainer
+            : colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 14,
+            color: highlighted
+                ? colorScheme.primary
+                : colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: highlighted
+                  ? colorScheme.primary
+                  : colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -543,7 +586,7 @@ class InvitationCard extends StatelessWidget {
   final String? invitedBy;
   final VoidCallback onAccept;
   final VoidCallback onDecline;
-  
+
   const InvitationCard({
     Key? key,
     required this.tree,
@@ -551,7 +594,7 @@ class InvitationCard extends StatelessWidget {
     required this.onAccept,
     required this.onDecline,
   }) : super(key: key);
-  
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -567,7 +610,9 @@ class InvitationCard extends StatelessWidget {
                   width: 50,
                   height: 50,
                   decoration: BoxDecoration(
-                    color: Theme.of(context).primaryColor.withOpacity(0.2),
+                    color: Theme.of(
+                      context,
+                    ).primaryColor.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
@@ -593,9 +638,7 @@ class InvitationCard extends StatelessWidget {
                         tree.description,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                        ),
+                        style: TextStyle(color: Colors.grey[600]),
                       ),
                     ],
                   ),
@@ -607,10 +650,7 @@ class InvitationCard extends StatelessWidget {
               invitedBy != null
                   ? 'Вас пригласили присоединиться к семейному дереву'
                   : 'Приглашение в семейное дерево',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[700],
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey[700]),
             ),
             SizedBox(height: 16),
             Row(
@@ -639,4 +679,4 @@ class InvitationCard extends StatelessWidget {
       ),
     );
   }
-} 
+}

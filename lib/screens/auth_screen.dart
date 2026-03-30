@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import '../services/auth_service.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:intl/intl.dart';
-import '../services/rustore_service.dart';
+import '../backend/backend_provider_config.dart';
+import '../backend/interfaces/auth_service_interface.dart';
+import '../providers/tree_provider.dart';
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 
@@ -14,61 +13,75 @@ class AuthScreen extends StatefulWidget {
 }
 
 class _AuthScreenState extends State<AuthScreen> {
-  final AuthService _authService = AuthService();
+  final AuthServiceInterface _authService = GetIt.I<AuthServiceInterface>();
   final _formKey = GlobalKey<FormState>();
-  
+
   // Контроллеры для полей ввода
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _nameController = TextEditingController();
-  
-  // Дополнительные поля для регистрации
-  String? _gender;
-  DateTime? _birthDate;
-  
+
   // Состояние формы
   bool _isLogin = true;
   bool _isLoading = false;
   bool _isGoogleLoading = false;
+  bool _hasSubmitted = false;
   String? _errorMessage;
-  
+  late final bool _supportsGoogleAuth;
+
+  @override
+  void initState() {
+    super.initState();
+    _supportsGoogleAuth = BackendProviderConfig.current.authProvider !=
+        BackendProviderKind.customApi;
+  }
+
   // Обработка авторизации/регистрации
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-    
     setState(() {
-      _isLoading = true;
+      _hasSubmitted = true;
       _errorMessage = null;
     });
-    
+
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
     try {
       if (_isLogin) {
         // Вход
         await _authService.loginWithEmail(
-          _emailController.text,
+          _emailController.text.trim(),
           _passwordController.text,
         );
       } else {
-        // Регистрация с расширенными данными
         await _authService.registerWithEmail(
-          email: _emailController.text,
+          email: _emailController.text.trim(),
           password: _passwordController.text,
-          name: _nameController.text,
+          name: _nameController.text.trim(),
         );
       }
-      
+
       // Проверяем, что пользователь действительно авторизован
-      if (_authService.currentUser != null) {
+      if (_authService.currentUserId != null) {
+        if (GetIt.I.isRegistered<TreeProvider>()) {
+          await GetIt.I<TreeProvider>().loadInitialTree();
+        }
+
         // Явно перенаправляем пользователя на главную страницу
         if (mounted) {
-          // Важно: используем rootNavigator, чтобы избежать проблем с вложенными навигаторами
-          Navigator.of(context, rootNavigator: true)
-              .pushNamedAndRemoveUntil('/', (route) => false);
-          
+          context.go('/');
+
           // Опционально: Показываем приветственное сообщение
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(_isLogin ? 'Вход выполнен успешно!' : 'Регистрация успешна! Добро пожаловать!'),
+              content: Text(
+                _isLogin
+                    ? 'Вход выполнен успешно!'
+                    : 'Регистрация успешна! Добро пожаловать!',
+              ),
               backgroundColor: Colors.green,
             ),
           );
@@ -76,54 +89,27 @@ class _AuthScreenState extends State<AuthScreen> {
       } else {
         throw Exception('Ошибка авторизации: пользователь не найден');
       }
-    } on FirebaseAuthException catch (e) {
-      String message;
-      
-      switch (e.code) {
-        case 'user-not-found':
-          message = 'Пользователь не найден';
-          break;
-        case 'wrong-password':
-          message = 'Неверный пароль';
-          break;
-        case 'email-already-in-use':
-          message = 'Этот email уже используется';
-          break;
-        case 'weak-password':
-          message = 'Слишком простой пароль';
-          break;
-        case 'invalid-email':
-          message = 'Неверный формат email';
-          break;
-        default:
-          message = 'Ошибка: ${e.message}';
-      }
-      
-      setState(() {
-        _errorMessage = message;
-        _isLoading = false;
-      });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Произошла ошибка: $e';
+        _errorMessage = _authService.describeError(e);
         _isLoading = false;
       });
     }
   }
-  
+
   // Вход через Google
   Future<void> _signInWithGoogle() async {
     setState(() {
       _isGoogleLoading = true;
       _errorMessage = null;
     });
-    
+
     try {
       await _authService.signInWithGoogle();
-      
+
       // После успешного входа перенаправляем на главный экран
-      if (mounted && _authService.currentUser != null) {
-        Navigator.of(context, rootNavigator: true).pushReplacementNamed('/');
+      if (mounted && _authService.currentUserId != null) {
+        context.go('/');
       }
     } catch (e) {
       setState(() {
@@ -137,7 +123,7 @@ class _AuthScreenState extends State<AuthScreen> {
       }
     }
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -147,36 +133,36 @@ class _AuthScreenState extends State<AuthScreen> {
             padding: const EdgeInsets.all(24.0),
             child: Form(
               key: _formKey,
+              autovalidateMode: _hasSubmitted
+                  ? AutovalidateMode.onUserInteraction
+                  : AutovalidateMode.disabled,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const SizedBox(height: 40),
-                  
+
                   // Заголовок
                   Text(
                     _isLogin ? 'Вход в аккаунт' : 'Регистрация',
                     style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                          fontWeight: FontWeight.bold,
+                        ),
                     textAlign: TextAlign.center,
                   ),
-                  
+
                   const SizedBox(height: 8),
-                  
+
                   // Подзаголовок
                   Text(
                     _isLogin
                         ? 'Введите свои данные для входа'
                         : 'Создайте свой аккаунт в Lineage',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey[600],
-                    ),
+                    style: TextStyle(fontSize: 16, color: Colors.grey[600]),
                     textAlign: TextAlign.center,
                   ),
-                  
+
                   const SizedBox(height: 40),
-                  
+
                   // Сообщение об ошибке
                   if (_errorMessage != null)
                     Container(
@@ -192,7 +178,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         style: TextStyle(color: Colors.red[900]),
                       ),
                     ),
-                  
+
                   // Поле для имени (только при регистрации)
                   if (!_isLogin)
                     TextFormField(
@@ -205,15 +191,16 @@ class _AuthScreenState extends State<AuthScreen> {
                       textCapitalization: TextCapitalization.words,
                       textInputAction: TextInputAction.next,
                       validator: (value) {
-                        if (!_isLogin && (value == null || value.trim().length < 2)) {
+                        if (!_isLogin &&
+                            (value == null || value.trim().length < 2)) {
                           return 'Имя должно содержать не менее 2 символов';
                         }
                         return null;
                       },
                     ),
-                  
+
                   if (!_isLogin) const SizedBox(height: 16),
-                  
+
                   // Поле для email
                   TextFormField(
                     controller: _emailController,
@@ -224,15 +211,17 @@ class _AuthScreenState extends State<AuthScreen> {
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
                     validator: (value) {
-                      if (value == null || !value.contains('@') || !value.contains('.')) {
+                      if (value == null ||
+                          !value.contains('@') ||
+                          !value.contains('.')) {
                         return 'Введите корректный email адрес';
                       }
                       return null;
                     },
                   ),
-                  
+
                   const SizedBox(height: 16),
-                  
+
                   // Поле для пароля
                   TextFormField(
                     controller: _passwordController,
@@ -241,7 +230,8 @@ class _AuthScreenState extends State<AuthScreen> {
                       prefixIcon: Icon(Icons.lock),
                     ),
                     obscureText: true,
-                    textInputAction: _isLogin ? TextInputAction.done : TextInputAction.next,
+                    textInputAction:
+                        _isLogin ? TextInputAction.done : TextInputAction.next,
                     validator: (value) {
                       if (value == null || value.length < 6) {
                         return 'Пароль должен содержать не менее 6 символов';
@@ -249,74 +239,9 @@ class _AuthScreenState extends State<AuthScreen> {
                       return null;
                     },
                   ),
-                  
+
                   const SizedBox(height: 24),
-                  
-                  if (!_isLogin) ...[
-                    // Дополнительные поля для регистрации
-                    
-                    // Поле для выбора пола
-                    DropdownButtonFormField<String>(
-                      decoration: const InputDecoration(
-                        labelText: 'Пол',
-                        prefixIcon: Icon(Icons.person_outline),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'male', child: Text('Мужской')),
-                        DropdownMenuItem(value: 'female', child: Text('Женский')),
-                        DropdownMenuItem(value: 'other', child: Text('Другой')),
-                      ],
-                      onChanged: (value) {
-                        setState(() {
-                          _gender = value;
-                        });
-                      },
-                      validator: (value) {
-                        if (!_isLogin && value == null) {
-                          return 'Выберите пол';
-                        }
-                        return null;
-                      },
-                    ),
-                    
-                    const SizedBox(height: 16),
-                    
-                    // Поле для выбора даты рождения
-                    InkWell(
-                      onTap: () async {
-                        final date = await showDatePicker(
-                          context: context,
-                          initialDate: _birthDate ?? DateTime(2000),
-                          firstDate: DateTime(1900),
-                          lastDate: DateTime.now(),
-                          helpText: 'Дата рождения',
-                        );
-                        if (date != null) {
-                          setState(() {
-                            _birthDate = date;
-                          });
-                        }
-                      },
-                      child: InputDecorator(
-                        decoration: InputDecoration(
-                          labelText: 'Дата рождения',
-                          prefixIcon: Icon(Icons.calendar_today),
-                          errorText: (!_isLogin && _birthDate == null) ? 'Укажите дату рождения' : null,
-                        ),
-                        child: Text(
-                          _birthDate == null 
-                              ? 'Выберите дату рождения' 
-                              : DateFormat('dd.MM.yyyy').format(_birthDate!),
-                          style: TextStyle(
-                            color: _birthDate == null ? Colors.grey : null,
-                          ),
-                        ),
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 24),
-                  ],
-                  
+
                   // Кнопка входа/регистрации
                   ElevatedButton(
                     onPressed: _isLoading ? null : _submit,
@@ -334,51 +259,52 @@ class _AuthScreenState extends State<AuthScreen> {
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                   ),
-                  
+
                   const SizedBox(height: 16),
-                  
-                  // Разделитель
-                  Row(
-                    children: [
-                      Expanded(child: Divider()),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Text(
-                          'ИЛИ',
-                          style: TextStyle(
-                            color: Colors.grey[600],
-                            fontWeight: FontWeight.bold,
+
+                  if (_supportsGoogleAuth) ...[
+                    Row(
+                      children: [
+                        Expanded(child: Divider()),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Text(
+                            'ИЛИ',
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
-                      ),
-                      Expanded(child: Divider()),
-                    ],
-                  ),
-                  
-                  const SizedBox(height: 16),
-                  
-                  // Кнопка входа через Google
-                  OutlinedButton.icon(
-                    onPressed: _isGoogleLoading ? null : _signInWithGoogle,
-                    icon: _isGoogleLoading 
-                        ? SizedBox(
-                            height: 18,
-                            width: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Theme.of(context).primaryColor,
-                            ),
-                          )
-                        : Icon(Icons.g_mobiledata, size: 24, color: Colors.red),
-                    label: Text('Войти через Google'),
-                    style: OutlinedButton.styleFrom(
-                      padding: EdgeInsets.symmetric(vertical: 12),
-                      side: BorderSide(color: Colors.grey[300]!),
+                        Expanded(child: Divider()),
+                      ],
                     ),
-                  ),
-                  
-                  const SizedBox(height: 24),
-                  
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(
+                      onPressed: _isGoogleLoading ? null : _signInWithGoogle,
+                      icon: _isGoogleLoading
+                          ? SizedBox(
+                              height: 18,
+                              width: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Theme.of(context).primaryColor,
+                              ),
+                            )
+                          : Icon(
+                              Icons.g_mobiledata,
+                              size: 24,
+                              color: Colors.red,
+                            ),
+                      label: Text('Войти через Google'),
+                      style: OutlinedButton.styleFrom(
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        side: BorderSide(color: Colors.grey[300]!),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+
                   // Переключение между входом и регистрацией
                   TextButton(
                     onPressed: _isLoading || _isGoogleLoading
@@ -386,13 +312,8 @@ class _AuthScreenState extends State<AuthScreen> {
                         : () {
                             setState(() {
                               _isLogin = !_isLogin;
+                              _hasSubmitted = false;
                               _errorMessage = null;
-                              
-                              // Сбрасываем дополнительные поля при переключении на вход
-                              if (_isLogin) {
-                                _gender = null;
-                                _birthDate = null;
-                              }
                             });
                           },
                     child: Text(
@@ -402,7 +323,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       style: TextStyle(color: Theme.of(context).primaryColor),
                     ),
                   ),
-                  
+
                   // Ссылка на политику конфиденциальности
                   Padding(
                     padding: const EdgeInsets.only(top: 8.0),
@@ -422,13 +343,15 @@ class _AuthScreenState extends State<AuthScreen> {
                       ),
                     ),
                   ),
-                  
+
                   // Ссылка на восстановление пароля
                   if (_isLogin)
                     TextButton(
-                      onPressed: _isLoading ? null : () {
-                        Navigator.of(context).pushNamed('/password/reset');
-                      },
+                      onPressed: _isLoading
+                          ? null
+                          : () {
+                              context.push('/password_reset');
+                            },
                       child: Text(
                         'Забыли пароль?',
                         style: TextStyle(color: Theme.of(context).primaryColor),
@@ -442,7 +365,7 @@ class _AuthScreenState extends State<AuthScreen> {
       ),
     );
   }
-  
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -450,4 +373,4 @@ class _AuthScreenState extends State<AuthScreen> {
     _nameController.dispose();
     super.dispose();
   }
-} 
+}

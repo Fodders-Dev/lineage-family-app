@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 
 part 'family_person.g.dart';
@@ -12,7 +13,7 @@ enum Gender {
   @HiveField(2)
   other,
   @HiveField(3)
-  unknown
+  unknown,
 }
 
 // Добавляем класс Person как псевдоним для FamilyPerson
@@ -32,7 +33,7 @@ class Person {
   final DateTime? deathDate;
   final String? deathPlace;
   final String? notes;
-  
+
   Person({
     required this.id,
     required this.treeId,
@@ -49,15 +50,17 @@ class Person {
     this.deathPlace,
     this.notes,
   });
-  
+
   // Геттер для получения полного имени
   String get name {
-    final parts = [lastName, firstName, middleName]
-        .where((part) => part != null && part.isNotEmpty)
-        .toList();
+    final parts = [
+      lastName,
+      firstName,
+      middleName,
+    ].where((part) => part != null && part.isNotEmpty).toList();
     return parts.join(' ');
   }
-  
+
   // Фабричный метод для создания Person из FamilyPerson
   factory Person.fromFamilyPerson(FamilyPerson person) {
     // Разбиваем полное имя на части (фамилия, имя, отчество)
@@ -65,8 +68,8 @@ class Person {
     String lastName = '';
     String firstName = '';
     String? middleName;
-    
-    if (nameParts.length >= 1) {
+
+    if (nameParts.isNotEmpty) {
       lastName = nameParts[0];
     }
     if (nameParts.length >= 2) {
@@ -75,11 +78,13 @@ class Person {
     if (nameParts.length >= 3) {
       middleName = nameParts.sublist(2).join(' ');
     }
-    
-    print('Преобразование FamilyPerson в Person:');
-    print('Исходное имя: ${person.name}');
-    print('Разбитое имя: фамилия=$lastName, имя=$firstName, отчество=$middleName');
-    
+
+    debugPrint('Преобразование FamilyPerson в Person:');
+    debugPrint('Исходное имя: ${person.name}');
+    debugPrint(
+      'Разбитое имя: фамилия=$lastName, имя=$firstName, отчество=$middleName',
+    );
+
     return Person(
       id: person.id,
       treeId: person.treeId,
@@ -97,7 +102,7 @@ class Person {
       notes: person.notes,
     );
   }
-  
+
   // Метод для преобразования Person в FamilyPerson
   FamilyPerson toFamilyPerson() {
     return FamilyPerson(
@@ -118,7 +123,7 @@ class Person {
       notes: notes,
     );
   }
-  
+
   // Оператор преобразования для автоматического преобразования FamilyPerson в Person
   static Person? fromDynamic(dynamic person) {
     if (person == null) return null;
@@ -137,7 +142,9 @@ class FamilyPerson extends HiveObject {
     name: '',
     gender: Gender.unknown,
     isAlive: false,
-    createdAt: DateTime.fromMillisecondsSinceEpoch(0), // Используем минимальную дату
+    createdAt: DateTime.fromMillisecondsSinceEpoch(
+      0,
+    ), // Используем минимальную дату
     updatedAt: DateTime.fromMillisecondsSinceEpoch(0),
   );
 
@@ -186,12 +193,14 @@ class FamilyPerson extends HiveObject {
   @HiveField(22)
   final List<String>? siblingIds; // ID братьев/сестер
   @HiveField(23)
-  final FamilyPersonDetails? details; // Подробная информация (образование, карьера и т.д.)
-  
+  final FamilyPersonDetails?
+      details; // Подробная информация (образование, карьера и т.д.)
+
   // Добавляем необходимые геттеры для работы с древовидной структурой
-  List<String> get spouseIds => _getListOrEmpty(spouseId != null ? [spouseId!] : []);
+  List<String> get spouseIds =>
+      _getListOrEmpty(spouseId != null ? [spouseId!] : []);
   List<SpouseInfo> get spouses => []; // Для обратной совместимости
-  
+
   // Вспомогательный метод для получения списка или пустого списка
   List<String> _getListOrEmpty(List<String>? list) {
     return list ?? [];
@@ -225,7 +234,7 @@ class FamilyPerson extends HiveObject {
 
   /// Возвращает отображаемое имя (синоним для поля `name`).
   String get displayName => name;
-  
+
   /// Возвращает инициалы (первые буквы имени и фамилии, если есть).
   String get initials {
     if (name.isEmpty) return '?';
@@ -240,15 +249,19 @@ class FamilyPerson extends HiveObject {
       return '?';
     }
   }
-  
+
   factory FamilyPerson.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
 
     Gender personGender = Gender.unknown;
     if (data['gender'] != null) {
       try {
-        personGender = Gender.values.firstWhere((e) => e.toString().split('.').last == data['gender']);
-      } catch (e) { /* оставим unknown */ }
+        personGender = Gender.values.firstWhere(
+          (e) => e.toString().split('.').last == data['gender'],
+        );
+      } catch (e) {
+        /* оставим unknown */
+      }
     }
 
     return FamilyPerson(
@@ -259,15 +272,23 @@ class FamilyPerson extends HiveObject {
       maidenName: data['maidenName'],
       photoUrl: data['photoUrl'],
       gender: personGender,
-      birthDate: data['birthDate'] is Timestamp ? (data['birthDate'] as Timestamp).toDate() : null,
+      birthDate: data['birthDate'] is Timestamp
+          ? (data['birthDate'] as Timestamp).toDate()
+          : null,
       birthPlace: data['birthPlace'],
-      deathDate: data['deathDate'] is Timestamp ? (data['deathDate'] as Timestamp).toDate() : null,
+      deathDate: data['deathDate'] is Timestamp
+          ? (data['deathDate'] as Timestamp).toDate()
+          : null,
       deathPlace: data['deathPlace'],
       bio: data['bio'],
       isAlive: data['isAlive'] ?? (data['deathDate'] == null),
       creatorId: data['creatorId'],
-      createdAt: data['createdAt'] is Timestamp ? (data['createdAt'] as Timestamp).toDate() : DateTime.now(),
-      updatedAt: data['updatedAt'] is Timestamp ? (data['updatedAt'] as Timestamp).toDate() : DateTime.now(),
+      createdAt: data['createdAt'] is Timestamp
+          ? (data['createdAt'] as Timestamp).toDate()
+          : DateTime.now(),
+      updatedAt: data['updatedAt'] is Timestamp
+          ? (data['updatedAt'] as Timestamp).toDate()
+          : DateTime.now(),
       notes: data['notes'],
       relation: data['relation'],
       parentIds: List<String>.from(data['parentIds'] ?? []),
@@ -301,24 +322,27 @@ class FamilyPerson extends HiveObject {
   // Добавляем метод для расчета возраста
   int? getAge() {
     if (birthDate == null) return null;
-    
+
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final dob = DateTime(birthDate!.year, birthDate!.month, birthDate!.day);
-    
+
     int age = today.year - dob.year;
-    
+
     // Проверяем, был ли уже день рождения в этом году
-    if (today.month < dob.month || (today.month == dob.month && today.day < dob.day)) {
+    if (today.month < dob.month ||
+        (today.month == dob.month && today.day < dob.day)) {
       age--;
     }
-    
+
     return age;
   }
-  
+
   // Добавляем геттеры для обратной совместимости
   String? get occupation {
-    if (details == null || details!.career == null || details!.career!.isEmpty) {
+    if (details == null ||
+        details!.career == null ||
+        details!.career!.isEmpty) {
       return null;
     }
     // Возвращаем последнюю должность
@@ -341,7 +365,7 @@ class FamilyPerson extends HiveObject {
       name,
       maidenName,
     ].where((part) => part != null && part.isNotEmpty).toList();
-    
+
     return nameParts.join(' ');
   }
 
@@ -349,10 +373,14 @@ class FamilyPerson extends HiveObject {
   static Gender genderFromString(String? genderString) {
     if (genderString == null) return Gender.unknown;
     switch (genderString.toLowerCase()) {
-      case 'male': return Gender.male;
-      case 'female': return Gender.female;
-      case 'other': return Gender.other;
-      default: return Gender.unknown;
+      case 'male':
+        return Gender.male;
+      case 'female':
+        return Gender.female;
+      case 'other':
+        return Gender.other;
+      default:
+        return Gender.unknown;
     }
   }
 }
@@ -363,27 +391,29 @@ class FamilyPersonDetails {
   final List<Career>? career; // Карьера
   final List<Event>? importantEvents; // Важные события
   final Map<String, dynamic>? customData; // Произвольные данные
-  
+
   FamilyPersonDetails({
     this.education,
     this.career,
     this.importantEvents,
     this.customData,
   });
-  
+
   factory FamilyPersonDetails.fromMap(Map<String, dynamic> data) {
     return FamilyPersonDetails(
       education: data['education'],
-      career: data['career'] != null 
-          ? (data['career'] as List).map((e) => Career.fromMap(e)).toList() 
+      career: data['career'] != null
+          ? (data['career'] as List).map((e) => Career.fromMap(e)).toList()
           : null,
-      importantEvents: data['importantEvents'] != null 
-          ? (data['importantEvents'] as List).map((e) => Event.fromMap(e)).toList() 
+      importantEvents: data['importantEvents'] != null
+          ? (data['importantEvents'] as List)
+              .map((e) => Event.fromMap(e))
+              .toList()
           : null,
       customData: data['customData'],
     );
   }
-  
+
   Map<String, dynamic> toMap() {
     return {
       'education': education,
@@ -401,7 +431,7 @@ class Career {
   final DateTime? startDate;
   final DateTime? endDate;
   final bool isCurrent;
-  
+
   Career({
     this.company,
     this.position,
@@ -409,21 +439,21 @@ class Career {
     this.endDate,
     this.isCurrent = false,
   });
-  
+
   factory Career.fromMap(Map<String, dynamic> data) {
     return Career(
       company: data['company'],
       position: data['position'],
-      startDate: data['startDate'] != null 
-          ? (data['startDate'] as Timestamp).toDate() 
+      startDate: data['startDate'] != null
+          ? (data['startDate'] as Timestamp).toDate()
           : null,
-      endDate: data['endDate'] != null 
-          ? (data['endDate'] as Timestamp).toDate() 
+      endDate: data['endDate'] != null
+          ? (data['endDate'] as Timestamp).toDate()
           : null,
       isCurrent: data['isCurrent'] ?? false,
     );
   }
-  
+
   Map<String, dynamic> toMap() {
     return {
       'company': company,
@@ -441,25 +471,25 @@ class Event {
   final String? description;
   final DateTime date;
   final String? location;
-  
+
   Event({
     required this.title,
     this.description,
     required this.date,
     this.location,
   });
-  
+
   factory Event.fromMap(Map<String, dynamic> data) {
     return Event(
       title: data['title'] ?? '',
       description: data['description'],
-      date: data['date'] != null 
-          ? (data['date'] as Timestamp).toDate() 
+      date: data['date'] != null
+          ? (data['date'] as Timestamp).toDate()
           : DateTime.now(),
       location: data['location'],
     );
   }
-  
+
   Map<String, dynamic> toMap() {
     return {
       'title': title,
@@ -476,14 +506,14 @@ class SpouseInfo {
   final bool isCurrent;
   final DateTime? marriageDate;
   final DateTime? divorceDate;
-  
+
   SpouseInfo({
     required this.personId,
     this.isCurrent = true,
     this.marriageDate,
     this.divorceDate,
   });
-  
+
   Map<String, dynamic> toMap() {
     return {
       'personId': personId,
@@ -492,7 +522,7 @@ class SpouseInfo {
       'divorceDate': divorceDate,
     };
   }
-  
+
   factory SpouseInfo.fromMap(Map<String, dynamic> map) {
     return SpouseInfo(
       personId: map['personId'] ?? '',
@@ -501,4 +531,4 @@ class SpouseInfo {
       divorceDate: map['divorceDate'],
     );
   }
-} 
+}

@@ -11,15 +11,21 @@ class OfflineIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!GetIt.I.isRegistered<SyncService>()) {
+      return const SizedBox.shrink();
+    }
+
     // Получаем SyncService через GetIt внутри метода build
     final syncService = GetIt.I<SyncService>();
 
     // Используем StreamBuilder, чтобы реагировать на изменения isOnline
     return StreamBuilder<bool>(
-      stream: syncService.connectionStatusStream, // Используем стрим из GetIt-сервиса
+      stream: syncService
+          .connectionStatusStream, // Используем стрим из GetIt-сервиса
       initialData: syncService.isOnline, // Начальное значение
       builder: (context, snapshot) {
-        final bool isOnline = snapshot.data ?? true; // По умолчанию считаем онлайн
+        final bool isOnline =
+            snapshot.data ?? true; // По умолчанию считаем онлайн
 
         if (isOnline) {
           return SizedBox.shrink(); // Не показываем ничего, если онлайн
@@ -36,7 +42,10 @@ class OfflineIndicator extends StatelessWidget {
               SizedBox(width: 8),
               Text(
                 'Вы находитесь в офлайн-режиме',
-                style: TextStyle(color: Colors.white, fontSize: 12), // Уменьшим шрифт
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                ), // Уменьшим шрифт
               ),
             ],
           ),
@@ -44,4 +53,4 @@ class OfflineIndicator extends StatelessWidget {
       },
     );
   }
-} 
+}

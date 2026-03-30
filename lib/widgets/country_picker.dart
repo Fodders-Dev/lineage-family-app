@@ -3,20 +3,20 @@ import 'package:flutter/material.dart';
 class CountryPicker extends StatefulWidget {
   final String? initialCountry;
   final Function(String country, String countryCode) onCountryChanged;
-  
+
   const CountryPicker({
     Key? key,
     this.initialCountry,
     required this.onCountryChanged,
   }) : super(key: key);
-  
+
   @override
   _CountryPickerState createState() => _CountryPickerState();
 }
 
 class _CountryPickerState extends State<CountryPicker> {
   String? _selectedCountry;
-  
+
   final Map<String, String> _countryCodes = {
     'Россия': '+7',
     'США': '+1',
@@ -30,13 +30,13 @@ class _CountryPickerState extends State<CountryPicker> {
     'Беларусь': '+375',
     'Украина': '+380',
   };
-  
+
   @override
   void initState() {
     super.initState();
     _selectedCountry = widget.initialCountry ?? 'Россия';
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return DropdownButtonFormField<String>(
@@ -62,4 +62,4 @@ class _CountryPickerState extends State<CountryPicker> {
       },
     );
   }
-} 
+}
