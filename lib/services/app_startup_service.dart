@@ -79,9 +79,16 @@ class AppStartupService implements AppStartupServiceInterface {
     await _registerHiveAdapters();
 
     if (needsFirebaseCore) {
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
+      final firebaseOptions = DefaultFirebaseOptions.currentPlatformOrNull;
+      if (firebaseOptions != null) {
+        await Firebase.initializeApp(options: firebaseOptions);
+      } else if (!kIsWeb) {
+        await Firebase.initializeApp();
+      } else {
+        throw StateError(
+          'Firebase is required for this web runtime but LINEAGE_FIREBASE_* dart-defines are missing.',
+        );
+      }
 
       if (kIsWeb) {
         await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);

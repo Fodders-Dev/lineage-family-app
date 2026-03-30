@@ -4,8 +4,12 @@ plugins {
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id "dev.flutter.flutter-gradle-plugin"
 }
-
-apply plugin: 'com.google.gms.google-services'
+def hasGoogleServicesConfig = file("google-services.json").exists()
+if (hasGoogleServicesConfig) {
+    apply plugin: 'com.google.gms.google-services'
+} else {
+    println "Warning: android/app/google-services.json is missing. Firebase Android auto-config is disabled for this build."
+}
 
 def releaseSigningProperties = new Properties()
 def releaseSigningPropertiesPath = System.getenv("LINEAGE_RELEASE_SIGNING_PROPERTIES")

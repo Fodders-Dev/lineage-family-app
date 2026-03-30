@@ -49,6 +49,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+/android/app/google-services.json
 /android/release-signing.properties
 /android/KEYS
 

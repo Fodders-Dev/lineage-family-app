@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/widgets.dart';
 import 'package:get_it/get_it.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -65,9 +66,16 @@ void callbackDispatcher() {
         'personsBox',
       );
       if (needsFirebaseCore) {
-        await Firebase.initializeApp(
-          options: DefaultFirebaseOptions.currentPlatform,
-        );
+        final firebaseOptions = DefaultFirebaseOptions.currentPlatformOrNull;
+        if (firebaseOptions != null) {
+          await Firebase.initializeApp(options: firebaseOptions);
+        } else if (!kIsWeb) {
+          await Firebase.initializeApp();
+        } else {
+          throw StateError(
+            'Firebase is required for this web runtime but LINEAGE_FIREBASE_* dart-defines are missing.',
+          );
+        }
       }
 
       final localStorageService = await LocalStorageService.createInstance();
