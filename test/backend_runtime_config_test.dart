@@ -6,9 +6,9 @@ void main() {
   test('BackendRuntimeConfig uses legacy-compatible defaults', () {
     const config = BackendRuntimeConfig();
 
-    expect(config.publicAppUrl, 'https://lineage.app');
-    expect(config.apiBaseUrl, 'https://api.lineage.app');
-    expect(config.webSocketBaseUrl, 'wss://api.lineage.app');
+    expect(config.publicAppUrl, 'https://rodnya-tree.ru');
+    expect(config.apiBaseUrl, 'https://api.rodnya-tree.ru');
+    expect(config.webSocketBaseUrl, 'wss://api.rodnya-tree.ru');
     expect(config.supabaseUrl, 'https://aldugysbnodrfughcawu.supabase.co');
     expect(config.supabaseAnonKey, isNotEmpty);
     expect(config.enableLegacyDynamicLinks, isTrue);
@@ -72,9 +72,9 @@ void main() {
         providerConfig: const BackendProviderConfig(),
       );
 
-      expect(config.publicAppUrl, 'https://lineage.app');
-      expect(config.apiBaseUrl, 'https://api.lineage.app');
-      expect(config.webSocketBaseUrl, 'wss://api.lineage.app');
+      expect(config.publicAppUrl, 'https://rodnya-tree.ru');
+      expect(config.apiBaseUrl, 'https://api.rodnya-tree.ru');
+      expect(config.webSocketBaseUrl, 'wss://api.rodnya-tree.ru');
       expect(config.enableLegacyDynamicLinks, isFalse);
     },
   );

@@ -208,7 +208,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Добро пожаловать в приложение Lineage',
+                            'Добро пожаловать в Родню',
                             style: Theme.of(context).textTheme.bodyMedium,
                           ),
                         ],

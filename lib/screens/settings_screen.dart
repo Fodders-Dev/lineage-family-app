@@ -570,7 +570,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Column(
                       children: [
                         Text(
-                          'Lineage',
+                          'Родня',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,

@@ -1,11 +1,11 @@
 {
-    "name": "lineage_family_app",
-    "short_name": "lineage_family_app",
+    "name": "Родня: семейное дерево и чат",
+    "short_name": "Родня",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Семейное дерево и чат для близких людей.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

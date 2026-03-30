@@ -283,7 +283,7 @@ class _MyAppState extends State<MyApp> {
       scaffoldMessengerKey: scaffoldMessengerKey, // Передаем ключ сюда
       routerConfig: _appRouter.router, // Используем routerConfig
 
-      title: 'Lineage',
+      title: 'Родня',
       debugShowCheckedModeBanner: false,
       theme: Provider.of<ThemeProvider>(context).themeMode == ThemeMode.dark
           ? AppTheme.darkTheme

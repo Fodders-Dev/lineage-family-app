@@ -26,7 +26,7 @@ class AboutScreen extends StatelessWidget {
             ),
             const SizedBox(height: 24),
             const Text(
-              'Lineage',
+              'Родня',
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
@@ -42,7 +42,7 @@ class AboutScreen extends StatelessWidget {
             ),
             const SizedBox(height: 32),
             const Text(
-              'Lineage - это приложение для создания и хранения семейного древа, которое поможет вам сохранить историю вашей семьи и поддерживать связь с близкими.',
+              'Родня - это приложение для создания и хранения семейного древа, которое помогает сохранить историю семьи и поддерживать связь с близкими.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 16, height: 1.5),
             ),
@@ -62,7 +62,7 @@ class AboutScreen extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             Text(
-              '© 2026 Lineage. Все права защищены.',
+              '© 2026 Родня. Все права защищены.',
               style: TextStyle(fontSize: 14, color: Colors.grey[600]),
             ),
           ],

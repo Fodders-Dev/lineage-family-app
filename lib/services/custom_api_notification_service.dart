@@ -122,12 +122,12 @@ class CustomApiNotificationService implements NotificationServiceInterface {
   final Set<String> _deliveredNotificationIds = <String>{};
 
   static const String _channelIdGeneral = 'lineage_custom_general';
-  static const String _channelNameGeneral = 'Lineage уведомления';
+  static const String _channelNameGeneral = 'Родня уведомления';
   static const String _channelDescGeneral =
-      'Локальные уведомления приложения Lineage';
+      'Локальные уведомления приложения Родня';
 
   static const String _channelIdEvents = 'lineage_custom_events';
-  static const String _channelNameEvents = 'Lineage события';
+  static const String _channelNameEvents = 'Родня события';
   static const String _channelDescEvents =
       'Напоминания о событиях семьи и локальные уведомления чатов';
 
@@ -366,7 +366,7 @@ class CustomApiNotificationService implements NotificationServiceInterface {
       Map<String, dynamic> notification) async {
     final id = notification['id']?.toString() ?? '';
     final type = notification['type']?.toString() ?? 'generic';
-    final title = notification['title']?.toString() ?? 'Lineage';
+    final title = notification['title']?.toString() ?? 'Родня';
     final body = notification['body']?.toString() ?? '';
     final data = notification['data'];
     final payload = jsonEncode({

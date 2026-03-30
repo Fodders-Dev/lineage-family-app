@@ -156,7 +156,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   Text(
                     _isLogin
                         ? 'Введите свои данные для входа'
-                        : 'Создайте свой аккаунт в Lineage',
+                        : 'Создайте аккаунт в Родне',
                     style: TextStyle(fontSize: 16, color: Colors.grey[600]),
                     textAlign: TextAlign.center,
                   ),

@@ -599,8 +599,8 @@ class _RelativeDetailsScreenState extends State<RelativeDetailsScreen> {
         final box = context.findRenderObject() as RenderBox?;
         // Используем share_plus для отправки ссылки
         await Share.share(
-          'Присоединяйтесь к нашему семейному древу Lineage! ${inviteUrl.toString()}',
-          subject: 'Приглашение в Lineage',
+          'Присоединяйтесь к нашему семейному древу в Родне! ${inviteUrl.toString()}',
+          subject: 'Приглашение в Родню',
           sharePositionOrigin:
               box!.localToGlobal(Offset.zero) & box.size, // Позиция для iPad
         );

@@ -2,9 +2,9 @@ import 'backend_provider_config.dart';
 
 class BackendRuntimeConfig {
   const BackendRuntimeConfig({
-    this.publicAppUrl = 'https://lineage.app',
-    this.apiBaseUrl = 'https://api.lineage.app',
-    this.webSocketBaseUrl = 'wss://api.lineage.app',
+    this.publicAppUrl = 'https://rodnya-tree.ru',
+    this.apiBaseUrl = 'https://api.rodnya-tree.ru',
+    this.webSocketBaseUrl = 'wss://api.rodnya-tree.ru',
     this.supabaseUrl = _defaultSupabaseUrl,
     this.supabaseAnonKey = _defaultSupabaseAnonKey,
     this.enableLegacyDynamicLinks = true,
@@ -78,12 +78,12 @@ class BackendRuntimeConfig {
     final resolvedProviderConfig =
         providerConfig ?? BackendProviderConfig.current;
     final isProdCustomApiPreset = runtimePreset == 'prod_custom_api';
-    final fallbackApiBaseUrl = 'https://api.lineage.app';
+    final fallbackApiBaseUrl = 'https://api.rodnya-tree.ru';
     final resolvedApiBaseUrl =
         _stringFromRaw(apiBaseUrlRaw, fallbackApiBaseUrl);
     final resolvedPublicAppUrl = _stringFromRaw(
       publicAppUrlRaw,
-      'https://lineage.app',
+      'https://rodnya-tree.ru',
     );
     final resolvedWebSocketBaseUrl = _stringFromRaw(
       webSocketBaseUrlRaw,
