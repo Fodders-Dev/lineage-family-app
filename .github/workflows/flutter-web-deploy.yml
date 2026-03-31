@@ -1,0 +1,43 @@
+name: Deploy Rodnya Web
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.19.0"
+          channel: "stable"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build web
+        run: flutter build web --release
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Ensure deploy directory exists
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_HOST }}" \
+            "mkdir -p '${{ secrets.DEPLOY_PATH }}'"
+
+      - name: Upload web build
+        run: |
+          rsync -avz --delete -e "ssh -i ~/.ssh/id_ed25519" \
+            build/web/ \
+            "${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_HOST }}:${{ secrets.DEPLOY_PATH }}/"
