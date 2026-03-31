@@ -34,6 +34,90 @@ class _ProfileStatItem extends StatelessWidget {
   }
 }
 
+// Функция для безопасного формирования отображаемого имени
+String _getSafeDisplayName(UserProfile profile) {
+  // Если displayName существует и не является мусором, используем его
+  if (profile.displayName != null && profile.displayName!.isNotEmpty) {
+    final displayName = profile.displayName!;
+    
+    // Проверяем, не является ли displayName мусорным значением
+    // Мусорные значения могут быть:
+    // - только цифры
+    // - только спецсимволы
+    // - комбинации email+password (например, "test@example.com123456")
+    // - служебные строки типа "test", "user", "admin"
+    
+    final trimmed = displayName.trim();
+    
+    // Проверяем на пустоту или простые служебные значения
+    if (trimmed.isEmpty) return 'Профиль';
+    
+    // Проверяем, содержит ли только цифры или спецсимволы
+    if (RegExp(r'^[0-9!@#$%^&*()_+\-=\[\]{};\'"\\|,.<>\/?]+$').hasMatch(trimmed)) {
+      return 'Профиль';
+    }
+    
+    // Проверяем, не содержит ли email + password (часто это мусор)
+    if (trimmed.contains('@') && trimmed.contains('.')) {
+      // Если строка похожа на email, но не содержит имени
+      final emailParts = trimmed.split('@');
+      if (emailParts.length >= 2) {
+        final username = emailParts[0];
+        final domain = emailParts[1].split('.')[0];
+        
+        // Если username состоит только из цифр или короткий и похож на мусор
+        if (RegExp(r'^[0-9]+$').hasMatch(username) && username.length < 4) {
+          // Проверяем на длину и другие признаки мусора
+          if (username.length <= 3 && 
+              (trimmed.contains('123') || trimmed.contains('456') || 
+               trimmed.contains('789') || trimmed.contains('000'))) {
+            return 'Профиль';
+          }
+        }
+      }
+    }
+    
+    // Если всё нормально, возвращаем оригинальное имя
+    return displayName;
+  }
+  
+  // Если displayName отсутствует, пытаемся собрать из компонентов
+  final parts = <String>[];
+  if (profile.firstName != null && profile.firstName!.isNotEmpty) {
+    parts.add(profile.firstName!);
+  }
+  if (profile.middleName != null && profile.middleName!.isNotEmpty) {
+    parts.add(profile.middleName!);
+  }
+  if (profile.lastName != null && profile.lastName!.isNotEmpty) {
+    parts.add(profile.lastName!);
+  }
+  
+  if (parts.isNotEmpty) {
+    return parts.join(' ');
+  }
+  
+  // Если нет компонентов, пытаемся использовать username
+  if (profile.username != null && profile.username!.isNotEmpty) {
+    return profile.username!;
+  }
+  
+  // Если нет username, используем email без мусора
+  if (profile.email != null && profile.email!.isNotEmpty) {
+    final email = profile.email!;
+    // Удаляем мусорные части из email (если он выглядит как мусор)
+    if (email.contains('@') && 
+        email.length > 10 && 
+        email.contains('example.com')) {
+      return 'Профиль';
+    }
+    return email;
+  }
+  
+  // Если всё не удалось, возвращаем стандартное значение
+  return 'Профиль';
+}
+
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -292,7 +376,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_userProfile?.displayName ?? 'Профиль'),
+        title: Text(_getSafeDisplayName(_userProfile!) ?? 'Профиль'),
         leading: IconButton(
           icon: Icon(Icons.arrow_back),
           onPressed: () {
@@ -364,7 +448,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   ),
                                   SizedBox(height: 16),
                                   Text(
-                                    _userProfile!.displayName,
+                                    _getSafeDisplayName(_userProfile!),
                                     style: TextStyle(
                                       fontSize: 22,
                                       fontWeight: FontWeight.bold,
