@@ -40,41 +40,42 @@ String _getSafeDisplayName(UserProfile profile) {
   if (profile.displayName != null && profile.displayName!.isNotEmpty) {
     final displayName = profile.displayName!;
     
-    // Проверяем, не является ли displayName мусорным значением
-    // Мусорные значения могут быть:
-    // - только цифры
-    // - только спецсимволы
-    // - комбинации email+password (например, "test@example.com123456")
-    // - служебные строки типа "test", "user", "admin"
-    
     final trimmed = displayName.trim();
     
     // Проверяем на пустоту или простые служебные значения
     if (trimmed.isEmpty) return 'Профиль';
     
-    // Проверяем, содержит ли только цифры или спецсимволы
+    // Проверяем, не является ли строка мусорной
+    // Простая эвристика: если строка выглядит как технический мусор
+    final lower = trimmed.toLowerCase();
+    
+    // Слишком длинная строка
+    if (trimmed.length > 100) return 'Профиль';
+    
+    // Строка из цифр или спецсимволов
     if (RegExp(r'^[0-9!@#$%^&*()_+\-=\[\]{};\'"\\|,.<>\/?]+$').hasMatch(trimmed)) {
       return 'Профиль';
     }
     
-    // Проверяем, не содержит ли email + password (часто это мусор)
-    if (trimmed.contains('@') && trimmed.contains('.')) {
-      // Если строка похожа на email, но не содержит имени
-      final emailParts = trimmed.split('@');
-      if (emailParts.length >= 2) {
-        final username = emailParts[0];
-        final domain = emailParts[1].split('.')[0];
-        
-        // Если username состоит только из цифр или короткий и похож на мусор
-        if (RegExp(r'^[0-9]+$').hasMatch(username) && username.length < 4) {
-          // Проверяем на длину и другие признаки мусора
-          if (username.length <= 3 && 
-              (trimmed.contains('123') || trimmed.contains('456') || 
-               trimmed.contains('789') || trimmed.contains('000'))) {
-            return 'Профиль';
-          }
-        }
-      }
+    // Содержит известные мусорные слова
+    if (lower.contains('example.com') || 
+        lower.contains('test123') || 
+        lower.contains('codex') || 
+        lower.contains('mcp') ||
+        lower.contains('2026')) {
+      return 'Профиль';
+    }
+    
+    // Слишком много цифр подряд
+    final digitCount = trimmed.replaceAll(RegExp(r'[^0-9]'), '').length;
+    if (digitCount > 5 && digitCount > trimmed.length * 0.7) {
+      return 'Профиль';
+    }
+    
+    // Строка почти полностью из цифр/спецсимволов
+    final nonAlphaCount = trimmed.replaceAll(RegExp(r'[a-zA-Zа-яА-ЯёЁ]'), '').length;
+    if (nonAlphaCount > trimmed.length * 0.8) {
+      return 'Профиль';
     }
     
     // Если всё нормально, возвращаем оригинальное имя
