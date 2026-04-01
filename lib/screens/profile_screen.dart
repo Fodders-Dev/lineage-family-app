@@ -45,10 +45,6 @@ String _getSafeDisplayName(UserProfile profile) {
     // Проверяем на пустоту или простые служебные значения
     if (trimmed.isEmpty) return 'Профиль';
     
-    // Проверяем, не является ли строка мусорной
-    // Простая эвристика: если строка выглядит как технический мусор
-    final lower = trimmed.toLowerCase();
-    
     // Слишком длинная строка
     if (trimmed.length > 100) return 'Профиль';
     
@@ -58,6 +54,7 @@ String _getSafeDisplayName(UserProfile profile) {
     }
     
     // Содержит известные мусорные слова
+    final lower = trimmed.toLowerCase();
     if (lower.contains('example.com') || 
         lower.contains('test123') || 
         lower.contains('codex') || 
