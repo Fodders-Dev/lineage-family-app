@@ -37,6 +37,7 @@ jobs:
 
       - name: Upload web build
         run: |
-          rsync -avz --delete -e "ssh -i ~/.ssh/id_ed25519" \
+          rsync -rz --delete --omit-dir-times --no-perms --no-owner --no-group \
+            -e "ssh -i ~/.ssh/id_ed25519" \
             build/web/ \
             "${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_HOST }}:${{ secrets.DEPLOY_PATH }}/"
