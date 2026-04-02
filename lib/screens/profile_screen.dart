@@ -36,49 +36,54 @@ class _ProfileStatItem extends StatelessWidget {
 
 String _getSafeDisplayName(UserProfile profile) {
   final rawDisplayName = profile.displayName.trim();
-  final lower = rawDisplayName.toLowerCase();
-
-  bool looksBad(String value) {
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) return true;
-    if (trimmed.length > 80) return true;
-
-    final badWords = ['example.com', 'test123', 'codex', 'mcp', '2026'];
-    for (final word in badWords) {
-      if (trimmed.toLowerCase().contains(word)) return true;
+  
+  // Если displayName пустой или равен "Профиль", используем альтернативные источники
+  if (rawDisplayName.isEmpty || rawDisplayName == 'Профиль') {
+    final parts = <String>[];
+    if (profile.firstName != null && profile.firstName!.trim().isNotEmpty) {
+      parts.add(profile.firstName!.trim());
+    }
+    if (profile.middleName != null && profile.middleName!.trim().isNotEmpty) {
+      parts.add(profile.middleName!.trim());
+    }
+    if (profile.lastName != null && profile.lastName!.trim().isNotEmpty) {
+      parts.add(profile.lastName!.trim());
     }
 
-    final digitCount = RegExp(r'\d').allMatches(trimmed).length;
-    if (digitCount >= 6) return true;
+    if (parts.isNotEmpty) {
+      return parts.join(' ');
+    }
 
-    return false;
-  }
+    if (profile.username != null && profile.username!.trim().isNotEmpty) {
+      return profile.username!.trim();
+    }
 
-  if (!looksBad(rawDisplayName)) {
-    return rawDisplayName;
-  }
+    if (profile.email != null && profile.email!.trim().isNotEmpty) {
+      return profile.email!.trim();
+    }
+  } else {
+    // Проверяем, является ли displayName мусорным
+    final lower = rawDisplayName.toLowerCase();
 
-  final parts = <String>[];
-  if (profile.firstName != null && profile.firstName!.trim().isNotEmpty) {
-    parts.add(profile.firstName!.trim());
-  }
-  if (profile.middleName != null && profile.middleName!.trim().isNotEmpty) {
-    parts.add(profile.middleName!.trim());
-  }
-  if (profile.lastName != null && profile.lastName!.trim().isNotEmpty) {
-    parts.add(profile.lastName!.trim());
-  }
+    bool looksBad(String value) {
+      final trimmed = value.trim();
+      if (trimmed.isEmpty) return true;
+      if (trimmed.length > 80) return true;
 
-  if (parts.isNotEmpty) {
-    return parts.join(' ');
-  }
+      final badWords = ['example.com', 'test123', 'codex', 'mcp', '2026'];
+      for (final word in badWords) {
+        if (trimmed.toLowerCase().contains(word)) return true;
+      }
 
-  if (profile.username != null && profile.username!.trim().isNotEmpty) {
-    return profile.username!.trim();
-  }
+      final digitCount = RegExp(r'\d').allMatches(trimmed).length;
+      if (digitCount >= 6) return true;
 
-  if (profile.email != null && profile.email!.trim().isNotEmpty) {
-    return profile.email!.trim();
+      return false;
+    }
+
+    if (!looksBad(rawDisplayName)) {
+      return rawDisplayName;
+    }
   }
 
   return 'Профиль';
