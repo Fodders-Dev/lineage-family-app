@@ -34,85 +34,53 @@ class _ProfileStatItem extends StatelessWidget {
   }
 }
 
-// Функция для безопасного формирования отображаемого имени
 String _getSafeDisplayName(UserProfile profile) {
-  // Если displayName существует и не является мусором, используем его
-  if (profile.displayName != null && profile.displayName!.isNotEmpty) {
-    final displayName = profile.displayName!;
-    
-    final trimmed = displayName.trim();
-    
-    // Проверяем на пустоту или простые служебные значения
-    if (trimmed.isEmpty) return 'Профиль';
-    
-    // Слишком длинная строка
-    if (trimmed.length > 100) return 'Профиль';
-    
-    // Строка из цифр или спецсимволов
-    if (RegExp(r'^[0-9!@#$%^&*()_+\-=\[\]{};\'"\\|,.<>\/?]+$').hasMatch(trimmed)) {
-      return 'Профиль';
+  final rawDisplayName = profile.displayName.trim();
+  final lower = rawDisplayName.toLowerCase();
+
+  bool looksBad(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return true;
+    if (trimmed.length > 80) return true;
+
+    final badWords = ['example.com', 'test123', 'codex', 'mcp', '2026'];
+    for (final word in badWords) {
+      if (trimmed.toLowerCase().contains(word)) return true;
     }
-    
-    // Содержит известные мусорные слова
-    final lower = trimmed.toLowerCase();
-    if (lower.contains('example.com') || 
-        lower.contains('test123') || 
-        lower.contains('codex') || 
-        lower.contains('mcp') ||
-        lower.contains('2026')) {
-      return 'Профиль';
-    }
-    
-    // Слишком много цифр подряд
-    final digitCount = trimmed.replaceAll(RegExp(r'[^0-9]'), '').length;
-    if (digitCount > 5 && digitCount > trimmed.length * 0.7) {
-      return 'Профиль';
-    }
-    
-    // Строка почти полностью из цифр/спецсимволов
-    final nonAlphaCount = trimmed.replaceAll(RegExp(r'[a-zA-Zа-яА-ЯёЁ]'), '').length;
-    if (nonAlphaCount > trimmed.length * 0.8) {
-      return 'Профиль';
-    }
-    
-    // Если всё нормально, возвращаем оригинальное имя
-    return displayName;
+
+    final digitCount = RegExp(r'\d').allMatches(trimmed).length;
+    if (digitCount >= 6) return true;
+
+    return false;
   }
-  
-  // Если displayName отсутствует, пытаемся собрать из компонентов
+
+  if (!looksBad(rawDisplayName)) {
+    return rawDisplayName;
+  }
+
   final parts = <String>[];
-  if (profile.firstName != null && profile.firstName!.isNotEmpty) {
-    parts.add(profile.firstName!);
+  if (profile.firstName != null && profile.firstName!.trim().isNotEmpty) {
+    parts.add(profile.firstName!.trim());
   }
-  if (profile.middleName != null && profile.middleName!.isNotEmpty) {
-    parts.add(profile.middleName!);
+  if (profile.middleName != null && profile.middleName!.trim().isNotEmpty) {
+    parts.add(profile.middleName!.trim());
   }
-  if (profile.lastName != null && profile.lastName!.isNotEmpty) {
-    parts.add(profile.lastName!);
+  if (profile.lastName != null && profile.lastName!.trim().isNotEmpty) {
+    parts.add(profile.lastName!.trim());
   }
-  
+
   if (parts.isNotEmpty) {
     return parts.join(' ');
   }
-  
-  // Если нет компонентов, пытаемся использовать username
-  if (profile.username != null && profile.username!.isNotEmpty) {
-    return profile.username!;
+
+  if (profile.username != null && profile.username!.trim().isNotEmpty) {
+    return profile.username!.trim();
   }
-  
-  // Если нет username, используем email без мусора
-  if (profile.email != null && profile.email!.isNotEmpty) {
-    final email = profile.email!;
-    // Удаляем мусорные части из email (если он выглядит как мусор)
-    if (email.contains('@') && 
-        email.length > 10 && 
-        email.contains('example.com')) {
-      return 'Профиль';
-    }
-    return email;
+
+  if (profile.email != null && profile.email!.trim().isNotEmpty) {
+    return profile.email!.trim();
   }
-  
-  // Если всё не удалось, возвращаем стандартное значение
+
   return 'Профиль';
 }
 
