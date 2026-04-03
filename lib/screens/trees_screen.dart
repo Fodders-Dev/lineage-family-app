@@ -27,6 +27,7 @@ class _TreesScreenState extends State<TreesScreen>
       GetIt.I<FamilyTreeServiceInterface>();
   final CrashlyticsService _crashlyticsService = CrashlyticsService();
   late TabController _tabController;
+  bool _appliedInitialRouteTab = false;
 
   // Переменные для хранения состояния
   List<FamilyTree> _myTrees = [];
@@ -50,6 +51,25 @@ class _TreesScreenState extends State<TreesScreen>
     _tabController.removeListener(_handleTabSelection); // Удаляем слушателя
     _tabController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_appliedInitialRouteTab) {
+      return;
+    }
+    _appliedInitialRouteTab = true;
+
+    String? routeTab;
+    try {
+      routeTab = GoRouterState.of(context).uri.queryParameters['tab'];
+    } catch (_) {
+      routeTab = null;
+    }
+    if (routeTab == 'invitations') {
+      _tabController.index = 1;
+    }
   }
 
   // Метод-обработчик для слушателя

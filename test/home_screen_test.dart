@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lineage/backend/interfaces/auth_service_interface.dart';
 import 'package:lineage/backend/interfaces/family_tree_service_interface.dart';
+import 'package:lineage/backend/models/tree_invitation.dart';
+import 'package:lineage/models/family_tree.dart';
 import 'package:lineage/models/family_person.dart';
 import 'package:lineage/models/family_relation.dart';
 import 'package:lineage/providers/tree_provider.dart';
@@ -43,6 +46,10 @@ class _FakeLocalStorageService implements LocalStorageService {
 }
 
 class _FakeFamilyTreeService implements FamilyTreeServiceInterface {
+  _FakeFamilyTreeService({this.invitations = const []});
+
+  final List<TreeInvitation> invitations;
+
   @override
   Future<List<FamilyPerson>> getRelatives(String treeId) async => [
         FamilyPerson(
@@ -59,6 +66,10 @@ class _FakeFamilyTreeService implements FamilyTreeServiceInterface {
 
   @override
   Future<List<FamilyRelation>> getRelations(String treeId) async => const [];
+
+  @override
+  Stream<List<TreeInvitation>> getPendingTreeInvitations() =>
+      Stream.value(invitations);
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -135,6 +146,69 @@ void main() {
       expect(find.text('Ближайшие события'), findsNothing);
       expect(find.text('Лента новостей'), findsNothing);
       expect(find.byType(FloatingActionButton), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'HomeScreen показывает приглашение и ведёт сразу во вкладку приглашений',
+    (tester) async {
+      await getIt.reset();
+      getIt.registerSingleton<AuthServiceInterface>(_FakeAuthService());
+      getIt.registerSingleton<LocalStorageService>(_FakeLocalStorageService());
+      getIt.registerSingleton<FamilyTreeServiceInterface>(
+        _FakeFamilyTreeService(
+          invitations: [
+            TreeInvitation(
+              invitationId: 'invite-1',
+              tree: FamilyTree(
+                id: 'tree-2',
+                name: 'Семья Шуфляк',
+                description: '',
+                creatorId: 'user-2',
+                memberIds: const ['user-2'],
+                createdAt: DateTime(2024, 1, 1),
+                updatedAt: DateTime(2024, 1, 1),
+                isPrivate: true,
+                members: const ['user-2'],
+              ),
+            ),
+          ],
+        ),
+      );
+
+      final treeProvider = TreeProvider();
+      final router = GoRouter(
+        initialLocation: '/',
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (context, state) =>
+                ChangeNotifierProvider<TreeProvider>.value(
+              value: treeProvider,
+              child: const HomeScreen(),
+            ),
+          ),
+          GoRoute(
+            path: '/trees',
+            builder: (context, state) => Scaffold(
+              body: Center(
+                child: Text('trees ${state.uri.queryParameters['tab']}'),
+              ),
+            ),
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Вас ждёт приглашение в дерево'), findsOneWidget);
+      expect(find.textContaining('Семья Шуфляк'), findsOneWidget);
+
+      await tester.tap(find.text('Открыть приглашение'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('trees invitations'), findsOneWidget);
     },
   );
 }

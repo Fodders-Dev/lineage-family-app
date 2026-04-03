@@ -10,6 +10,7 @@ import '../models/family_person.dart';
 import '../widgets/event_card.dart';
 import 'package:get_it/get_it.dart';
 import '../backend/interfaces/family_tree_service_interface.dart';
+import '../backend/models/tree_invitation.dart';
 import '../widgets/post_card.dart';
 import '../backend/interfaces/auth_service_interface.dart';
 import '../services/sync_service.dart';
@@ -174,60 +175,78 @@ class _HomeScreenState extends State<HomeScreen> {
             await _loadBranchPeople(_currentTreeId!);
           }
         },
-        child: CustomScrollView(
-          slivers: [
-            SliverToBoxAdapter(
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 24,
-                ),
-                color: Theme.of(
-                  context,
-                ).colorScheme.primary.withValues(alpha: 0.05),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 30,
-                      backgroundImage: _authService.currentUserPhotoUrl != null
-                          ? NetworkImage(_authService.currentUserPhotoUrl!)
-                          : null,
-                      child: _authService.currentUserPhotoUrl == null
-                          ? Icon(Icons.person, size: 30, color: Colors.white)
-                          : null,
-                      backgroundColor: Theme.of(context).primaryColor,
+        child: StreamBuilder<List<TreeInvitation>>(
+          stream: _familyTreeService.getPendingTreeInvitations(),
+          builder: (context, snapshot) {
+            final pendingInvitations =
+                snapshot.data ?? const <TreeInvitation>[];
+            return CustomScrollView(
+              slivers: [
+                SliverToBoxAdapter(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 24,
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Привет, ${_authService.currentUserDisplayName ?? 'пользователь'}!',
-                            style: Theme.of(context).textTheme.titleLarge,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.primary.withValues(alpha: 0.05),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 30,
+                          backgroundImage:
+                              _authService.currentUserPhotoUrl != null
+                                  ? NetworkImage(
+                                      _authService.currentUserPhotoUrl!,
+                                    )
+                                  : null,
+                          child: _authService.currentUserPhotoUrl == null
+                              ? Icon(
+                                  Icons.person,
+                                  size: 30,
+                                  color: Colors.white,
+                                )
+                              : null,
+                          backgroundColor: Theme.of(context).primaryColor,
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Привет, ${_authService.currentUserDisplayName ?? 'пользователь'}!',
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Добро пожаловать в Родню',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Добро пожаловать в Родню',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
-            if (_currentTreeId == null) ...[
-              SliverToBoxAdapter(child: _buildNoTreeSelectedHero()),
-              SliverToBoxAdapter(child: _buildNoTreeSelectedNextSteps()),
-            ] else ...[
-              if (_supportsLegacyPostFeed)
-                SliverToBoxAdapter(child: _buildStoriesSection()),
-              SliverToBoxAdapter(child: _buildUpcomingEventsSection()),
-              ..._buildPostSlivers(),
-            ],
-          ],
+                if (pendingInvitations.isNotEmpty)
+                  SliverToBoxAdapter(
+                    child: _buildPendingInvitationsBanner(pendingInvitations),
+                  ),
+                if (_currentTreeId == null) ...[
+                  SliverToBoxAdapter(child: _buildNoTreeSelectedHero()),
+                  SliverToBoxAdapter(child: _buildNoTreeSelectedNextSteps()),
+                ] else ...[
+                  if (_supportsLegacyPostFeed)
+                    SliverToBoxAdapter(child: _buildStoriesSection()),
+                  SliverToBoxAdapter(child: _buildUpcomingEventsSection()),
+                  ..._buildPostSlivers(),
+                ],
+              ],
+            );
+          },
         ),
       ),
       floatingActionButton: _supportsLegacyPostFeed
@@ -345,6 +364,77 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPendingInvitationsBanner(List<TreeInvitation> invitations) {
+    final theme = Theme.of(context);
+    final count = invitations.length;
+    final firstTreeName = invitations.first.tree.name.trim();
+    final title = count == 1
+        ? 'Вас ждёт приглашение в дерево'
+        : 'У вас $count приглашения в деревья';
+    final description = count == 1 && firstTreeName.isNotEmpty
+        ? 'Откройте "$firstTreeName", чтобы оно появилось в вашем списке деревьев.'
+        : 'Перейдите к приглашениям и примите нужное дерево без лишнего поиска.';
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 4),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.tertiaryContainer,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.onTertiaryContainer.withValues(
+                      alpha: 0.08,
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(
+                    Icons.mark_email_unread_outlined,
+                    color: theme.colorScheme.onTertiaryContainer,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: theme.colorScheme.onTertiaryContainer,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              description,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onTertiaryContainer,
+              ),
+            ),
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: () => context.go('/trees?tab=invitations'),
+              icon: const Icon(Icons.arrow_forward),
+              label: Text(
+                  count == 1 ? 'Открыть приглашение' : 'Открыть приглашения'),
             ),
           ],
         ),
