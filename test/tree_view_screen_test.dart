@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lineage/backend/interfaces/auth_service_interface.dart';
 import 'package:lineage/backend/interfaces/chat_service_interface.dart';
 import 'package:lineage/backend/interfaces/family_tree_service_interface.dart';
+import 'package:lineage/models/chat_details.dart';
 import 'package:lineage/models/chat_message.dart';
 import 'package:lineage/models/chat_preview.dart';
 import 'package:lineage/models/chat_send_progress.dart';
@@ -121,6 +122,40 @@ class _FakeChatService implements ChatServiceInterface {
     createdBranchTitle = title;
     return 'chat-branch-1';
   }
+
+  @override
+  Future<ChatDetails> getChatDetails(String chatId) async => const ChatDetails(
+        chatId: 'chat-group-1',
+        type: 'group',
+        title: 'Группа',
+        participantIds: ['user-1', 'user-2'],
+        participants: [
+          ChatParticipantSummary(userId: 'user-1', displayName: 'Артем'),
+          ChatParticipantSummary(userId: 'user-2', displayName: 'Иван'),
+        ],
+        branchRoots: [],
+      );
+
+  @override
+  Future<ChatDetails> renameGroupChat({
+    required String chatId,
+    required String title,
+  }) async =>
+      getChatDetails(chatId);
+
+  @override
+  Future<ChatDetails> addGroupParticipants({
+    required String chatId,
+    required List<String> participantIds,
+  }) async =>
+      getChatDetails(chatId);
+
+  @override
+  Future<ChatDetails> removeGroupParticipant({
+    required String chatId,
+    required String participantId,
+  }) async =>
+      getChatDetails(chatId);
 }
 
 class _FakeFamilyTreeService implements FamilyTreeServiceInterface {

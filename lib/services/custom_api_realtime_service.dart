@@ -36,6 +36,7 @@ class CustomApiRealtimeEvent {
 
   bool get isChatEvent =>
       type == 'chat.created' ||
+      type == 'chat.updated' ||
       type == 'chat.message.created' ||
       type == 'chat.read.updated';
 

@@ -1,4 +1,5 @@
 import '../../models/chat_message.dart';
+import '../../models/chat_details.dart';
 import '../../models/chat_preview.dart';
 import '../../models/chat_send_progress.dart';
 import 'package:image_picker/image_picker.dart';
@@ -46,5 +47,30 @@ abstract class ChatServiceInterface {
     String? title,
   }) {
     throw UnsupportedError('createBranchChat is not supported');
+  }
+
+  Future<ChatDetails> getChatDetails(String chatId) {
+    throw UnsupportedError('getChatDetails is not supported');
+  }
+
+  Future<ChatDetails> renameGroupChat({
+    required String chatId,
+    required String title,
+  }) {
+    throw UnsupportedError('renameGroupChat is not supported');
+  }
+
+  Future<ChatDetails> addGroupParticipants({
+    required String chatId,
+    required List<String> participantIds,
+  }) {
+    throw UnsupportedError('addGroupParticipants is not supported');
+  }
+
+  Future<ChatDetails> removeGroupParticipant({
+    required String chatId,
+    required String participantId,
+  }) {
+    throw UnsupportedError('removeGroupParticipant is not supported');
   }
 }

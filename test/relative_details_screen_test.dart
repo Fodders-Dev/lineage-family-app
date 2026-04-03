@@ -8,6 +8,7 @@ import 'package:lineage/backend/interfaces/chat_service_interface.dart';
 import 'package:lineage/backend/interfaces/family_tree_service_interface.dart';
 import 'package:lineage/backend/interfaces/invitation_link_service_interface.dart';
 import 'package:lineage/backend/interfaces/profile_service_interface.dart';
+import 'package:lineage/models/chat_details.dart';
 import 'package:lineage/models/family_person.dart';
 import 'package:lineage/models/family_relation.dart';
 import 'package:lineage/models/chat_send_progress.dart';
@@ -87,6 +88,43 @@ class _FakeChatService implements ChatServiceInterface {
     String? title,
   }) async =>
       'chat-branch-1';
+
+  @override
+  Future<ChatDetails> getChatDetails(String chatId) async => const ChatDetails(
+        chatId: 'chat-group-1',
+        type: 'group',
+        title: 'Группа',
+        participantIds: ['user-1', 'user-father'],
+        participants: [
+          ChatParticipantSummary(userId: 'user-1', displayName: 'Артем'),
+          ChatParticipantSummary(
+            userId: 'user-father',
+            displayName: 'Андрей Кузнецов',
+          ),
+        ],
+        branchRoots: [],
+      );
+
+  @override
+  Future<ChatDetails> renameGroupChat({
+    required String chatId,
+    required String title,
+  }) async =>
+      getChatDetails(chatId);
+
+  @override
+  Future<ChatDetails> addGroupParticipants({
+    required String chatId,
+    required List<String> participantIds,
+  }) async =>
+      getChatDetails(chatId);
+
+  @override
+  Future<ChatDetails> removeGroupParticipant({
+    required String chatId,
+    required String participantId,
+  }) async =>
+      getChatDetails(chatId);
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

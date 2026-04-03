@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get_it/get_it.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/chat_attachment.dart';
+import '../models/chat_details.dart';
 import '../models/chat_message.dart';
 import '../models/chat_preview.dart';
 import '../models/chat_send_progress.dart';
@@ -490,5 +491,38 @@ class ChatService implements ChatServiceInterface {
     String? title,
   }) async {
     return null;
+  }
+
+  @override
+  Future<ChatDetails> getChatDetails(String chatId) {
+    throw UnsupportedError('getChatDetails is not supported by legacy chat');
+  }
+
+  @override
+  Future<ChatDetails> renameGroupChat({
+    required String chatId,
+    required String title,
+  }) {
+    throw UnsupportedError('renameGroupChat is not supported by legacy chat');
+  }
+
+  @override
+  Future<ChatDetails> addGroupParticipants({
+    required String chatId,
+    required List<String> participantIds,
+  }) {
+    throw UnsupportedError(
+      'addGroupParticipants is not supported by legacy chat',
+    );
+  }
+
+  @override
+  Future<ChatDetails> removeGroupParticipant({
+    required String chatId,
+    required String participantId,
+  }) {
+    throw UnsupportedError(
+      'removeGroupParticipant is not supported by legacy chat',
+    );
   }
 }

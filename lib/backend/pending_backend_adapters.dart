@@ -1,6 +1,7 @@
 import 'package:image_picker/image_picker.dart';
 
 import '../models/chat_message.dart';
+import '../models/chat_details.dart';
 import '../models/chat_preview.dart';
 import '../models/chat_send_progress.dart';
 import '../models/family_person.dart';
@@ -475,6 +476,35 @@ class PendingBackendChatService implements ChatServiceInterface {
     required String treeId,
     required List<String> branchRootPersonIds,
     String? title,
+  }) {
+    throw UnsupportedError(_pendingProviderMessage('chat'));
+  }
+
+  @override
+  Future<ChatDetails> getChatDetails(String chatId) {
+    throw UnsupportedError(_pendingProviderMessage('chat'));
+  }
+
+  @override
+  Future<ChatDetails> renameGroupChat({
+    required String chatId,
+    required String title,
+  }) {
+    throw UnsupportedError(_pendingProviderMessage('chat'));
+  }
+
+  @override
+  Future<ChatDetails> addGroupParticipants({
+    required String chatId,
+    required List<String> participantIds,
+  }) {
+    throw UnsupportedError(_pendingProviderMessage('chat'));
+  }
+
+  @override
+  Future<ChatDetails> removeGroupParticipant({
+    required String chatId,
+    required String participantId,
   }) {
     throw UnsupportedError(_pendingProviderMessage('chat'));
   }

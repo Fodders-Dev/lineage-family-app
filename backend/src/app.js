@@ -329,6 +329,22 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
     };
   }
 
+  function mapChatParticipant(participant) {
+    return {
+      userId: participant.userId,
+      displayName: participant.displayName || "Пользователь",
+      photoUrl: participant.photoUrl || null,
+    };
+  }
+
+  function mapChatBranchRoot(branchRoot) {
+    return {
+      personId: branchRoot.personId,
+      name: branchRoot.name || "Без имени",
+      photoUrl: branchRoot.photoUrl || null,
+    };
+  }
+
   function mapChatPreview(preview) {
     return {
       id: `${preview.chatId}_${preview.userId}`,
@@ -1524,6 +1540,172 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
       chat: mappedChat,
     });
   });
+
+  app.get("/v1/chats/:chatId", requireAuth, async (req, res) => {
+    const chat = await requireChatAccess(req, res, req.params.chatId);
+    if (!chat) {
+      return;
+    }
+
+    const details = await store.getChatDetails(req.params.chatId);
+    if (!details) {
+      res.status(404).json({message: "Чат не найден"});
+      return;
+    }
+
+    res.json({
+      chat: mapChatRecord(details.chat),
+      participants: details.participants.map(mapChatParticipant),
+      branchRoots: details.branchRoots.map(mapChatBranchRoot),
+    });
+  });
+
+  app.patch("/v1/chats/:chatId", requireAuth, async (req, res) => {
+    const chat = await requireChatAccess(req, res, req.params.chatId);
+    if (!chat) {
+      return;
+    }
+
+    const updatedChat = await store.updateGroupChat(req.params.chatId, {
+      title: req.body?.title,
+    });
+    if (updatedChat === false) {
+      res.status(400).json({message: "Менять можно только обычный групповой чат"});
+      return;
+    }
+    if (updatedChat === undefined) {
+      res.status(400).json({message: "Нужно указать название чата"});
+      return;
+    }
+    if (!updatedChat) {
+      res.status(404).json({message: "Чат не найден"});
+      return;
+    }
+
+    const details = await store.getChatDetails(updatedChat.id);
+    if (!details) {
+      res.status(404).json({message: "Чат не найден"});
+      return;
+    }
+    const mappedChat = mapChatRecord(details.chat);
+    for (const participantId of details.chat.participantIds || []) {
+      realtimeHub?.publishToUser(participantId, {
+        type: "chat.updated",
+        chatId: details.chat.id,
+        chat: mappedChat,
+      });
+    }
+
+    res.json({
+      chat: mappedChat,
+      participants: details.participants.map(mapChatParticipant),
+      branchRoots: details.branchRoots.map(mapChatBranchRoot),
+    });
+  });
+
+  app.post("/v1/chats/:chatId/participants", requireAuth, async (req, res) => {
+    const chat = await requireChatAccess(req, res, req.params.chatId);
+    if (!chat) {
+      return;
+    }
+
+    const participantIds = Array.isArray(req.body?.participantIds)
+      ? req.body.participantIds
+      : [];
+    const updatedChat = await store.addGroupParticipants(
+      req.params.chatId,
+      participantIds,
+    );
+    if (updatedChat === false) {
+      res.status(400).json({message: "Менять можно только обычный групповой чат"});
+      return;
+    }
+    if (updatedChat === undefined) {
+      res.status(400).json({message: "Нужны новые участники"});
+      return;
+    }
+    if (!updatedChat) {
+      res.status(404).json({message: "Один или несколько участников не найдены"});
+      return;
+    }
+
+    const details = await store.getChatDetails(updatedChat.id);
+    if (!details) {
+      res.status(404).json({message: "Чат не найден"});
+      return;
+    }
+    const mappedChat = mapChatRecord(details.chat);
+    for (const participantId of details.chat.participantIds || []) {
+      realtimeHub?.publishToUser(participantId, {
+        type: "chat.updated",
+        chatId: details.chat.id,
+        chat: mappedChat,
+      });
+    }
+
+    res.json({
+      chat: mappedChat,
+      participants: details.participants.map(mapChatParticipant),
+      branchRoots: details.branchRoots.map(mapChatBranchRoot),
+    });
+  });
+
+  app.delete(
+    "/v1/chats/:chatId/participants/:participantId",
+    requireAuth,
+    async (req, res) => {
+      const chat = await requireChatAccess(req, res, req.params.chatId);
+      if (!chat) {
+        return;
+      }
+
+      const updatedChat = await store.removeGroupParticipant(
+        req.params.chatId,
+        req.params.participantId,
+      );
+      if (updatedChat === false) {
+        res.status(400).json({message: "Менять можно только обычный групповой чат"});
+        return;
+      }
+      if (updatedChat === undefined) {
+        res.status(400).json({
+          message: "Нельзя удалить этого участника из группового чата",
+        });
+        return;
+      }
+      if (!updatedChat) {
+        res.status(404).json({message: "Чат не найден"});
+        return;
+      }
+
+      const details = await store.getChatDetails(updatedChat.id);
+      if (!details) {
+        res.status(404).json({message: "Чат не найден"});
+        return;
+      }
+      const mappedChat = mapChatRecord(details.chat);
+      const affectedParticipantIds = new Set([
+        ...((chat.participantIds || []).map((entry) => String(entry || "").trim())),
+        ...(details.chat.participantIds || []).map((entry) => String(entry || "").trim()),
+      ]);
+      for (const participantId of affectedParticipantIds) {
+        if (!participantId) {
+          continue;
+        }
+        realtimeHub?.publishToUser(participantId, {
+          type: "chat.updated",
+          chatId: details.chat.id,
+          chat: mappedChat,
+        });
+      }
+
+      res.json({
+        chat: mappedChat,
+        participants: details.participants.map(mapChatParticipant),
+        branchRoots: details.branchRoots.map(mapChatBranchRoot),
+      });
+    },
+  );
 
   app.get("/v1/chats/:chatId/messages", requireAuth, async (req, res) => {
     const chat = await requireChatAccess(req, res, req.params.chatId);

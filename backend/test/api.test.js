@@ -978,6 +978,108 @@ test("group chat endpoints create previews before first message and keep media p
   }
 });
 
+test("group chat details and participant management work for ordinary groups", async () => {
+  const ctx = await startTestServer();
+
+  try {
+    const register = async (email, displayName) => {
+      const response = await fetch(`${ctx.baseUrl}/v1/auth/register`, {
+        method: "POST",
+        headers: {"content-type": "application/json"},
+        body: JSON.stringify({
+          email,
+          password: "secret123",
+          displayName,
+        }),
+      });
+      assert.equal(response.status, 201);
+      return response.json();
+    };
+
+    const alice = await register("group-details-alice@lineage.app", "Alice");
+    const bob = await register("group-details-bob@lineage.app", "Bob");
+    const cara = await register("group-details-cara@lineage.app", "Cara");
+    const dan = await register("group-details-dan@lineage.app", "Dan");
+
+    const createResponse = await fetch(`${ctx.baseUrl}/v1/chats/groups`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${alice.accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        title: "Семейный совет",
+        participantIds: [bob.user.id, cara.user.id],
+      }),
+    });
+    assert.equal(createResponse.status, 201);
+    const createdPayload = await createResponse.json();
+
+    const detailsResponse = await fetch(
+      `${ctx.baseUrl}/v1/chats/${createdPayload.chatId}`,
+      {
+        headers: {authorization: `Bearer ${bob.accessToken}`},
+      },
+    );
+    assert.equal(detailsResponse.status, 200);
+    const detailsPayload = await detailsResponse.json();
+    assert.equal(detailsPayload.chat.type, "group");
+    assert.equal(detailsPayload.chat.title, "Семейный совет");
+    assert.equal(detailsPayload.participants.length, 3);
+
+    const renameResponse = await fetch(
+      `${ctx.baseUrl}/v1/chats/${createdPayload.chatId}`,
+      {
+        method: "PATCH",
+        headers: {
+          authorization: `Bearer ${alice.accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({title: "Совет семьи"}),
+      },
+    );
+    assert.equal(renameResponse.status, 200);
+    const renamedPayload = await renameResponse.json();
+    assert.equal(renamedPayload.chat.title, "Совет семьи");
+
+    const addParticipantResponse = await fetch(
+      `${ctx.baseUrl}/v1/chats/${createdPayload.chatId}/participants`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${alice.accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({participantIds: [dan.user.id]}),
+      },
+    );
+    assert.equal(addParticipantResponse.status, 200);
+    const expandedPayload = await addParticipantResponse.json();
+    assert.equal(expandedPayload.participants.length, 4);
+    assert.ok(
+      expandedPayload.participants.some((participant) => participant.userId === dan.user.id),
+    );
+
+    const removeParticipantResponse = await fetch(
+      `${ctx.baseUrl}/v1/chats/${createdPayload.chatId}/participants/${cara.user.id}`,
+      {
+        method: "DELETE",
+        headers: {
+          authorization: `Bearer ${alice.accessToken}`,
+        },
+      },
+    );
+    assert.equal(removeParticipantResponse.status, 200);
+    const reducedPayload = await removeParticipantResponse.json();
+    assert.equal(reducedPayload.participants.length, 3);
+    assert.ok(
+      reducedPayload.participants.every((participant) => participant.userId !== cara.user.id),
+    );
+  } finally {
+    await stopTestServer(ctx);
+  }
+});
+
 test("branch chat endpoint reuses branch thread and limits participants to that branch", async () => {
   const ctx = await startTestServer();
 

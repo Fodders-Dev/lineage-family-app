@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:lineage/backend/backend_runtime_config.dart';
+import 'package:lineage/models/chat_details.dart';
 import 'package:lineage/models/chat_message.dart';
 import 'package:lineage/models/chat_send_progress.dart';
 import 'package:lineage/backend/interfaces/storage_service_interface.dart';
@@ -547,6 +548,188 @@ void main() {
       title: 'Ветка Иван Петров',
     );
     expect(chatId, 'chat-branch-1');
+  });
+
+  test('CustomApiChatService loads and updates ordinary group details',
+      () async {
+    final client = MockClient((request) async {
+      if (request.url.path == '/v1/chats/chat-group-1' &&
+          request.method == 'GET') {
+        return http.Response(
+          jsonEncode({
+            'chat': {
+              'id': 'chat-group-1',
+              'type': 'group',
+              'title': 'Семья Кузнецовых',
+              'participantIds': ['user-1', 'user-2'],
+              'treeId': 'tree-1',
+            },
+            'participants': [
+              {
+                'userId': 'user-1',
+                'displayName': 'Артем',
+              },
+              {
+                'userId': 'user-2',
+                'displayName': 'Андрей',
+              },
+            ],
+            'branchRoots': const [],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+
+      if (request.url.path == '/v1/chats/chat-group-1' &&
+          request.method == 'PATCH') {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(body['title'], 'Совет семьи');
+        return http.Response(
+          jsonEncode({
+            'chat': {
+              'id': 'chat-group-1',
+              'type': 'group',
+              'title': 'Совет семьи',
+              'participantIds': ['user-1', 'user-2'],
+              'treeId': 'tree-1',
+            },
+            'participants': [
+              {
+                'userId': 'user-1',
+                'displayName': 'Артем',
+              },
+              {
+                'userId': 'user-2',
+                'displayName': 'Андрей',
+              },
+            ],
+            'branchRoots': const [],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+
+      if (request.url.path == '/v1/chats/chat-group-1/participants' &&
+          request.method == 'POST') {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(body['participantIds'], ['user-3']);
+        return http.Response(
+          jsonEncode({
+            'chat': {
+              'id': 'chat-group-1',
+              'type': 'group',
+              'title': 'Совет семьи',
+              'participantIds': ['user-1', 'user-2', 'user-3'],
+              'treeId': 'tree-1',
+            },
+            'participants': [
+              {
+                'userId': 'user-1',
+                'displayName': 'Артем',
+              },
+              {
+                'userId': 'user-2',
+                'displayName': 'Андрей',
+              },
+              {
+                'userId': 'user-3',
+                'displayName': 'Дарья',
+              },
+            ],
+            'branchRoots': const [],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+
+      if (request.url.path == '/v1/chats/chat-group-1/participants/user-2' &&
+          request.method == 'DELETE') {
+        return http.Response(
+          jsonEncode({
+            'chat': {
+              'id': 'chat-group-1',
+              'type': 'group',
+              'title': 'Совет семьи',
+              'participantIds': ['user-1', 'user-3'],
+              'treeId': 'tree-1',
+            },
+            'participants': [
+              {
+                'userId': 'user-1',
+                'displayName': 'Артем',
+              },
+              {
+                'userId': 'user-3',
+                'displayName': 'Дарья',
+              },
+            ],
+            'branchRoots': const [],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+
+      return http.Response('{"message":"not found"}', 404);
+    });
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      'custom_api_session_v1',
+      jsonEncode({
+        'accessToken': 'access-token',
+        'refreshToken': 'refresh-token',
+        'userId': 'user-1',
+        'email': 'dev@lineage.app',
+        'displayName': 'Dev User',
+        'providerIds': ['password'],
+        'isProfileComplete': true,
+        'missingFields': const [],
+      }),
+    );
+
+    final authService = await CustomApiAuthService.create(
+      httpClient: client,
+      preferences: prefs,
+      runtimeConfig: const BackendRuntimeConfig(
+        apiBaseUrl: 'https://api.example.ru',
+      ),
+      invitationService: InvitationService(),
+    );
+
+    final chatService = CustomApiChatService(
+      authService: authService,
+      runtimeConfig: const BackendRuntimeConfig(
+        apiBaseUrl: 'https://api.example.ru',
+      ),
+      httpClient: client,
+    );
+
+    final details = await chatService.getChatDetails('chat-group-1');
+    expect(details, isA<ChatDetails>());
+    expect(details.memberCount, 2);
+    expect(details.displayTitle, 'Семья Кузнецовых');
+
+    final renamed = await chatService.renameGroupChat(
+      chatId: 'chat-group-1',
+      title: 'Совет семьи',
+    );
+    expect(renamed.displayTitle, 'Совет семьи');
+
+    final expanded = await chatService.addGroupParticipants(
+      chatId: 'chat-group-1',
+      participantIds: const ['user-3'],
+    );
+    expect(expanded.memberCount, 3);
+
+    final reduced = await chatService.removeGroupParticipant(
+      chatId: 'chat-group-1',
+      participantId: 'user-2',
+    );
+    expect(reduced.participantIds, ['user-1', 'user-3']);
   });
 
   test('CustomApiChatService reports attachment upload progress', () async {

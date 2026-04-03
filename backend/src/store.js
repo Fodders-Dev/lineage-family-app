@@ -1771,6 +1771,60 @@ class FileStore {
     return chat ? structuredClone(chat) : null;
   }
 
+  _buildChatDetails(db, chat) {
+    const normalizedChat = structuredClone(chat);
+    const participantIds = normalizeParticipantIds(chat.participantIds || []);
+    const participants = participantIds
+      .map((participantId) => {
+        const user = db.users.find((entry) => entry.id === participantId);
+        if (!user) {
+          return null;
+        }
+        return {
+          userId: user.id,
+          displayName:
+            user.profile?.displayName ||
+            composeDisplayNameFromProfile(user.profile) ||
+            user.email ||
+            "Пользователь",
+          photoUrl: user.profile?.photoUrl || null,
+        };
+      })
+      .filter(Boolean);
+    const branchRoots = Array.isArray(chat.branchRootPersonIds)
+      ? chat.branchRootPersonIds
+          .map((personId) => {
+            const person = db.persons.find((entry) => {
+              return entry.id === personId && entry.treeId === chat.treeId;
+            });
+            if (!person) {
+              return null;
+            }
+            return {
+              personId: person.id,
+              name: person.name || "Без имени",
+              photoUrl: person.photoUrl || null,
+            };
+          })
+          .filter(Boolean)
+      : [];
+
+    return {
+      chat: normalizedChat,
+      participants,
+      branchRoots,
+    };
+  }
+
+  async getChatDetails(chatId) {
+    const db = await this._read();
+    const chat = this._resolveChat(db, chatId);
+    if (!chat) {
+      return null;
+    }
+    return this._buildChatDetails(db, chat);
+  }
+
   async ensureDirectChat(userIdA, userIdB) {
     const db = await this._read();
     const participantIds = normalizeParticipantIds([userIdA, userIdB]);
@@ -1836,6 +1890,91 @@ class FileStore {
       branchRootPersonIds,
     });
     db.chats.push(chat);
+    await this._write(db);
+    return structuredClone(chat);
+  }
+
+  async updateGroupChat(chatId, {title}) {
+    const db = await this._read();
+    const chat = this._findStoredChat(db, chatId);
+    if (!chat) {
+      return null;
+    }
+    if (chat.type !== "group") {
+      return false;
+    }
+
+    const normalizedTitle = normalizeNullableString(title);
+    if (!normalizedTitle) {
+      return undefined;
+    }
+
+    chat.title = normalizedTitle;
+    chat.updatedAt = nowIso();
+    await this._write(db);
+    return structuredClone(chat);
+  }
+
+  async addGroupParticipants(chatId, participantIds) {
+    const db = await this._read();
+    const chat = this._findStoredChat(db, chatId);
+    if (!chat) {
+      return null;
+    }
+    if (chat.type !== "group") {
+      return false;
+    }
+
+    const nextParticipantIds = normalizeParticipantIds([
+      ...(chat.participantIds || []),
+      ...(Array.isArray(participantIds) ? participantIds : []),
+    ]);
+    if (nextParticipantIds.length <= normalizeParticipantIds(chat.participantIds).length) {
+      return undefined;
+    }
+
+    const missingUser = nextParticipantIds.some((participantId) => {
+      return !db.users.some((entry) => entry.id === participantId);
+    });
+    if (missingUser) {
+      return null;
+    }
+
+    chat.participantIds = nextParticipantIds;
+    chat.updatedAt = nowIso();
+    await this._write(db);
+    return structuredClone(chat);
+  }
+
+  async removeGroupParticipant(chatId, participantId) {
+    const db = await this._read();
+    const chat = this._findStoredChat(db, chatId);
+    if (!chat) {
+      return null;
+    }
+    if (chat.type !== "group") {
+      return false;
+    }
+
+    const normalizedParticipantId = String(participantId || "").trim();
+    if (!normalizedParticipantId) {
+      return undefined;
+    }
+
+    const currentParticipantIds = normalizeParticipantIds(chat.participantIds || []);
+    if (!currentParticipantIds.includes(normalizedParticipantId)) {
+      return undefined;
+    }
+
+    const nextParticipantIds = currentParticipantIds.filter((entry) => {
+      return entry !== normalizedParticipantId;
+    });
+    if (nextParticipantIds.length < 3) {
+      return undefined;
+    }
+
+    chat.participantIds = nextParticipantIds;
+    chat.updatedAt = nowIso();
     await this._write(db);
     return structuredClone(chat);
   }

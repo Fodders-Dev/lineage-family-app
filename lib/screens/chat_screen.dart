@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -8,6 +9,8 @@ import 'package:intl/intl.dart';
 import 'package:path/path.dart' as path;
 
 import '../backend/interfaces/chat_service_interface.dart';
+import '../backend/interfaces/family_tree_service_interface.dart';
+import '../models/chat_details.dart';
 import '../models/chat_message.dart';
 import '../models/chat_send_progress.dart';
 
@@ -93,16 +96,20 @@ class _ChatScreenState extends State<ChatScreen> {
 
   String? _currentUserId;
   String? _chatId;
+  ChatDetails? _chatDetails;
   String? _bootstrapError;
   bool _isBootstrapping = true;
+  bool _isLoadingChatDetails = false;
   bool _isMarkingRead = false;
   int _localMessageCounter = 0;
+  late String _resolvedTitle;
   final List<XFile> _selectedAttachments = <XFile>[];
   final List<_OutgoingMessage> _optimisticMessages = <_OutgoingMessage>[];
 
   @override
   void initState() {
     super.initState();
+    _resolvedTitle = widget.title;
     _bootstrapChat();
   }
 
@@ -146,6 +153,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _isBootstrapping = false;
       });
 
+      unawaited(_loadChatDetails());
       await _markChatAsRead();
     } catch (error) {
       if (!mounted) {
@@ -155,6 +163,37 @@ class _ChatScreenState extends State<ChatScreen> {
         _bootstrapError =
             'Не удалось открыть чат. Проверьте соединение и попробуйте снова.';
         _isBootstrapping = false;
+      });
+    }
+  }
+
+  Future<void> _loadChatDetails() async {
+    final chatId = _chatId;
+    if (chatId == null || chatId.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _isLoadingChatDetails = true;
+    });
+
+    try {
+      final details = await _chatService.getChatDetails(chatId);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _chatDetails = details;
+        _resolvedTitle = details.displayTitle;
+        _isLoadingChatDetails = false;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isLoadingChatDetails = false;
       });
     }
   }
@@ -423,6 +462,83 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  Future<void> _openChatInfo() async {
+    final details = _chatDetails;
+    final currentUserId = _currentUserId;
+    if (details == null || currentUserId == null || currentUserId.isEmpty) {
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => _ChatInfoSheet(
+        initialDetails: details,
+        currentUserId: currentUserId,
+        onRename: (title) async {
+          final updatedDetails = await _chatService.renameGroupChat(
+            chatId: details.chatId,
+            title: title,
+          );
+          if (!mounted) {
+            return updatedDetails;
+          }
+          setState(() {
+            _chatDetails = updatedDetails;
+            _resolvedTitle = updatedDetails.displayTitle;
+          });
+          return updatedDetails;
+        },
+        onAddParticipants: (participantIds) async {
+          final updatedDetails = await _chatService.addGroupParticipants(
+            chatId: details.chatId,
+            participantIds: participantIds,
+          );
+          if (!mounted) {
+            return updatedDetails;
+          }
+          setState(() {
+            _chatDetails = updatedDetails;
+          });
+          return updatedDetails;
+        },
+        onRemoveParticipant: (participantId) async {
+          final updatedDetails = await _chatService.removeGroupParticipant(
+            chatId: details.chatId,
+            participantId: participantId,
+          );
+          if (!mounted) {
+            return updatedDetails;
+          }
+          setState(() {
+            _chatDetails = updatedDetails;
+          });
+          return updatedDetails;
+        },
+      ),
+    );
+  }
+
+  String _chatSubtitle() {
+    final details = _chatDetails;
+    if (details != null && details.isBranch) {
+      final branchCount = details.branchRoots.length;
+      final memberCount = details.memberCount;
+      final branchLabel = branchCount == 1 ? '1 ветка' : '$branchCount ветки';
+      final memberLabel =
+          memberCount == 1 ? '1 участник' : '$memberCount участников';
+      return '$branchLabel · $memberLabel';
+    }
+    if (details != null && details.isGroup) {
+      final memberCount = details.memberCount;
+      return memberCount == 1 ? '1 участник' : '$memberCount участников';
+    }
+    return widget.chatType == 'branch'
+        ? 'Чат ветки'
+        : (widget.isGroup ? 'Групповой чат' : 'Личные сообщения');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -459,7 +575,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.title,
+                    _resolvedTitle,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 16,
@@ -467,16 +583,20 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   ),
                   Text(
-                    widget.chatType == 'branch'
-                        ? 'Чат ветки'
-                        : (widget.isGroup
-                            ? 'Групповой чат'
-                            : 'Личные сообщения'),
+                    _chatSubtitle(),
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
               ),
             ),
+            if (widget.isGroup)
+              IconButton(
+                onPressed: _isLoadingChatDetails || _chatDetails == null
+                    ? null
+                    : _openChatInfo,
+                tooltip: 'О чате',
+                icon: const Icon(Icons.info_outline),
+              ),
           ],
         ),
       ),
@@ -842,6 +962,556 @@ class _ChatScreenState extends State<ChatScreen> {
       return 'Вы';
     }
     return 'Участник';
+  }
+}
+
+class _ChatInfoSheet extends StatefulWidget {
+  const _ChatInfoSheet({
+    required this.initialDetails,
+    required this.currentUserId,
+    required this.onRename,
+    required this.onAddParticipants,
+    required this.onRemoveParticipant,
+  });
+
+  final ChatDetails initialDetails;
+  final String currentUserId;
+  final Future<ChatDetails> Function(String title) onRename;
+  final Future<ChatDetails> Function(List<String> participantIds)
+      onAddParticipants;
+  final Future<ChatDetails> Function(String participantId) onRemoveParticipant;
+
+  @override
+  State<_ChatInfoSheet> createState() => _ChatInfoSheetState();
+}
+
+class _ChatInfoSheetState extends State<_ChatInfoSheet> {
+  late ChatDetails _details;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _details = widget.initialDetails;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 8,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+        ),
+        child: SizedBox(
+          height: 600,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'О чате',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _details.displayTitle,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _details.isBranch
+                    ? 'Веточный чат обновляется по составу дерева автоматически.'
+                    : 'Обычная семейная группа. Можно менять название и участников.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: Colors.grey[600],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _InfoChip(
+                    icon: _details.isBranch
+                        ? Icons.account_tree_outlined
+                        : Icons.groups_2_outlined,
+                    label: _details.isBranch ? 'Чат ветки' : 'Группа',
+                  ),
+                  _InfoChip(
+                    icon: Icons.people_outline,
+                    label: _details.memberCount == 1
+                        ? '1 участник'
+                        : '${_details.memberCount} участников',
+                  ),
+                ],
+              ),
+              if (_details.branchRoots.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Text(
+                  'Ветки',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _details.branchRoots
+                      .map((root) => Chip(label: Text(root.name)))
+                      .toList(),
+                ),
+              ],
+              const SizedBox(height: 16),
+              if (_details.isEditableGroup) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: _isSaving ? null : _renameChat,
+                        icon: const Icon(Icons.edit_outlined),
+                        label: const Text('Переименовать'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _isSaving ? null : _addParticipants,
+                        icon: const Icon(Icons.person_add_alt_1_outlined),
+                        label: const Text('Добавить'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+              ],
+              Text(
+                'Участники',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: ListView.separated(
+                  itemCount: _details.participants.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final participant = _details.participants[index];
+                    final isCurrentUser =
+                        participant.userId == widget.currentUserId;
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(
+                        backgroundImage: participant.photoUrl != null &&
+                                participant.photoUrl!.isNotEmpty
+                            ? NetworkImage(participant.photoUrl!)
+                            : null,
+                        child: participant.photoUrl == null ||
+                                participant.photoUrl!.isEmpty
+                            ? Text(
+                                participant.displayName.isNotEmpty
+                                    ? participant.displayName[0]
+                                    : '?',
+                              )
+                            : null,
+                      ),
+                      title: Text(participant.displayName),
+                      subtitle: Text(isCurrentUser ? 'Вы' : 'Участник'),
+                      trailing: _details.isEditableGroup && !isCurrentUser
+                          ? IconButton(
+                              onPressed: _isSaving
+                                  ? null
+                                  : () => _removeParticipant(participant),
+                              tooltip: 'Убрать из чата',
+                              icon: const Icon(Icons.person_remove_outlined),
+                            )
+                          : null,
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _renameChat() async {
+    final controller = TextEditingController(text: _details.displayTitle);
+    final nextTitle = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Переименовать чат'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            labelText: 'Название',
+            hintText: 'Например, Семья Кузнецовых',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    if (!mounted || nextTitle == null || nextTitle.trim().isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+    });
+    try {
+      final details = await widget.onRename(nextTitle.trim());
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _details = details;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Не удалось переименовать чат.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _addParticipants() async {
+    final treeId = _details.treeId;
+    if (treeId == null || treeId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Для этого чата не найдено дерево.')),
+      );
+      return;
+    }
+    if (!GetIt.I.isRegistered<FamilyTreeServiceInterface>()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Список родных временно недоступен.')),
+      );
+      return;
+    }
+
+    final familyTreeService = GetIt.I<FamilyTreeServiceInterface>();
+    final relatives = await familyTreeService.getRelatives(treeId);
+    if (!mounted) {
+      return;
+    }
+
+    final existingParticipantIds = _details.participantIds.toSet();
+    final candidates = relatives
+        .where((person) {
+          final userId = person.userId?.trim();
+          return userId != null &&
+              userId.isNotEmpty &&
+              userId != widget.currentUserId &&
+              !existingParticipantIds.contains(userId);
+        })
+        .map(
+          (person) => _GroupChatCandidate(
+            userId: person.userId!.trim(),
+            displayName:
+                person.name.trim().isNotEmpty ? person.name : 'Пользователь',
+            photoUrl: person.photoUrl,
+            relationLabel: (person.relation ?? '').trim().isNotEmpty
+                ? person.relation!.trim()
+                : 'Родственник',
+          ),
+        )
+        .toList()
+      ..sort((left, right) => left.displayName.compareTo(right.displayName));
+
+    if (candidates.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('В этом дереве больше некого добавить.')),
+      );
+      return;
+    }
+
+    final selectedIds = await showModalBottomSheet<List<String>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => _AddParticipantsSheet(candidates: candidates),
+    );
+
+    if (!mounted || selectedIds == null || selectedIds.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+    });
+    try {
+      final details = await widget.onAddParticipants(selectedIds);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _details = details;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Не удалось добавить участников.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _removeParticipant(
+    ChatParticipantSummary participant,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Убрать участника'),
+        content: Text(
+          'Убрать ${participant.displayName} из этого чата?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Убрать'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) {
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+    });
+    try {
+      final details = await widget.onRemoveParticipant(participant.userId);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _details = details;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Не удалось обновить состав чата.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
+    }
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({
+    required this.icon,
+    required this.label,
+  });
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16),
+            const SizedBox(width: 6),
+            Text(label),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupChatCandidate {
+  const _GroupChatCandidate({
+    required this.userId,
+    required this.displayName,
+    required this.relationLabel,
+    this.photoUrl,
+  });
+
+  final String userId;
+  final String displayName;
+  final String relationLabel;
+  final String? photoUrl;
+}
+
+class _AddParticipantsSheet extends StatefulWidget {
+  const _AddParticipantsSheet({required this.candidates});
+
+  final List<_GroupChatCandidate> candidates;
+
+  @override
+  State<_AddParticipantsSheet> createState() => _AddParticipantsSheetState();
+}
+
+class _AddParticipantsSheetState extends State<_AddParticipantsSheet> {
+  final Set<String> _selectedIds = <String>{};
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final search = _searchController.text.trim().toLowerCase();
+    final filteredCandidates = widget.candidates.where((candidate) {
+      if (search.isEmpty) {
+        return true;
+      }
+      return candidate.displayName.toLowerCase().contains(search) ||
+          candidate.relationLabel.toLowerCase().contains(search);
+    }).toList();
+
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 8,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+        ),
+        child: SizedBox(
+          height: 520,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Добавить участников',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _searchController,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search),
+                  hintText: 'Найти по имени',
+                ),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: ListView.separated(
+                  itemCount: filteredCandidates.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 4),
+                  itemBuilder: (context, index) {
+                    final candidate = filteredCandidates[index];
+                    final isSelected = _selectedIds.contains(candidate.userId);
+                    return CheckboxListTile(
+                      value: isSelected,
+                      onChanged: (_) {
+                        setState(() {
+                          if (isSelected) {
+                            _selectedIds.remove(candidate.userId);
+                          } else {
+                            _selectedIds.add(candidate.userId);
+                          }
+                        });
+                      },
+                      secondary: CircleAvatar(
+                        backgroundImage: candidate.photoUrl != null &&
+                                candidate.photoUrl!.isNotEmpty
+                            ? NetworkImage(candidate.photoUrl!)
+                            : null,
+                        child: candidate.photoUrl == null ||
+                                candidate.photoUrl!.isEmpty
+                            ? Text(
+                                candidate.displayName.isNotEmpty
+                                    ? candidate.displayName[0]
+                                    : '?',
+                              )
+                            : null,
+                      ),
+                      title: Text(candidate.displayName),
+                      subtitle: Text(candidate.relationLabel),
+                      controlAffinity: ListTileControlAffinity.trailing,
+                      contentPadding: EdgeInsets.zero,
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _selectedIds.isEmpty
+                      ? null
+                      : () => Navigator.of(context).pop(_selectedIds.toList()),
+                  icon: const Icon(Icons.person_add_alt_1_outlined),
+                  label: Text(
+                    _selectedIds.isEmpty
+                        ? 'Выберите участников'
+                        : 'Добавить ${_selectedIds.length}',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

@@ -10,6 +10,7 @@ import '../backend/backend_runtime_config.dart';
 import '../backend/interfaces/chat_service_interface.dart';
 import '../backend/interfaces/storage_service_interface.dart';
 import '../models/chat_attachment.dart';
+import '../models/chat_details.dart';
 import '../models/chat_message.dart';
 import '../models/chat_preview.dart';
 import '../models/chat_send_progress.dart';
@@ -391,6 +392,97 @@ class CustomApiChatService implements ChatServiceInterface {
     return chatId;
   }
 
+  @override
+  Future<ChatDetails> getChatDetails(String chatId) async {
+    final response = await _requestJson(
+      method: 'GET',
+      path: '/v1/chats/$chatId',
+    );
+
+    final rawChat = response['chat'];
+    if (rawChat is! Map<String, dynamic>) {
+      throw const CustomApiException('Не удалось загрузить данные чата');
+    }
+
+    return ChatDetails.fromMap({
+      ...rawChat,
+      'participants': response['participants'],
+      'branchRoots': response['branchRoots'],
+    });
+  }
+
+  @override
+  Future<ChatDetails> renameGroupChat({
+    required String chatId,
+    required String title,
+  }) async {
+    final response = await _requestJson(
+      method: 'PATCH',
+      path: '/v1/chats/$chatId',
+      body: {
+        'title': title.trim(),
+      },
+    );
+
+    final rawChat = response['chat'];
+    if (rawChat is! Map<String, dynamic>) {
+      throw const CustomApiException('Не удалось обновить название чата');
+    }
+
+    return ChatDetails.fromMap({
+      ...rawChat,
+      'participants': response['participants'],
+      'branchRoots': response['branchRoots'],
+    });
+  }
+
+  @override
+  Future<ChatDetails> addGroupParticipants({
+    required String chatId,
+    required List<String> participantIds,
+  }) async {
+    final response = await _requestJson(
+      method: 'POST',
+      path: '/v1/chats/$chatId/participants',
+      body: {
+        'participantIds': participantIds,
+      },
+    );
+
+    final rawChat = response['chat'];
+    if (rawChat is! Map<String, dynamic>) {
+      throw const CustomApiException('Не удалось добавить участников');
+    }
+
+    return ChatDetails.fromMap({
+      ...rawChat,
+      'participants': response['participants'],
+      'branchRoots': response['branchRoots'],
+    });
+  }
+
+  @override
+  Future<ChatDetails> removeGroupParticipant({
+    required String chatId,
+    required String participantId,
+  }) async {
+    final response = await _requestJson(
+      method: 'DELETE',
+      path: '/v1/chats/$chatId/participants/$participantId',
+    );
+
+    final rawChat = response['chat'];
+    if (rawChat is! Map<String, dynamic>) {
+      throw const CustomApiException('Не удалось обновить состав чата');
+    }
+
+    return ChatDetails.fromMap({
+      ...rawChat,
+      'participants': response['participants'],
+      'branchRoots': response['branchRoots'],
+    });
+  }
+
   Future<List<ChatPreview>> _fetchChatPreviews() async {
     final response = await _requestJson(
       method: 'GET',
@@ -600,6 +692,20 @@ class CustomApiChatService implements ChatServiceInterface {
           uri,
           headers: _headers(),
           body: jsonEncode(body ?? const <String, dynamic>{}),
+        );
+        break;
+      case 'PATCH':
+        response = await _httpClient.patch(
+          uri,
+          headers: _headers(),
+          body: jsonEncode(body ?? const <String, dynamic>{}),
+        );
+        break;
+      case 'DELETE':
+        response = await _httpClient.delete(
+          uri,
+          headers: _headers(),
+          body: body == null ? null : jsonEncode(body),
         );
         break;
       default:
