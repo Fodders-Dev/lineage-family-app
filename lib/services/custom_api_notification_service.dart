@@ -81,6 +81,10 @@ class CustomApiNotificationService implements NotificationServiceInterface {
       'custom_api_registered_push_token_v1';
   static const String _notificationsEnabledStorageKey =
       'custom_api_notifications_enabled_v1';
+  static const String _registeredBrowserPushDeviceIdStorageKey =
+      'custom_api_registered_browser_push_device_id_v1';
+  static const String _registeredBrowserPushTokenStorageKey =
+      'custom_api_registered_browser_push_token_v1';
 
   static Future<CustomApiNotificationService> create({
     FlutterLocalNotificationsPlugin? plugin,
@@ -209,6 +213,7 @@ class CustomApiNotificationService implements NotificationServiceInterface {
     }
 
     await _registerRemotePushDevice();
+    await _registerBrowserPushDevice();
 
     if (_realtimeService != null) {
       await _realtimeService!.connect();
@@ -231,6 +236,13 @@ class CustomApiNotificationService implements NotificationServiceInterface {
       unawaited(_syncPendingNotificationsSafely());
       unawaited(refreshUnreadNotificationsCount());
     });
+
+    if (kIsWeb) {
+      final initialPayload = Uri.base.queryParameters['notificationPayload'];
+      if (initialPayload != null && initialPayload.isNotEmpty) {
+        _schedulePayloadNavigation(initialPayload);
+      }
+    }
 
     final pendingPayload = _pendingNavigationPayload;
     if (pendingPayload != null && pendingPayload.isNotEmpty) {
@@ -441,6 +453,10 @@ class CustomApiNotificationService implements NotificationServiceInterface {
     bool enabled, {
     bool promptForBrowserPermission = false,
   }) async {
+    if (!enabled && kIsWeb) {
+      await _unregisterBrowserPushDevice();
+    }
+
     if (enabled && kIsWeb) {
       final permission = await _browserNotificationBridge.requestPermission(
         prompt: promptForBrowserPermission,
@@ -454,6 +470,9 @@ class CustomApiNotificationService implements NotificationServiceInterface {
 
     _notificationsEnabled = enabled;
     await _preferences.setBool(_notificationsEnabledStorageKey, enabled);
+    if (enabled && kIsWeb) {
+      await _registerBrowserPushDevice();
+    }
     return _notificationsEnabled;
   }
 
@@ -685,6 +704,129 @@ class CustomApiNotificationService implements NotificationServiceInterface {
       _registeredPushTokenStorageKey,
       nextFingerprint,
     );
+  }
+
+  Future<void> _registerBrowserPushDevice() async {
+    if (!kIsWeb ||
+        !_notificationsEnabled ||
+        !_browserNotificationBridge.isPushSupported) {
+      return;
+    }
+
+    final authService = _authService;
+    final runtimeConfig = _runtimeConfig;
+    if (authService == null || runtimeConfig == null) {
+      return;
+    }
+
+    final accessToken = authService.accessToken;
+    if (accessToken == null || accessToken.isEmpty) {
+      return;
+    }
+
+    if (_browserNotificationBridge.permissionStatus !=
+        BrowserNotificationPermissionStatus.granted) {
+      return;
+    }
+
+    final configResponse = await _httpClient.get(
+      _buildUri(runtimeConfig, '/v1/push/web/config'),
+      headers: _headers(accessToken),
+    );
+    final configPayload = _decodeResponse(configResponse);
+    final isEnabled = configPayload['enabled'] == true;
+    final publicKey = configPayload['publicKey']?.toString() ?? '';
+    if (!isEnabled || publicKey.isEmpty) {
+      return;
+    }
+
+    final subscription = await _browserNotificationBridge.subscribeToPush(
+      publicKey: publicKey,
+    );
+    if (subscription == null || subscription.token.isEmpty) {
+      return;
+    }
+
+    final previousToken =
+        _preferences.getString(_registeredBrowserPushTokenStorageKey);
+    final previousDeviceId =
+        _preferences.getString(_registeredBrowserPushDeviceIdStorageKey);
+    if (previousToken == subscription.token &&
+        previousDeviceId != null &&
+        previousDeviceId.isNotEmpty) {
+      return;
+    }
+
+    final response = await _httpClient.post(
+      _buildUri(runtimeConfig, '/v1/push/devices'),
+      headers: _headers(accessToken),
+      body: jsonEncode({
+        'provider': 'webpush',
+        'token': subscription.token,
+        'platform': 'web',
+      }),
+    );
+    final payload = _decodeResponse(response);
+    final device = _asStringDynamicMap(payload['device']);
+    final deviceId = device['id']?.toString() ?? '';
+    if (deviceId.isEmpty) {
+      return;
+    }
+
+    if (previousDeviceId != null &&
+        previousDeviceId.isNotEmpty &&
+        previousDeviceId != deviceId) {
+      await _deletePushDevice(previousDeviceId);
+    }
+
+    await _preferences.setString(
+      _registeredBrowserPushTokenStorageKey,
+      subscription.token,
+    );
+    await _preferences.setString(
+      _registeredBrowserPushDeviceIdStorageKey,
+      deviceId,
+    );
+  }
+
+  Future<void> _unregisterBrowserPushDevice() async {
+    if (!kIsWeb) {
+      return;
+    }
+
+    final deviceId =
+        _preferences.getString(_registeredBrowserPushDeviceIdStorageKey);
+    if (deviceId != null && deviceId.isNotEmpty) {
+      await _deletePushDevice(deviceId);
+    }
+
+    await _browserNotificationBridge.unsubscribeFromPush();
+    await _preferences.remove(_registeredBrowserPushDeviceIdStorageKey);
+    await _preferences.remove(_registeredBrowserPushTokenStorageKey);
+  }
+
+  Future<void> _deletePushDevice(String deviceId) async {
+    final authService = _authService;
+    final runtimeConfig = _runtimeConfig;
+    final accessToken = authService?.accessToken;
+    if (authService == null ||
+        runtimeConfig == null ||
+        accessToken == null ||
+        accessToken.isEmpty) {
+      return;
+    }
+
+    try {
+      final response = await _httpClient.delete(
+        _buildUri(runtimeConfig, '/v1/push/devices/$deviceId'),
+        headers: _headers(accessToken),
+      );
+      _decodeResponse(response);
+    } on CustomApiException catch (error) {
+      if (error.statusCode != 404) {
+        rethrow;
+      }
+    }
   }
 
   Future<String?> _resolveRemotePushToken() async {

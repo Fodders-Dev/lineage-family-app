@@ -23,7 +23,53 @@ void main() {
   test(
     'CustomApiNotificationService shows unread backend notifications in browser',
     () async {
+      var webConfigCalls = 0;
+      var pushDeviceRegistrations = 0;
+
       final client = MockClient((request) async {
+        if (request.url.path == '/v1/push/web/config' &&
+            request.method == 'GET') {
+          webConfigCalls += 1;
+          return http.Response(
+            jsonEncode({
+              'enabled': true,
+              'publicKey': 'BElfakeVapidKey1234567890',
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        if (request.url.path == '/v1/push/devices' &&
+            request.method == 'POST') {
+          pushDeviceRegistrations += 1;
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          expect(body['provider'], 'webpush');
+          expect(body['platform'], 'web');
+          expect(body['token'],
+              '{"endpoint":"https://push.example.test/subscription"}');
+          return http.Response(
+            jsonEncode({
+              'device': {
+                'id': 'web-device-1',
+                'provider': 'webpush',
+                'platform': 'web',
+              },
+            }),
+            201,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        if (request.url.path == '/v1/notifications/unread-count' &&
+            request.method == 'GET') {
+          return http.Response(
+            jsonEncode({'totalUnread': 1}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
         if (request.url.path == '/v1/notifications' &&
             request.method == 'GET') {
           return http.Response(
@@ -99,6 +145,9 @@ void main() {
 
       await service.startForegroundSync();
 
+      expect(webConfigCalls, 1);
+      expect(pushDeviceRegistrations, 1);
+      expect(bridge.pushSubscriptionsRequested, 1);
       expect(bridge.shownNotifications, hasLength(1));
       expect(bridge.shownNotifications.single.title, 'Приглашение в дерево');
       expect(
@@ -165,6 +214,70 @@ void main() {
       await service.dispose();
     },
   );
+
+  test(
+    'CustomApiNotificationService unregisters browser push device when notifications are disabled',
+    () async {
+      var deletedDeviceId = '';
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'custom_api_session_v1',
+        jsonEncode({
+          'accessToken': 'access-token',
+          'refreshToken': 'refresh-token',
+          'userId': 'user-1',
+          'email': 'dev@lineage.app',
+          'displayName': 'Dev User',
+          'providerIds': ['password'],
+          'isProfileComplete': true,
+          'missingFields': const [],
+        }),
+      );
+      await prefs.setString(
+        'custom_api_registered_browser_push_device_id_v1',
+        'web-device-1',
+      );
+
+      final authService = await CustomApiAuthService.create(
+        httpClient: MockClient((request) async {
+          if (request.url.path == '/v1/push/devices/web-device-1' &&
+              request.method == 'DELETE') {
+            deletedDeviceId = 'web-device-1';
+            return http.Response('', 204);
+          }
+          return http.Response('{"message":"not found"}', 404);
+        }),
+        preferences: prefs,
+        runtimeConfig: const BackendRuntimeConfig(
+          apiBaseUrl: 'https://api.example.ru',
+        ),
+        invitationService: InvitationService(),
+      );
+
+      final bridge = _FakeBrowserNotificationBridge(
+        permissionStatusValue: BrowserNotificationPermissionStatus.granted,
+      );
+
+      final service = await CustomApiNotificationService.create(
+        preferences: prefs,
+        authService: authService,
+        runtimeConfig: const BackendRuntimeConfig(
+          apiBaseUrl: 'https://api.example.ru',
+        ),
+        browserNotificationBridge: bridge,
+      );
+
+      expect(await service.setNotificationsEnabled(false), isFalse);
+      expect(deletedDeviceId, 'web-device-1');
+      expect(bridge.pushUnsubscribeCalls, 1);
+      expect(
+        prefs.containsKey('custom_api_registered_browser_push_device_id_v1'),
+        isFalse,
+      );
+
+      await service.dispose();
+    },
+  );
 }
 
 class _FakeBrowserNotificationBridge implements BrowserNotificationBridge {
@@ -174,11 +287,16 @@ class _FakeBrowserNotificationBridge implements BrowserNotificationBridge {
 
   BrowserNotificationPermissionStatus _permissionStatus;
   int requestedPermissions = 0;
+  int pushSubscriptionsRequested = 0;
+  int pushUnsubscribeCalls = 0;
   final List<_ShownBrowserNotification> shownNotifications =
       <_ShownBrowserNotification>[];
 
   @override
   bool get isSupported => true;
+
+  @override
+  bool get isPushSupported => true;
 
   @override
   BrowserNotificationPermissionStatus get permissionStatus => _permissionStatus;
@@ -204,6 +322,21 @@ class _FakeBrowserNotificationBridge implements BrowserNotificationBridge {
     shownNotifications.add(
       _ShownBrowserNotification(title: title, body: body, tag: tag),
     );
+  }
+
+  @override
+  Future<BrowserPushSubscription?> subscribeToPush({
+    required String publicKey,
+  }) async {
+    pushSubscriptionsRequested += 1;
+    return const BrowserPushSubscription(
+      token: '{"endpoint":"https://push.example.test/subscription"}',
+    );
+  }
+
+  @override
+  Future<void> unsubscribeFromPush() async {
+    pushUnsubscribeCalls += 1;
   }
 }
 

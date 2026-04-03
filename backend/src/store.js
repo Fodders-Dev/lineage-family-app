@@ -81,6 +81,9 @@ function createPushDeliveryRecord({
     status: String(status || "queued").trim(),
     createdAt: timestamp,
     updatedAt: timestamp,
+    deliveredAt: null,
+    lastError: null,
+    responseCode: null,
   };
 }
 
@@ -1387,6 +1390,41 @@ class FileStore {
       )
       .slice(0, limit)
       .map((entry) => structuredClone(entry));
+  }
+
+  async updatePushDelivery(
+    deliveryId,
+    {
+      status,
+      deliveredAt,
+      lastError,
+      responseCode,
+    } = {},
+  ) {
+    const db = await this._read();
+    const delivery = db.pushDeliveries.find((entry) => entry.id === deliveryId);
+    if (!delivery) {
+      return null;
+    }
+
+    if (status !== undefined) {
+      delivery.status = String(status || delivery.status).trim();
+    }
+    if (deliveredAt !== undefined) {
+      delivery.deliveredAt = deliveredAt || null;
+    }
+    if (lastError !== undefined) {
+      delivery.lastError = lastError ? String(lastError) : null;
+    }
+    if (responseCode !== undefined) {
+      const normalizedCode = Number(responseCode);
+      delivery.responseCode = Number.isFinite(normalizedCode)
+        ? normalizedCode
+        : null;
+    }
+    delivery.updatedAt = nowIso();
+    await this._write(db);
+    return structuredClone(delivery);
   }
 
   async listNotifications(userId, {status = null, limit = 50} = {}) {

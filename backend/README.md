@@ -54,6 +54,7 @@
 - `GET /v1/notifications/unread-count`
 - `POST /v1/notifications/:notificationId/read`
 - `GET /v1/push/devices`
+- `GET /v1/push/web/config`
 - `POST /v1/push/devices`
 - `DELETE /v1/push/devices/:deviceId`
 - `GET /v1/push/deliveries`
@@ -77,6 +78,10 @@ npm start
 - `LINEAGE_BACKEND_DATA_PATH` - путь к JSON-файлу dev-хранилища, по умолчанию `backend/data/dev-db.json`
 - `LINEAGE_BACKEND_CORS_ORIGIN` - CORS origin, по умолчанию `*`
 - `LINEAGE_BACKEND_MEDIA_ROOT` - папка для сохранения media-файлов, по умолчанию `backend/data/uploads`
+- `LINEAGE_PUBLIC_APP_URL` - публичный URL web-приложения, по умолчанию `https://rodnya-tree.ru`
+- `LINEAGE_WEB_PUSH_PUBLIC_KEY` - публичный VAPID key для browser push
+- `LINEAGE_WEB_PUSH_PRIVATE_KEY` - приватный VAPID key для browser push
+- `LINEAGE_WEB_PUSH_SUBJECT` - VAPID subject, по умолчанию `https://rodnya-tree.ru`
 
 ## Подключение Flutter dev-сборки
 
@@ -106,3 +111,4 @@ flutter run `
 - Notification feed тоже покрыт в минимальном виде: backend создаёт unread-события для сообщений, заявок на родство и приглашений в дерево, а Flutter `customApi` path может забирать их polling-ом и показывать как локальные уведомления.
 - Realtime-путь теперь тоже есть: backend поднимает `WS /v1/realtime`, а Flutter `customApi` chat/notification path может получать server-driven события для новых сообщений и уведомлений.
 - Remote push пока реализован как backend-controlled registry и delivery queue: клиент может регистрировать push-устройства, а backend создаёт delivery records. Полноценные vendor adapters для RuStore/FCM ещё остаются следующим шагом.
+- Browser push теперь поддерживается отдельно через Web Push API и VAPID, если backend запущен с `LINEAGE_WEB_PUSH_*` ключами.

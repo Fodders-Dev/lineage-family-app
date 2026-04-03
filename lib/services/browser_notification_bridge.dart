@@ -10,8 +10,17 @@ enum BrowserNotificationPermissionStatus {
   unsupported,
 }
 
+class BrowserPushSubscription {
+  const BrowserPushSubscription({
+    required this.token,
+  });
+
+  final String token;
+}
+
 abstract class BrowserNotificationBridge {
   bool get isSupported;
+  bool get isPushSupported;
   BrowserNotificationPermissionStatus get permissionStatus;
 
   Future<BrowserNotificationPermissionStatus> requestPermission({
@@ -24,6 +33,12 @@ abstract class BrowserNotificationBridge {
     String? tag,
     VoidCallback? onClick,
   });
+
+  Future<BrowserPushSubscription?> subscribeToPush({
+    required String publicKey,
+  });
+
+  Future<void> unsubscribeFromPush();
 }
 
 BrowserNotificationBridge createBrowserNotificationBridge() =>

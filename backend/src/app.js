@@ -8,9 +8,12 @@ const {
   composeDisplayName,
   sanitizeProfile,
 } = require("./profile-utils");
+const {PushGateway} = require("./push-gateway");
 
 function createApp({store, config, realtimeHub = null, pushGateway = null}) {
   const app = express();
+  const resolvedPushGateway =
+    pushGateway ?? new PushGateway({store, config});
 
   app.use(cors({origin: config.corsOrigin}));
   app.use(express.json({limit: "10mb"}));
@@ -239,6 +242,9 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
       status: delivery.status,
       createdAt: delivery.createdAt,
       updatedAt: delivery.updatedAt,
+      deliveredAt: delivery.deliveredAt || null,
+      lastError: delivery.lastError || null,
+      responseCode: delivery.responseCode ?? null,
     };
   }
 
@@ -332,7 +338,7 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
       type: "notification.created",
       notification: mappedNotification,
     });
-    await pushGateway?.dispatchNotification(notification);
+    await resolvedPushGateway.dispatchNotification(notification);
 
     return mappedNotification;
   }
@@ -1525,6 +1531,13 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
     const devices = await store.listPushDevices(req.auth.user.id);
     res.json({
       devices: devices.map(mapPushDevice),
+    });
+  });
+
+  app.get("/v1/push/web/config", requireAuth, async (req, res) => {
+    res.json({
+      enabled: Boolean(config.webPushEnabled),
+      publicKey: config.webPushEnabled ? config.webPushPublicKey : null,
     });
   });
 

@@ -10,7 +10,7 @@ async function startServer() {
   await store.initialize();
 
   const realtimeHub = new RealtimeHub({store});
-  const pushGateway = new PushGateway({store});
+  const pushGateway = new PushGateway({store, config});
   const app = createApp({store, config, realtimeHub, pushGateway});
   const server = app.listen(config.port, "127.0.0.1", () => {
     console.log(

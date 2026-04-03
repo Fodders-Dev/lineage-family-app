@@ -85,9 +85,14 @@ class _FakeBrowserNotificationBridge implements BrowserNotificationBridge {
 
   BrowserNotificationPermissionStatus permissionStatusValue;
   int permissionRequests = 0;
+  int pushSubscriptionRequests = 0;
+  int pushUnsubscribeCalls = 0;
 
   @override
   bool get isSupported => true;
+
+  @override
+  bool get isPushSupported => true;
 
   @override
   BrowserNotificationPermissionStatus get permissionStatus =>
@@ -112,6 +117,19 @@ class _FakeBrowserNotificationBridge implements BrowserNotificationBridge {
     String? tag,
     VoidCallback? onClick,
   }) async {}
+
+  @override
+  Future<BrowserPushSubscription?> subscribeToPush({
+    required String publicKey,
+  }) async {
+    pushSubscriptionRequests += 1;
+    return const BrowserPushSubscription(token: '{"endpoint":"test"}');
+  }
+
+  @override
+  Future<void> unsubscribeFromPush() async {
+    pushUnsubscribeCalls += 1;
+  }
 }
 
 void main() {

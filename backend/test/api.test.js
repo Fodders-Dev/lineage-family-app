@@ -41,6 +41,53 @@ async function startTestServer() {
   };
 }
 
+async function startConfiguredTestServer({
+  configOverrides = {},
+  pushGateway = null,
+  pushGatewayFactory = null,
+} = {}) {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "lineage-backend-"));
+  const dataPath = path.join(tempDir, "dev-db.json");
+  const store = new FileStore(dataPath);
+  await store.initialize();
+
+  const realtimeHub = new RealtimeHub({store});
+  const resolvedConfig = {
+    corsOrigin: "*",
+    dataPath,
+    mediaRootPath: path.join(tempDir, "uploads"),
+    publicAppUrl: "https://rodnya-tree.ru",
+    webPushPublicKey: "",
+    webPushPrivateKey: "",
+    webPushSubject: "https://rodnya-tree.ru",
+    webPushEnabled: false,
+    ...configOverrides,
+  };
+  const resolvedPushGateway =
+    pushGateway ??
+    (pushGatewayFactory
+      ? pushGatewayFactory({store, config: resolvedConfig})
+      : new PushGateway({store, config: resolvedConfig}));
+  const app = createApp({
+    store,
+    config: resolvedConfig,
+    realtimeHub,
+    pushGateway: resolvedPushGateway,
+  });
+
+  const server = await new Promise((resolve) => {
+    const instance = app.listen(0, "127.0.0.1", () => resolve(instance));
+  });
+  realtimeHub.attach(server);
+
+  return {
+    baseUrl: `http://127.0.0.1:${server.address().port}`,
+    wsBaseUrl: `ws://127.0.0.1:${server.address().port}`,
+    server,
+    tempDir,
+  };
+}
+
 async function stopTestServer(ctx) {
   await new Promise((resolve, reject) => {
     ctx.server.close((error) => (error ? reject(error) : resolve()));
@@ -1231,6 +1278,186 @@ test("notification feed tracks unread events from chat, relation requests and tr
     assert.equal(unreadAfterReadResponse.status, 200);
     const unreadAfterRead = await unreadAfterReadResponse.json();
     assert.equal(unreadAfterRead.totalUnread, 2);
+  } finally {
+    await stopTestServer(ctx);
+  }
+});
+
+test("web push config exposes VAPID public key when enabled", async () => {
+  const ctx = await startConfiguredTestServer({
+    configOverrides: {
+      webPushEnabled: true,
+      webPushPublicKey: "public-vapid-key",
+      webPushPrivateKey: "private-vapid-key",
+    },
+    pushGatewayFactory: ({store, config}) =>
+      new PushGateway({
+        store,
+        config,
+        webPushClient: {
+          setVapidDetails() {},
+          async sendNotification() {
+            return {statusCode: 201};
+          },
+        },
+      }),
+  });
+
+  try {
+    const registerResponse = await fetch(`${ctx.baseUrl}/v1/auth/register`, {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({
+        email: "webpush-config@lineage.app",
+        password: "secret123",
+        displayName: "Web Push Config",
+      }),
+    });
+    assert.equal(registerResponse.status, 201);
+    const registered = await registerResponse.json();
+
+    const configResponse = await fetch(`${ctx.baseUrl}/v1/push/web/config`, {
+      headers: {authorization: `Bearer ${registered.accessToken}`},
+    });
+    assert.equal(configResponse.status, 200);
+    const configPayload = await configResponse.json();
+    assert.equal(configPayload.enabled, true);
+    assert.equal(configPayload.publicKey, "public-vapid-key");
+  } finally {
+    await stopTestServer(ctx);
+  }
+});
+
+test("web push delivery marks delivery as sent for subscribed browser", async () => {
+  const sentNotifications = [];
+  const fakeWebPushClient = {
+    setVapidDetails() {},
+    async sendNotification(subscription, payload) {
+      sentNotifications.push({subscription, payload: JSON.parse(payload)});
+      return {statusCode: 201};
+    },
+  };
+
+  const ctx = await startConfiguredTestServer({
+    configOverrides: {
+      webPushEnabled: true,
+      webPushPublicKey: "public-vapid-key",
+      webPushPrivateKey: "private-vapid-key",
+    },
+    pushGatewayFactory: ({store, config}) =>
+      new PushGateway({
+        store,
+        config,
+        webPushClient: fakeWebPushClient,
+      }),
+  });
+
+  try {
+    const ownerResponse = await fetch(`${ctx.baseUrl}/v1/auth/register`, {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({
+        email: "webpush-owner@lineage.app",
+        password: "secret123",
+        displayName: "Web Push Owner",
+      }),
+    });
+    assert.equal(ownerResponse.status, 201);
+    const owner = await ownerResponse.json();
+
+    const inviteeResponse = await fetch(`${ctx.baseUrl}/v1/auth/register`, {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({
+        email: "webpush-invitee@lineage.app",
+        password: "secret123",
+        displayName: "Web Push Invitee",
+      }),
+    });
+    assert.equal(inviteeResponse.status, 201);
+    const invitee = await inviteeResponse.json();
+
+    const registerDeviceResponse = await fetch(
+      `${ctx.baseUrl}/v1/push/devices`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${invitee.accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          provider: "webpush",
+          token: JSON.stringify({
+            endpoint: "https://push.example.test/subscription-1",
+            keys: {
+              p256dh: "p256dh-key",
+              auth: "auth-key",
+            },
+          }),
+          platform: "web",
+        }),
+      },
+    );
+    assert.equal(registerDeviceResponse.status, 201);
+
+    const createTreeResponse = await fetch(`${ctx.baseUrl}/v1/trees`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${owner.accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "Web Push Tree",
+        description: "Проверка browser push",
+        isPrivate: true,
+      }),
+    });
+    assert.equal(createTreeResponse.status, 201);
+    const treePayload = await createTreeResponse.json();
+
+    const inviteResponse = await fetch(
+      `${ctx.baseUrl}/v1/trees/${treePayload.tree.id}/invitations`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${owner.accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          recipientUserId: invitee.user.id,
+          relationToTree: "родственник",
+        }),
+      },
+    );
+    assert.equal(inviteResponse.status, 201);
+    assert.equal(sentNotifications.length, 1);
+    assert.equal(
+      sentNotifications[0].subscription.endpoint,
+      "https://push.example.test/subscription-1",
+    );
+    assert.equal(
+      sentNotifications[0].payload.title,
+      "Приглашение в семейное дерево",
+    );
+    assert.match(
+      sentNotifications[0].payload.url,
+      /notificationPayload=.*#\/notifications$/,
+    );
+
+    const deliveriesResponse = await fetch(
+      `${ctx.baseUrl}/v1/push/deliveries?limit=10`,
+      {
+        headers: {authorization: `Bearer ${invitee.accessToken}`},
+      },
+    );
+    assert.equal(deliveriesResponse.status, 200);
+    const deliveriesPayload = await deliveriesResponse.json();
+    assert.equal(deliveriesPayload.deliveries.length, 1);
+    assert.equal(deliveriesPayload.deliveries[0].provider, "webpush");
+    assert.equal(deliveriesPayload.deliveries[0].status, "sent");
+    assert.ok(deliveriesPayload.deliveries[0].deliveredAt);
+    assert.equal(deliveriesPayload.deliveries[0].lastError, null);
+    assert.equal(deliveriesPayload.deliveries[0].responseCode, 201);
   } finally {
     await stopTestServer(ctx);
   }

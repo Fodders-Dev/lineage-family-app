@@ -5,6 +5,9 @@ class _StubBrowserNotificationBridge implements BrowserNotificationBridge {
   bool get isSupported => false;
 
   @override
+  bool get isPushSupported => false;
+
+  @override
   BrowserNotificationPermissionStatus get permissionStatus =>
       BrowserNotificationPermissionStatus.unsupported;
 
@@ -22,6 +25,16 @@ class _StubBrowserNotificationBridge implements BrowserNotificationBridge {
     String? tag,
     void Function()? onClick,
   }) async {}
+
+  @override
+  Future<BrowserPushSubscription?> subscribeToPush({
+    required String publicKey,
+  }) async {
+    return null;
+  }
+
+  @override
+  Future<void> unsubscribeFromPush() async {}
 }
 
 BrowserNotificationBridge createBrowserNotificationBridgeImpl() =>
