@@ -11,6 +11,8 @@ import 'package:lineage/models/user_profile.dart';
 import 'package:lineage/screens/add_relative_screen.dart';
 
 class _FakeAuthService implements AuthServiceInterface {
+  String? lastErrorDescription;
+
   @override
   String? get currentUserId => 'user-1';
 
@@ -30,15 +32,27 @@ class _FakeAuthService implements AuthServiceInterface {
   Stream<String?> get authStateChanges => const Stream.empty();
 
   @override
-  String describeError(Object error) => error.toString();
+  String describeError(Object error) {
+    return lastErrorDescription ?? error.toString();
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeFamilyTreeService implements FamilyTreeServiceInterface {
+  bool failOnAdd = false;
+
   @override
   Future<List<FamilyPerson>> getRelatives(String treeId) async => const [];
+
+  @override
+  Future<String> addRelative(String treeId, Map<String, dynamic> personData) {
+    if (failOnAdd) {
+      throw Exception('save failed');
+    }
+    return Future.value('person-1');
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -152,5 +166,62 @@ void main() {
     expect(find.text('Режим быстрого ввода'), findsOneWidget);
     expect(find.text('Добавить ещё одного'), findsOneWidget);
     expect(find.text('Добавить и открыть на дереве'), findsOneWidget);
+  });
+
+  testWidgets('не показывает сырую ошибку сохранения карточки', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final authService = _FakeAuthService()
+      ..lastErrorDescription =
+          'Не удалось сохранить карточку. Проверьте данные и попробуйте ещё раз.';
+    final familyService = _FakeFamilyTreeService()..failOnAdd = true;
+
+    await getIt.reset();
+    getIt.registerSingleton<AuthServiceInterface>(authService);
+    getIt.registerSingleton<FamilyTreeServiceInterface>(familyService);
+    getIt.registerSingleton<ProfileServiceInterface>(_FakeProfileService());
+
+    final router = GoRouter(
+      routes: [
+        GoRoute(
+          path: '/add',
+          builder: (context, state) =>
+              const AddRelativeScreen(treeId: 'tree-1'),
+        ),
+      ],
+      initialLocation: '/add',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp.router(
+        routerConfig: router,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Фамилия'),
+      'Петров',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Имя'),
+      'Иван',
+    );
+    await tester.tap(find.text('Мужской'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Добавить первого человека'));
+    await tester.tap(find.text('Добавить первого человека'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(
+      find.text(
+        'Не удалось сохранить карточку. Проверьте данные и попробуйте ещё раз.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Exception: save failed'), findsNothing);
   });
 }

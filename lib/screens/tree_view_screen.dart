@@ -15,6 +15,7 @@ import '../backend/interfaces/auth_service_interface.dart';
 import '../backend/interfaces/family_tree_service_interface.dart';
 import '../services/crashlytics_service.dart';
 import '../services/public_tree_link_service.dart';
+import '../utils/user_facing_error.dart';
 
 class SectionTitle extends StatelessWidget {
   final String title;
@@ -70,6 +71,17 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
   FamilyTree? _currentTreeMeta;
   // <<< НОВОЕ СОСТОЯНИЕ: Флаг, добавлен ли текущий пользователь в дерево >>>
   bool _currentUserIsInTree = true; // Изначально true, пока не проверили
+
+  String _describeTreeActionError(
+    Object error, {
+    required String fallbackMessage,
+  }) {
+    return describeUserFacingError(
+      authService: _authService,
+      error: error,
+      fallbackMessage: fallbackMessage,
+    );
+  }
 
   @override
   void initState() {
@@ -968,7 +980,13 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Произошла ошибка: ${e.toString()}'),
+            content: Text(
+              _describeTreeActionError(
+                e,
+                fallbackMessage:
+                    'Не удалось добавить вас в дерево. Попробуйте ещё раз.',
+              ),
+            ),
             duration: Duration(seconds: 5),
           ),
         );

@@ -7,6 +7,7 @@ import 'package:get_it/get_it.dart';
 import '../backend/interfaces/auth_service_interface.dart';
 import '../backend/interfaces/family_tree_service_interface.dart';
 import '../backend/interfaces/profile_service_interface.dart';
+import '../utils/user_facing_error.dart';
 
 enum _PostSaveAction { close, stayInQuickAdd, openInTree }
 
@@ -182,6 +183,17 @@ class _AddRelativeScreenState extends State<AddRelativeScreen> {
       _selectedRelationType;
 
   bool get _canUseQuickAddLoop => _isQuickAddMode && _isContextualAdd;
+
+  String _describeActionError(
+    Object error, {
+    required String fallbackMessage,
+  }) {
+    return describeUserFacingError(
+      authService: _authService,
+      error: error,
+      fallbackMessage: fallbackMessage,
+    );
+  }
 
   Future<void> _loadTreeState() async {
     try {
@@ -501,7 +513,15 @@ class _AddRelativeScreenState extends State<AddRelativeScreen> {
                 debugPrint('Ошибка создания связи: $e');
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Не удалось создать связь: $e')),
+                    SnackBar(
+                      content: Text(
+                        _describeActionError(
+                          e,
+                          fallbackMessage:
+                              'Не удалось сохранить связь. Попробуйте ещё раз.',
+                        ),
+                      ),
+                    ),
                   );
                 }
               }
@@ -556,9 +576,17 @@ class _AddRelativeScreenState extends State<AddRelativeScreen> {
         debugPrint('Ошибка при сохранении: $e');
         if (mounted) {
           // Проверяем mounted перед показом SnackBar
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Произошла ошибка: $e')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                _describeActionError(
+                  e,
+                  fallbackMessage:
+                      'Не удалось сохранить карточку. Проверьте данные и попробуйте ещё раз.',
+                ),
+              ),
+            ),
+          );
         }
       } finally {
         if (mounted) {
@@ -1527,9 +1555,17 @@ class _AddRelativeScreenState extends State<AddRelativeScreen> {
     } catch (e) {
       debugPrint('Ошибка при удалении: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Ошибка при удалении: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _describeActionError(
+              e,
+              fallbackMessage:
+                  'Не удалось удалить карточку. Попробуйте ещё раз.',
+            ),
+          ),
+        ),
+      );
     } finally {
       if (mounted) {
         setState(() {
