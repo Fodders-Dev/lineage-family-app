@@ -218,9 +218,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
-            SliverToBoxAdapter(child: _buildStoriesSection()),
-            SliverToBoxAdapter(child: _buildUpcomingEventsSection()),
-            ..._buildPostSlivers(),
+            if (_currentTreeId == null) ...[
+              SliverToBoxAdapter(child: _buildNoTreeSelectedHero()),
+              SliverToBoxAdapter(child: _buildNoTreeSelectedNextSteps()),
+            ] else ...[
+              SliverToBoxAdapter(child: _buildStoriesSection()),
+              SliverToBoxAdapter(child: _buildUpcomingEventsSection()),
+              ..._buildPostSlivers(),
+            ],
           ],
         ),
       ),
@@ -235,6 +240,203 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: const Icon(Icons.add_photo_alternate_outlined),
                 )
           : null,
+    );
+  }
+
+  Widget _buildNoTreeSelectedHero() {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 12),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              theme.colorScheme.primary.withValues(alpha: 0.92),
+              theme.colorScheme.primaryContainer,
+            ],
+          ),
+          borderRadius: BorderRadius.circular(28),
+          boxShadow: [
+            BoxShadow(
+              color: theme.colorScheme.primary.withValues(alpha: 0.18),
+              blurRadius: 24,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: const Icon(
+                Icons.account_tree_outlined,
+                color: Colors.white,
+                size: 28,
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              'Сначала выберите дерево',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'После выбора откроются события семьи, родственники, личные связи и контент дерева. Если дерева ещё нет, создайте новое прямо сейчас.',
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: Colors.white.withValues(alpha: 0.92),
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: const [
+                _HomePill(label: 'События семьи'),
+                _HomePill(label: 'Родственники'),
+                _HomePill(label: 'Личные связи'),
+                _HomePill(label: 'Публичный web-вход'),
+              ],
+            ),
+            const SizedBox(height: 18),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                FilledButton.icon(
+                  onPressed: () => context.go('/tree?selector=1'),
+                  icon: const Icon(Icons.account_tree),
+                  label: const Text('Выбрать дерево'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: theme.colorScheme.primary,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 16,
+                    ),
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => context.push('/trees/create'),
+                  icon: const Icon(Icons.add_circle_outline),
+                  label: const Text('Создать дерево'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: Colors.white38),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 16,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNoTreeSelectedNextSteps() {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Что будет дальше',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _buildNextStepRow(
+              icon: Icons.event_outlined,
+              title: 'Главная наполнится событиями',
+              subtitle: 'Ближайшие дни рождения и важные семейные даты.',
+            ),
+            const SizedBox(height: 10),
+            _buildNextStepRow(
+              icon: Icons.people_outline,
+              title: 'Раздел родных станет активным',
+              subtitle: 'Можно будет открывать карточки и расширять дерево.',
+            ),
+            const SizedBox(height: 10),
+            _buildNextStepRow(
+              icon: Icons.chat_bubble_outline,
+              title: 'Чаты и личные связи останутся под рукой',
+              subtitle: 'После выбора дерева проще переходить к нужным людям.',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNextStepRow({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    final theme = Theme.of(context);
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primaryContainer,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: theme.colorScheme.primary),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -592,6 +794,32 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _HomePill extends StatelessWidget {
+  const _HomePill({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

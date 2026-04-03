@@ -109,4 +109,28 @@ void main() {
       expect(find.byType(FloatingActionButton), findsNothing);
     },
   );
+
+  testWidgets(
+    'HomeScreen без выбранного дерева ведёт к первому действию',
+    (tester) async {
+      final treeProvider = TreeProvider();
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<TreeProvider>.value(
+          value: treeProvider,
+          child: const MaterialApp(home: HomeScreen()),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('Главная'), findsOneWidget);
+      expect(find.text('Сначала выберите дерево'), findsOneWidget);
+      expect(find.text('Выбрать дерево'), findsOneWidget);
+      expect(find.text('Создать дерево'), findsOneWidget);
+      expect(find.text('Ближайшие события'), findsNothing);
+      expect(find.text('Лента новостей'), findsNothing);
+      expect(find.byType(FloatingActionButton), findsNothing);
+    },
+  );
 }
