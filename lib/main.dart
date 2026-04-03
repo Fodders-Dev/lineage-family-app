@@ -20,6 +20,7 @@ import 'backend/interfaces/app_startup_service_interface.dart';
 import 'backend/interfaces/dynamic_link_service_interface.dart';
 import 'services/app_startup_service.dart';
 import 'services/background_task_runner.dart';
+import 'startup/startup_failure_policy.dart';
 import 'widgets/startup_failure_view.dart';
 
 // Вспомогательная функция для расчета задержки до следующего запуска проверки дней рождения (9 утра)
@@ -144,6 +145,7 @@ Future<void> _bootstrapAndRunApp() async {
       ),
     );
   } catch (error, stackTrace) {
+    final canResetSession = await _shouldOfferSessionReset(error);
     FlutterError.reportError(
       FlutterErrorDetails(
         exception: error,
@@ -157,9 +159,9 @@ Future<void> _bootstrapAndRunApp() async {
         error: error,
         stackTrace: stackTrace,
         onRetry: _bootstrapAndRunApp,
-        onResetSessionAndRetry: _looksLikeRecoverableSessionIssue(error)
-            ? _resetRecoverableSessionAndRetry
-            : null,
+        onResetSessionAndRetry:
+            canResetSession ? _resetRecoverableSessionAndRetry : null,
+        canResetSession: canResetSession,
       ),
     );
   }
@@ -171,21 +173,13 @@ Future<void> _resetRecoverableSessionAndRetry() async {
   await _bootstrapAndRunApp();
 }
 
-bool _looksLikeRecoverableSessionIssue(Object error) {
-  final normalized = error.toString().toLowerCase();
-  return normalized.contains('сесс') ||
-      normalized.contains('session') ||
-      normalized.contains('unauthorized') ||
-      normalized.contains('401') ||
-      normalized.contains('403');
-}
-
-String _startupFailureMessageFor(Object error) {
-  if (_looksLikeRecoverableSessionIssue(error)) {
-    return 'Старая сессия входа больше не подходит. Сбросьте её и откройте экран входа заново.';
+Future<bool> _shouldOfferSessionReset(Object error) async {
+  if (looksLikeRecoverableSessionIssue(error)) {
+    return true;
   }
 
-  return 'Не удалось открыть Родню. Попробуйте ещё раз. Если проблема повторится, проверьте интернет и повторите позже.';
+  final preferences = await SharedPreferences.getInstance();
+  return preferences.containsKey('custom_api_session_v1');
 }
 
 // --- Функция для проверки обновлений и показа SnackBar ---
@@ -352,12 +346,14 @@ class _StartupFailureApp extends StatelessWidget {
     required this.error,
     required this.stackTrace,
     required this.onRetry,
+    required this.canResetSession,
     this.onResetSessionAndRetry,
   });
 
   final Object error;
   final StackTrace stackTrace;
   final Future<void> Function() onRetry;
+  final bool canResetSession;
   final Future<void> Function()? onResetSessionAndRetry;
 
   @override
@@ -373,7 +369,10 @@ class _StartupFailureApp extends StatelessWidget {
                 constraints: const BoxConstraints(maxWidth: 760),
                 child: StartupFailureView(
                   title: 'Не удалось открыть Родню',
-                  message: _startupFailureMessageFor(error),
+                  message: startupFailureMessageFor(
+                    error,
+                    canResetSession: canResetSession,
+                  ),
                   onRetry: onRetry,
                   onResetSessionAndRetry: onResetSessionAndRetry,
                   showTechnicalDetails: kDebugMode,
