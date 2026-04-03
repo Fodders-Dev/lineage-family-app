@@ -36,7 +36,7 @@ class _ProfileStatItem extends StatelessWidget {
 
 String _getSafeDisplayName(UserProfile profile) {
   final rawDisplayName = profile.displayName.trim();
-  
+
   // Если displayName пустой или равен "Профиль", используем альтернативные источники
   if (rawDisplayName.isEmpty || rawDisplayName == 'Профиль') {
     final parts = <String>[];
@@ -108,6 +108,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
   int _relativeCount = 0;
   bool _isLoading = true;
   String _errorMessage = '';
+
+  String get _appBarTitle {
+    final profile = _userProfile;
+    if (profile == null) {
+      return 'Профиль';
+    }
+
+    final displayName = _getSafeDisplayName(profile).trim();
+    return displayName.isEmpty ? 'Профиль' : displayName;
+  }
 
   @override
   void initState() {
@@ -347,7 +357,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_getSafeDisplayName(_userProfile!) ?? 'Профиль'),
+        title: Text(_appBarTitle),
         leading: IconButton(
           icon: Icon(Icons.arrow_back),
           onPressed: () {
