@@ -222,7 +222,8 @@ class _HomeScreenState extends State<HomeScreen> {
               SliverToBoxAdapter(child: _buildNoTreeSelectedHero()),
               SliverToBoxAdapter(child: _buildNoTreeSelectedNextSteps()),
             ] else ...[
-              SliverToBoxAdapter(child: _buildStoriesSection()),
+              if (_supportsLegacyPostFeed)
+                SliverToBoxAdapter(child: _buildStoriesSection()),
               SliverToBoxAdapter(child: _buildUpcomingEventsSection()),
               ..._buildPostSlivers(),
             ],
@@ -619,13 +620,35 @@ class _HomeScreenState extends State<HomeScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Лента новостей',
+                  'Главное по семье',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Для текущего backend-режима общая лента дерева ещё не подключена. Профиль, дерево и личные сообщения доступны.',
+                  'Отсюда удобно переходить в дерево, к родственникам и в личные сообщения.',
                   style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: () => context.go('/tree'),
+                      icon: const Icon(Icons.account_tree_outlined),
+                      label: const Text('Открыть дерево'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () => context.go('/relatives'),
+                      icon: const Icon(Icons.people_alt_outlined),
+                      label: const Text('Родные'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () => context.go('/chats'),
+                      icon: const Icon(Icons.chat_bubble_outline),
+                      label: const Text('Сообщения'),
+                    ),
+                  ],
                 ),
               ],
             ),

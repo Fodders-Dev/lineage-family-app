@@ -98,13 +98,17 @@ void main() {
 
       expect(find.text('Тестовое дерево'), findsOneWidget);
       expect(find.text('Ближайшие события'), findsOneWidget);
-      expect(find.text('Лента новостей'), findsOneWidget);
+      expect(find.text('Главное по семье'), findsOneWidget);
       expect(
         find.text(
-          'Для текущего backend-режима общая лента дерева ещё не подключена. Профиль, дерево и личные сообщения доступны.',
+          'Отсюда удобно переходить в дерево, к родственникам и в личные сообщения.',
         ),
         findsOneWidget,
       );
+      expect(find.text('Истории пока недоступны'), findsNothing);
+      expect(find.text('Открыть дерево'), findsOneWidget);
+      expect(find.text('Родные'), findsOneWidget);
+      expect(find.text('Сообщения'), findsOneWidget);
       expect(find.text('День рождения'), findsOneWidget);
       expect(find.byType(FloatingActionButton), findsNothing);
     },
