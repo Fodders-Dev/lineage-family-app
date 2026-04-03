@@ -97,8 +97,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Вход в Родню'), findsOneWidget);
+    expect(find.text('Вход'), findsOneWidget);
+    expect(find.text('Регистрация'), findsOneWidget);
     expect(find.text('Email'), findsOneWidget);
-    expect(find.text('После входа'), findsOneWidget);
+    expect(find.text('Дерево, родные и чат в одном аккаунте.'), findsOneWidget);
+    expect(find.text('После входа'), findsNothing);
+    expect(find.text('Дерево'), findsOneWidget);
+    expect(find.text('Родные'), findsOneWidget);
+    expect(find.text('Чат'), findsOneWidget);
     expect(find.text('Семейное дерево и связи для близких'), findsNothing);
   });
 }

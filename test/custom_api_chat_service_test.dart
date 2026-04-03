@@ -378,6 +378,81 @@ void main() {
       );
     },
   );
+
+  test(
+    'CustomApiChatService clears stale session and returns safe defaults on 401 polling',
+    () async {
+      final client = MockClient((request) async {
+        if (request.url.path == '/v1/chats' && request.method == 'GET') {
+          return http.Response(
+            jsonEncode({'message': 'session expired'}),
+            401,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        if (request.url.path == '/v1/chats/unread-count' &&
+            request.method == 'GET') {
+          return http.Response(
+            jsonEncode({'message': 'session expired'}),
+            401,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        if (request.url.path == '/v1/auth/logout' && request.method == 'POST') {
+          return http.Response(
+            jsonEncode({'ok': true}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        return http.Response('{"message":"not found"}', 404);
+      });
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'custom_api_session_v1',
+        jsonEncode({
+          'accessToken': 'access-token',
+          'refreshToken': 'refresh-token',
+          'userId': 'user-1',
+          'email': 'dev@lineage.app',
+          'displayName': 'Dev User',
+          'providerIds': ['password'],
+          'isProfileComplete': true,
+          'missingFields': const [],
+        }),
+      );
+
+      final authService = await CustomApiAuthService.create(
+        httpClient: client,
+        preferences: prefs,
+        runtimeConfig: const BackendRuntimeConfig(
+          apiBaseUrl: 'https://api.example.ru',
+        ),
+        invitationService: InvitationService(),
+      );
+
+      final chatService = CustomApiChatService(
+        authService: authService,
+        runtimeConfig: const BackendRuntimeConfig(
+          apiBaseUrl: 'https://api.example.ru',
+        ),
+        httpClient: client,
+        pollInterval: const Duration(milliseconds: 10),
+      );
+
+      final chats = await chatService.getUserChatsStream('user-1').first;
+      expect(chats, isEmpty);
+
+      final unreadCount =
+          await chatService.getTotalUnreadCountStream('user-1').first;
+      expect(unreadCount, 0);
+      expect(authService.currentUserId, isNull);
+    },
+  );
 }
 
 class _FakeWebSocketChannel implements WebSocketChannel {

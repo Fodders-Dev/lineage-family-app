@@ -261,57 +261,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Widget _buildCompactLayout(ThemeData theme) {
     return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildAuthCard(theme, compact: true),
-          const SizedBox(height: 14),
-          _buildCompactSupportPanel(theme),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCompactSupportPanel(ThemeData theme) {
-    final colorScheme = theme.colorScheme;
-
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: colorScheme.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.12)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'После входа',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Откроются дерево семьи, родственники, профиль и личные сообщения.',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: const [
-              _CompactFeatureChip(label: 'Семейное дерево'),
-              _CompactFeatureChip(label: 'Родственники'),
-              _CompactFeatureChip(label: 'Профиль'),
-              _CompactFeatureChip(label: 'Личные сообщения'),
-            ],
-          ),
-        ],
-      ),
+      child: _buildAuthCard(theme, compact: true),
     );
   }
 
@@ -474,6 +424,10 @@ class _AuthScreenState extends State<AuthScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (compact) ...[
+              _buildModeToggle(theme),
+              const SizedBox(height: 18),
+            ],
             Text(
               _isLogin ? 'Вход в Родню' : 'Создать аккаунт',
               style: theme.textTheme.headlineSmall?.copyWith(
@@ -484,17 +438,23 @@ class _AuthScreenState extends State<AuthScreen> {
             const SizedBox(height: 8),
             Text(
               _isLogin
-                  ? 'Откройте дерево семьи, профиль и личные связи.'
-                  : 'Начните с аккаунта, затем создайте или выберите своё дерево.',
+                  ? compact
+                      ? 'Дерево, родные и чат в одном аккаунте.'
+                      : 'Откройте дерево семьи, профиль и личные связи.'
+                  : compact
+                      ? 'Регистрация занимает меньше минуты.'
+                      : 'Начните с аккаунта, затем создайте или выберите своё дерево.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: Colors.grey[700],
                 height: 1.45,
               ),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 22),
-            _buildModeToggle(theme),
-            const SizedBox(height: 22),
+            SizedBox(height: compact ? 18 : 22),
+            if (!compact) ...[
+              _buildModeToggle(theme),
+              const SizedBox(height: 22),
+            ],
             if (!_isLogin) ...[
               TextFormField(
                 controller: _nameController,
@@ -634,6 +594,19 @@ class _AuthScreenState extends State<AuthScreen> {
                     _isLoading ? null : () => context.push('/password_reset'),
                 child: const Text('Забыли пароль?'),
               ),
+            if (compact) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: const [
+                  _CompactFeatureChip(label: 'Дерево'),
+                  _CompactFeatureChip(label: 'Родные'),
+                  _CompactFeatureChip(label: 'Чат'),
+                ],
+              ),
+            ],
             const SizedBox(height: 8),
             GestureDetector(
               onTap: () => GoRouter.of(context).push('/privacy'),

@@ -55,9 +55,33 @@ class CustomApiChatService implements ChatServiceInterface {
     return Stream<List<ChatPreview>>.multi((controller) {
       Timer? timer;
       StreamSubscription<CustomApiRealtimeEvent>? realtimeSubscription;
+      var pollingEnabled = true;
 
       Future<void> emitChats() async {
-        controller.add(await _fetchChatPreviews());
+        if (!pollingEnabled) {
+          return;
+        }
+        if (!_hasActiveSession) {
+          pollingEnabled = false;
+          timer?.cancel();
+          await realtimeSubscription?.cancel();
+          controller.add(const <ChatPreview>[]);
+          return;
+        }
+        try {
+          controller.add(await _fetchChatPreviews());
+        } on CustomApiException catch (error, stackTrace) {
+          if (await _handleUnauthorizedError(error)) {
+            pollingEnabled = false;
+            timer?.cancel();
+            await realtimeSubscription?.cancel();
+            controller.add(const <ChatPreview>[]);
+            return;
+          }
+          controller.addError(error, stackTrace);
+        } catch (error, stackTrace) {
+          controller.addError(error, stackTrace);
+        }
       }
 
       unawaited(emitChats());
@@ -86,9 +110,33 @@ class CustomApiChatService implements ChatServiceInterface {
     return Stream<int>.multi((controller) {
       Timer? timer;
       StreamSubscription<CustomApiRealtimeEvent>? realtimeSubscription;
+      var pollingEnabled = true;
 
       Future<void> emitUnread() async {
-        controller.add(await _fetchTotalUnreadCount());
+        if (!pollingEnabled) {
+          return;
+        }
+        if (!_hasActiveSession) {
+          pollingEnabled = false;
+          timer?.cancel();
+          await realtimeSubscription?.cancel();
+          controller.add(0);
+          return;
+        }
+        try {
+          controller.add(await _fetchTotalUnreadCount());
+        } on CustomApiException catch (error, stackTrace) {
+          if (await _handleUnauthorizedError(error)) {
+            pollingEnabled = false;
+            timer?.cancel();
+            await realtimeSubscription?.cancel();
+            controller.add(0);
+            return;
+          }
+          controller.addError(error, stackTrace);
+        } catch (error, stackTrace) {
+          controller.addError(error, stackTrace);
+        }
       }
 
       unawaited(emitUnread());
@@ -117,9 +165,33 @@ class CustomApiChatService implements ChatServiceInterface {
     return Stream<List<ChatMessage>>.multi((controller) {
       Timer? timer;
       StreamSubscription<CustomApiRealtimeEvent>? realtimeSubscription;
+      var pollingEnabled = true;
 
       Future<void> emitMessages() async {
-        controller.add(await _fetchMessages(chatId));
+        if (!pollingEnabled) {
+          return;
+        }
+        if (!_hasActiveSession) {
+          pollingEnabled = false;
+          timer?.cancel();
+          await realtimeSubscription?.cancel();
+          controller.add(const <ChatMessage>[]);
+          return;
+        }
+        try {
+          controller.add(await _fetchMessages(chatId));
+        } on CustomApiException catch (error, stackTrace) {
+          if (await _handleUnauthorizedError(error)) {
+            pollingEnabled = false;
+            timer?.cancel();
+            await realtimeSubscription?.cancel();
+            controller.add(const <ChatMessage>[]);
+            return;
+          }
+          controller.addError(error, stackTrace);
+        } catch (error, stackTrace) {
+          controller.addError(error, stackTrace);
+        }
       }
 
       unawaited(emitMessages());
@@ -376,5 +448,26 @@ class CustomApiChatService implements ChatServiceInterface {
       'Accept': 'application/json',
       'Authorization': 'Bearer $token',
     };
+  }
+
+  bool get _hasActiveSession {
+    final token = _authService.accessToken;
+    final userId = _authService.currentUserId;
+    return token != null &&
+        token.isNotEmpty &&
+        userId != null &&
+        userId.isNotEmpty;
+  }
+
+  Future<bool> _handleUnauthorizedError(CustomApiException error) async {
+    final isUnauthorized = error.statusCode == 401 ||
+        error.statusCode == 403 ||
+        error.message.contains('Нет активной customApi session');
+    if (!isUnauthorized) {
+      return false;
+    }
+
+    await _authService.signOut();
+    return true;
   }
 }
