@@ -724,7 +724,7 @@ class _HomeScreenState extends State<HomeScreen> {
         Padding(
           padding: const EdgeInsets.only(left: 16, top: 16, right: 16),
           child: Text(
-            'Истории',
+            'Семейные истории',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
         ),
@@ -756,7 +756,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Истории пока недоступны',
+                      'Личные истории скоро появятся',
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
@@ -764,7 +764,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Для текущего backend-режима stories ещё не подключены. Дерево, профиль и чат работают отдельно от этой секции.',
+                      'Пока пользуйтесь деревом, карточками родных и личными сообщениями. Когда семейные истории будут готовы, они появятся здесь.',
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
                   ],
