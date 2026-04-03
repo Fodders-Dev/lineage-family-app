@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../models/family_relation.dart';
 import '../models/user_profile.dart';
 import 'package:get_it/get_it.dart';
 import '../backend/interfaces/family_tree_service_interface.dart';
@@ -18,11 +17,9 @@ class SendRelationRequestScreen extends StatefulWidget {
 
 class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
   final _searchController = TextEditingController();
-  final _messageController = TextEditingController();
 
   List<UserProfile> _searchResults = [];
   UserProfile? _selectedUser;
-  RelationType? _selectedRelation;
   bool _isLoading = false;
   bool _isSearching = false;
 
@@ -34,7 +31,6 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
   @override
   void dispose() {
     _searchController.dispose();
-    _messageController.dispose();
     super.dispose();
   }
 
@@ -65,10 +61,10 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
     }
   }
 
-  Future<void> _sendRequest() async {
-    if (_selectedUser == null || _selectedRelation == null) {
+  Future<void> _sendInvitation() async {
+    if (_selectedUser == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Выберите пользователя и тип родства')),
+        SnackBar(content: Text('Выберите пользователя Родни')),
       );
       return;
     }
@@ -78,17 +74,18 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
     });
 
     try {
-      await _familyService.sendRelationRequest(
+      await _familyService.sendTreeInvitation(
         treeId: widget.treeId,
-        recipientId: _selectedUser!.id,
-        relationType: _selectedRelation!,
-        message: _messageController.text,
+        recipientUserId: _selectedUser!.id,
+        relationToTree: 'родственник',
       );
 
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Запрос на родство отправлен')));
+      ).showSnackBar(
+        SnackBar(content: Text('Приглашение в дерево отправлено')),
+      );
 
       Navigator.pop(context);
     } catch (e) {
@@ -108,7 +105,7 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Добавить родственника')),
+      appBar: AppBar(title: Text('Пригласить в дерево')),
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -117,10 +114,15 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Поиск пользователей',
+                    'Найдите человека, который уже пользуется Родней',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   SizedBox(height: 8),
+                  Text(
+                    'Мы отправим ему именно приглашение в дерево. Принять его можно будет в разделе деревьев.',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  SizedBox(height: 16),
                   TextField(
                     controller: _searchController,
                     decoration: InputDecoration(
@@ -134,6 +136,22 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
                     onSubmitted: _searchUsers,
                   ),
                   SizedBox(height: 16),
+                  if (!_isSearching &&
+                      _searchResults.isEmpty &&
+                      _searchController.text.trim().length >= 3)
+                    Container(
+                      width: double.infinity,
+                      padding: EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Text(
+                        'Если человека нет в поиске, у него, скорее всего, ещё нет аккаунта. В таком случае лучше отправить ему обычную invite-ссылку из карточки родственника.',
+                      ),
+                    ),
                   if (_isSearching)
                     Center(child: CircularProgressIndicator())
                   else if (_searchResults.isNotEmpty)
@@ -209,81 +227,24 @@ class _SendRelationRequestScreenState extends State<SendRelationRequestScreen> {
                       ),
                     ),
                     SizedBox(height: 16),
-                    Text(
-                      'Тип родства',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    SizedBox(height: 8),
-                    DropdownButtonFormField<RelationType>(
-                      decoration: InputDecoration(
-                        labelText: 'Кем приходится вам этот человек',
-                        border: OutlineInputBorder(),
+                    Container(
+                      width: double.infinity,
+                      padding: EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surfaceContainer,
+                        borderRadius: BorderRadius.circular(16),
                       ),
-                      value: _selectedRelation,
-                      items: [
-                        DropdownMenuItem(
-                          value: RelationType.parent,
-                          child: Text('Родитель (отец/мать)'),
-                        ),
-                        DropdownMenuItem(
-                          value: RelationType.child,
-                          child: Text('Ребенок (сын/дочь)'),
-                        ),
-                        DropdownMenuItem(
-                          value: RelationType.spouse,
-                          child: Text('Супруг(а)'),
-                        ),
-                        DropdownMenuItem(
-                          value: RelationType.sibling,
-                          child: Text('Брат/сестра'),
-                        ),
-                        DropdownMenuItem(
-                          value: RelationType.cousin,
-                          child: Text('Двоюродный брат/сестра'),
-                        ),
-                        DropdownMenuItem(
-                          value: RelationType.uncle,
-                          child: Text('Дядя/тетя'),
-                        ),
-                        DropdownMenuItem(
-                          value: RelationType.nephew,
-                          child: Text('Племянник/племянница'),
-                        ),
-                        DropdownMenuItem(
-                          value: RelationType.grandparent,
-                          child: Text('Дедушка/бабушка'),
-                        ),
-                        DropdownMenuItem(
-                          value: RelationType.grandchild,
-                          child: Text('Внук/внучка'),
-                        ),
-                        DropdownMenuItem(
-                          value: RelationType.other,
-                          child: Text('Другое родство'),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedRelation = value;
-                        });
-                      },
-                    ),
-                    SizedBox(height: 16),
-                    TextField(
-                      controller: _messageController,
-                      decoration: InputDecoration(
-                        labelText: 'Сообщение (необязательно)',
-                        border: OutlineInputBorder(),
+                      child: Text(
+                        'Этот сценарий нужен именно для людей с готовым аккаунтом Родни. Если нужно привязать человека к конкретной офлайн-карточке в дереве, это пока делается отдельным запросом из карточки родственника.',
                       ),
-                      maxLines: 3,
                     ),
                     SizedBox(height: 24),
                     ElevatedButton(
-                      onPressed: _sendRequest,
+                      onPressed: _sendInvitation,
                       style: ElevatedButton.styleFrom(
                         minimumSize: Size(double.infinity, 48),
                       ),
-                      child: Text('Отправить запрос на родство'),
+                      child: Text('Отправить приглашение'),
                     ),
                   ],
                 ],

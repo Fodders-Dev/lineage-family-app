@@ -633,6 +633,7 @@ void main() {
       'CustomApiFamilyTreeService covers relation requests and offline email flow',
       () async {
     final requests = <Map<String, dynamic>>[];
+    final treeInvitations = <Map<String, dynamic>>[];
 
     final client = MockClient((request) async {
       if (request.url.path == '/v1/relation-requests/pending' &&
@@ -689,6 +690,24 @@ void main() {
         requests.add(requestPayload);
         return http.Response(
           jsonEncode({'request': requestPayload}),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+
+      if (request.url.path == '/v1/trees/tree-1/invitations' &&
+          request.method == 'POST') {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final invitationPayload = <String, dynamic>{
+          'invitationId': 'invite-${treeInvitations.length + 1}',
+          'treeId': 'tree-1',
+          'invitedBy': 'user-1',
+          'relationToTree': body['relationToTree'],
+          'recipientUserId': body['recipientUserId'],
+        };
+        treeInvitations.add(invitationPayload);
+        return http.Response(
+          jsonEncode({'invitation': invitationPayload}),
           201,
           headers: {'content-type': 'application/json'},
         );
@@ -761,6 +780,14 @@ void main() {
       ),
       httpClient: client,
     );
+
+    await treeService.sendTreeInvitation(
+      treeId: 'tree-1',
+      recipientUserId: 'user-2',
+      relationToTree: 'родственник',
+    );
+    expect(treeInvitations, hasLength(1));
+    expect(treeInvitations.single['recipientUserId'], 'user-2');
 
     await treeService.sendRelationRequest(
       treeId: 'tree-1',

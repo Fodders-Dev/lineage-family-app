@@ -368,6 +368,16 @@ class PendingBackendFamilyTreeService implements FamilyTreeServiceInterface {
   }
 
   @override
+  Future<void> sendTreeInvitation({
+    required String treeId,
+    String? recipientUserId,
+    String? recipientEmail,
+    String? relationToTree,
+  }) {
+    throw UnsupportedError(_pendingProviderMessage('tree'));
+  }
+
+  @override
   Future<void> sendRelationRequest({
     required String treeId,
     required String recipientId,

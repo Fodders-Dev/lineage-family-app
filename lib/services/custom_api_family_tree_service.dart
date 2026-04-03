@@ -632,6 +632,33 @@ class CustomApiFamilyTreeService implements FamilyTreeServiceInterface {
   }
 
   @override
+  Future<void> sendTreeInvitation({
+    required String treeId,
+    String? recipientUserId,
+    String? recipientEmail,
+    String? relationToTree,
+  }) async {
+    final trimmedUserId = recipientUserId?.trim() ?? '';
+    final trimmedEmail = recipientEmail?.trim() ?? '';
+    if (trimmedUserId.isEmpty && trimmedEmail.isEmpty) {
+      throw const CustomApiException(
+        'Нужно выбрать пользователя Родни для приглашения в дерево',
+      );
+    }
+
+    await _requestJson(
+      method: 'POST',
+      path: '/v1/trees/$treeId/invitations',
+      body: {
+        if (trimmedUserId.isNotEmpty) 'recipientUserId': trimmedUserId,
+        if (trimmedEmail.isNotEmpty) 'recipientEmail': trimmedEmail,
+        if (relationToTree != null && relationToTree.trim().isNotEmpty)
+          'relationToTree': relationToTree.trim(),
+      },
+    );
+  }
+
+  @override
   Future<void> sendOfflineRelationRequestByEmail({
     required String treeId,
     required String email,

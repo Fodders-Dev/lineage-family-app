@@ -85,6 +85,12 @@ abstract class FamilyTreeServiceInterface {
     required RelationType relationType,
     String? message,
   });
+  Future<void> sendTreeInvitation({
+    required String treeId,
+    String? recipientUserId,
+    String? recipientEmail,
+    String? relationToTree,
+  });
   Future<void> sendOfflineRelationRequestByEmail({
     required String treeId,
     required String email,

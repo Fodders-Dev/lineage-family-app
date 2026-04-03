@@ -390,6 +390,60 @@ class FamilyService implements FamilyTreeServiceInterface {
   }
 
   @override
+  Future<void> sendTreeInvitation({
+    required String treeId,
+    String? recipientUserId,
+    String? recipientEmail,
+    String? relationToTree,
+  }) async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) {
+      throw Exception('Пользователь не авторизован');
+    }
+
+    var targetUserId = recipientUserId?.trim() ?? '';
+    if (targetUserId.isEmpty) {
+      final email = recipientEmail?.trim() ?? '';
+      if (email.isEmpty) {
+        throw Exception('Нужно выбрать пользователя Родни');
+      }
+
+      final userQuery = await _firestore
+          .collection('users')
+          .where('email', isEqualTo: email)
+          .limit(1)
+          .get();
+      if (userQuery.docs.isEmpty) {
+        throw Exception('Пользователь с таким email не найден');
+      }
+      targetUserId = userQuery.docs.first.id;
+    }
+
+    if (targetUserId == currentUser.uid) {
+      throw Exception('Нельзя пригласить в дерево самого себя');
+    }
+
+    final existingMembership = await _firestore
+        .collection('tree_members')
+        .where('treeId', isEqualTo: treeId)
+        .where('userId', isEqualTo: targetUserId)
+        .limit(1)
+        .get();
+    if (existingMembership.docs.isNotEmpty) {
+      throw Exception('Этот пользователь уже состоит в дереве');
+    }
+
+    await _firestore.collection('tree_members').add({
+      'treeId': treeId,
+      'userId': targetUserId,
+      'role': 'pending',
+      'addedBy': currentUser.uid,
+      'relationToTree': relationToTree?.trim(),
+      'addedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  @override
   Future<void> sendOfflineRelationRequestByEmail({
     required String treeId,
     required String email,
