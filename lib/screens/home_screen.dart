@@ -54,6 +54,12 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_supportsLegacyPostFeed) {
       _postService = PostService();
     }
+    final notificationService = _customNotificationService;
+    if (notificationService != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        notificationService.refreshUnreadNotificationsCount();
+      });
+    }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _treeProviderInstance = Provider.of<TreeProvider>(context, listen: false);
@@ -170,11 +176,7 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: Text(selectedTreeName ?? 'Главная'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined),
-            tooltip: 'Активность',
-            onPressed: () => context.push('/notifications'),
-          ),
+          _buildNotificationsAction(),
           IconButton(
             icon: Icon(Icons.account_tree_outlined),
             tooltip: 'Выбрать дерево',
@@ -184,6 +186,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: () async {
+          await _customNotificationService?.refreshUnreadNotificationsCount();
           if (_currentTreeId != null) {
             await _loadEvents(_currentTreeId!);
             await _loadBranchPeople(_currentTreeId!);
@@ -278,6 +281,38 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: const Icon(Icons.add_photo_alternate_outlined),
                 )
           : null,
+    );
+  }
+
+  Widget _buildNotificationsAction() {
+    final notificationService = _customNotificationService;
+    if (notificationService == null) {
+      return IconButton(
+        icon: const Icon(Icons.notifications_outlined),
+        tooltip: 'Активность',
+        onPressed: () => context.push('/notifications'),
+      );
+    }
+
+    return StreamBuilder<int>(
+      stream: notificationService.unreadNotificationsCountStream,
+      initialData: notificationService.unreadNotificationsCount,
+      builder: (context, snapshot) {
+        final unreadCount = snapshot.data ?? 0;
+        final icon = unreadCount > 0
+            ? Badge(
+                label: Text(unreadCount > 99 ? '99+' : unreadCount.toString()),
+                child: const Icon(Icons.notifications_outlined),
+              )
+            : const Icon(Icons.notifications_outlined);
+
+        return IconButton(
+          icon: icon,
+          tooltip:
+              unreadCount > 0 ? 'Активность, $unreadCount новых' : 'Активность',
+          onPressed: () => context.push('/notifications'),
+        );
+      },
     );
   }
 

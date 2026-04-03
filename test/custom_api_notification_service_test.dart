@@ -221,6 +221,15 @@ void main() {
           );
         }
 
+        if (request.url.path == '/v1/notifications/unread-count' &&
+            request.method == 'GET') {
+          return http.Response(
+            jsonEncode({'totalUnread': 0}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
         return http.Response('{"message":"not found"}', 404);
       });
 
@@ -265,6 +274,106 @@ void main() {
       await service.startForegroundSync();
       expect(registeredDeviceCalls, 1);
 
+      await service.dispose();
+    },
+  );
+
+  test(
+    'CustomApiNotificationService обновляет unread count stream из backend',
+    () async {
+      final client = MockClient((request) async {
+        if (request.url.path == '/v1/notifications/unread-count' &&
+            request.method == 'GET') {
+          return http.Response(
+            jsonEncode({'totalUnread': 3}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        if (request.url.path == '/v1/notifications' &&
+            request.method == 'GET') {
+          return http.Response(
+            jsonEncode({
+              'notifications': [
+                {
+                  'id': 'notification-1',
+                  'type': 'tree_invitation',
+                  'title': 'Приглашение в дерево',
+                  'body': 'Вас пригласили',
+                  'createdAt': '2026-04-03T10:00:00.000Z',
+                  'data': {'treeId': 'tree-1'},
+                },
+                {
+                  'id': 'notification-2',
+                  'type': 'chat_message',
+                  'title': 'Собеседник',
+                  'body': 'Привет',
+                  'createdAt': '2026-04-03T10:01:00.000Z',
+                  'data': {
+                    'chatId': 'chat-1',
+                    'senderId': 'user-2',
+                    'senderName': 'Собеседник',
+                  },
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        return http.Response('{"message":"not found"}', 404);
+      });
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'custom_api_session_v1',
+        jsonEncode({
+          'accessToken': 'access-token',
+          'refreshToken': 'refresh-token',
+          'userId': 'user-1',
+          'email': 'dev@lineage.app',
+          'displayName': 'Dev User',
+          'providerIds': ['password'],
+          'isProfileComplete': true,
+          'missingFields': const [],
+        }),
+      );
+
+      final authService = await CustomApiAuthService.create(
+        httpClient: client,
+        preferences: prefs,
+        runtimeConfig: const BackendRuntimeConfig(
+          apiBaseUrl: 'https://api.example.ru',
+        ),
+        invitationService: InvitationService(),
+      );
+
+      final service = await CustomApiNotificationService.create(
+        preferences: prefs,
+        authService: authService,
+        runtimeConfig: const BackendRuntimeConfig(
+          apiBaseUrl: 'https://api.example.ru',
+        ),
+        httpClient: client,
+      );
+
+      final seenCounts = <int>[];
+      final subscription =
+          service.unreadNotificationsCountStream.listen(seenCounts.add);
+
+      expect(await service.refreshUnreadNotificationsCount(), 3);
+      expect(service.unreadNotificationsCount, 3);
+
+      final notifications = await service.fetchUnreadNotifications(limit: 10);
+      expect(notifications, hasLength(2));
+      expect(service.unreadNotificationsCount, 2);
+
+      await Future<void>.delayed(Duration.zero);
+      expect(seenCounts, containsAllInOrder(<int>[3, 2]));
+
+      await subscription.cancel();
       await service.dispose();
     },
   );

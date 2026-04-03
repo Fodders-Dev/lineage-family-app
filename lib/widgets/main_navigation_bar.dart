@@ -5,70 +5,89 @@ class MainNavigationBar extends StatelessWidget {
     super.key,
     required this.currentIndex,
     required this.onTap,
+    required this.unreadNotificationsStream,
     required this.unreadChatsStream,
     required this.pendingInvitationsCountStream,
   });
 
   final int currentIndex;
   final ValueChanged<int> onTap;
+  final Stream<int> unreadNotificationsStream;
   final Stream<int> unreadChatsStream;
   final Stream<int> pendingInvitationsCountStream;
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<int>(
-      stream: unreadChatsStream,
+      stream: unreadNotificationsStream,
       initialData: 0,
-      builder: (context, unreadSnapshot) {
-        final unreadCount = unreadSnapshot.data ?? 0;
+      builder: (context, notificationsSnapshot) {
+        final unreadNotificationsCount = notificationsSnapshot.data ?? 0;
         return StreamBuilder<int>(
-          stream: pendingInvitationsCountStream,
+          stream: unreadChatsStream,
           initialData: 0,
-          builder: (context, invitationsSnapshot) {
-            final pendingInvitationsCount = invitationsSnapshot.data ?? 0;
+          builder: (context, unreadSnapshot) {
+            final unreadCount = unreadSnapshot.data ?? 0;
+            return StreamBuilder<int>(
+              stream: pendingInvitationsCountStream,
+              initialData: 0,
+              builder: (context, invitationsSnapshot) {
+                final pendingInvitationsCount = invitationsSnapshot.data ?? 0;
 
-            return BottomNavigationBar(
-              type: BottomNavigationBarType.fixed,
-              currentIndex: currentIndex,
-              selectedItemColor: Theme.of(context).colorScheme.primary,
-              unselectedItemColor: Colors.grey,
-              onTap: onTap,
-              items: [
-                const BottomNavigationBarItem(
-                  icon: Icon(Icons.home_outlined),
-                  activeIcon: Icon(Icons.home),
-                  label: 'Главная',
-                ),
-                const BottomNavigationBarItem(
-                  icon: Icon(Icons.people_outline),
-                  activeIcon: Icon(Icons.people),
-                  label: 'Родные',
-                ),
-                BottomNavigationBarItem(
-                  icon: _buildTreeIcon(context, pendingInvitationsCount),
-                  label: 'Моё дерево',
-                ),
-                BottomNavigationBarItem(
-                  icon: _CountBadgeIcon(
-                    count: unreadCount,
-                    outlinedIcon: Icons.chat_bubble_outline,
-                    filledIcon: Icons.chat_bubble,
-                    selected: false,
-                  ),
-                  activeIcon: _CountBadgeIcon(
-                    count: unreadCount,
-                    outlinedIcon: Icons.chat_bubble_outline,
-                    filledIcon: Icons.chat_bubble,
-                    selected: true,
-                  ),
-                  label: 'Чаты',
-                ),
-                const BottomNavigationBarItem(
-                  icon: Icon(Icons.person_outline),
-                  activeIcon: Icon(Icons.person),
-                  label: 'Профиль',
-                ),
-              ],
+                return BottomNavigationBar(
+                  type: BottomNavigationBarType.fixed,
+                  currentIndex: currentIndex,
+                  selectedItemColor: Theme.of(context).colorScheme.primary,
+                  unselectedItemColor: Colors.grey,
+                  onTap: onTap,
+                  items: [
+                    BottomNavigationBarItem(
+                      icon: _CountBadgeIcon(
+                        count: unreadNotificationsCount,
+                        outlinedIcon: Icons.home_outlined,
+                        filledIcon: Icons.home,
+                        selected: false,
+                      ),
+                      activeIcon: _CountBadgeIcon(
+                        count: unreadNotificationsCount,
+                        outlinedIcon: Icons.home_outlined,
+                        filledIcon: Icons.home,
+                        selected: true,
+                      ),
+                      label: 'Главная',
+                    ),
+                    const BottomNavigationBarItem(
+                      icon: Icon(Icons.people_outline),
+                      activeIcon: Icon(Icons.people),
+                      label: 'Родные',
+                    ),
+                    BottomNavigationBarItem(
+                      icon: _buildTreeIcon(context, pendingInvitationsCount),
+                      label: 'Моё дерево',
+                    ),
+                    BottomNavigationBarItem(
+                      icon: _CountBadgeIcon(
+                        count: unreadCount,
+                        outlinedIcon: Icons.chat_bubble_outline,
+                        filledIcon: Icons.chat_bubble,
+                        selected: false,
+                      ),
+                      activeIcon: _CountBadgeIcon(
+                        count: unreadCount,
+                        outlinedIcon: Icons.chat_bubble_outline,
+                        filledIcon: Icons.chat_bubble,
+                        selected: true,
+                      ),
+                      label: 'Чаты',
+                    ),
+                    const BottomNavigationBarItem(
+                      icon: Icon(Icons.person_outline),
+                      activeIcon: Icon(Icons.person),
+                      label: 'Профиль',
+                    ),
+                  ],
+                );
+              },
             );
           },
         );

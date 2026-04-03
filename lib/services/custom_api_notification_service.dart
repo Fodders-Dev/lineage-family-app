@@ -127,10 +127,13 @@ class CustomApiNotificationService implements NotificationServiceInterface {
 
   bool _isInitialized = false;
   bool _notificationsEnabled = true;
+  int _unreadNotificationsCount = 0;
   String? _pendingNavigationPayload;
   Timer? _pollingTimer;
   StreamSubscription<CustomApiRealtimeEvent>? _realtimeSubscription;
   final Set<String> _deliveredNotificationIds = <String>{};
+  final StreamController<int> _unreadNotificationsCountController =
+      StreamController<int>.broadcast();
 
   static const String _channelIdGeneral = 'lineage_custom_general';
   static const String _channelNameGeneral = 'Родня уведомления';
@@ -222,9 +225,11 @@ class CustomApiNotificationService implements NotificationServiceInterface {
     }
 
     _pollingTimer?.cancel();
+    await refreshUnreadNotificationsCount();
     await _syncPendingNotificationsSafely();
     _pollingTimer = Timer.periodic(_pollInterval, (_) {
       unawaited(_syncPendingNotificationsSafely());
+      unawaited(refreshUnreadNotificationsCount());
     });
 
     final pendingPayload = _pendingNavigationPayload;
@@ -258,8 +263,10 @@ class CustomApiNotificationService implements NotificationServiceInterface {
       final payload = _decodeResponse(response);
       final rawNotifications = payload['notifications'];
       if (rawNotifications is! List<dynamic>) {
+        _updateUnreadNotificationsCount(0);
         return;
       }
+      _updateUnreadNotificationsCount(rawNotifications.length);
 
       final notifications = rawNotifications
           .whereType<Map<String, dynamic>>()
@@ -280,6 +287,7 @@ class CustomApiNotificationService implements NotificationServiceInterface {
       }
     } on CustomApiException catch (error) {
       if (await _handleUnauthorizedError(error)) {
+        _updateUnreadNotificationsCount(0);
         return;
       }
       rethrow;
@@ -287,9 +295,44 @@ class CustomApiNotificationService implements NotificationServiceInterface {
   }
 
   bool get notificationsEnabled => _notificationsEnabled;
+  int get unreadNotificationsCount => _unreadNotificationsCount;
+  Stream<int> get unreadNotificationsCountStream =>
+      _unreadNotificationsCountController.stream;
 
   BrowserNotificationPermissionStatus get browserPermissionStatus =>
       _browserNotificationBridge.permissionStatus;
+
+  Future<int> refreshUnreadNotificationsCount() async {
+    final authService = _authService;
+    final runtimeConfig = _runtimeConfig;
+    if (authService == null || runtimeConfig == null) {
+      _updateUnreadNotificationsCount(0);
+      return 0;
+    }
+
+    final token = authService.accessToken;
+    if (token == null || token.isEmpty) {
+      _updateUnreadNotificationsCount(0);
+      return 0;
+    }
+
+    try {
+      final response = await _httpClient.get(
+        _buildUri(runtimeConfig, '/v1/notifications/unread-count'),
+        headers: _headers(token),
+      );
+      final payload = _decodeResponse(response);
+      final totalUnread = _coerceUnreadCount(payload['totalUnread']);
+      _updateUnreadNotificationsCount(totalUnread);
+      return totalUnread;
+    } on CustomApiException catch (error) {
+      if (await _handleUnauthorizedError(error)) {
+        _updateUnreadNotificationsCount(0);
+        return 0;
+      }
+      rethrow;
+    }
+  }
 
   Future<List<AppNotificationItem>> fetchUnreadNotifications({
     int limit = 50,
@@ -314,6 +357,7 @@ class CustomApiNotificationService implements NotificationServiceInterface {
       final payload = _decodeResponse(response);
       final rawNotifications = payload['notifications'];
       if (rawNotifications is! List<dynamic>) {
+        _updateUnreadNotificationsCount(0);
         return const <AppNotificationItem>[];
       }
 
@@ -328,9 +372,11 @@ class CustomApiNotificationService implements NotificationServiceInterface {
               right.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
           return rightCreatedAt.compareTo(leftCreatedAt);
         });
+      _updateUnreadNotificationsCount(notifications.length);
       return notifications;
     } on CustomApiException catch (error) {
       if (await _handleUnauthorizedError(error)) {
+        _updateUnreadNotificationsCount(0);
         return const <AppNotificationItem>[];
       }
       rethrow;
@@ -489,7 +535,29 @@ class CustomApiNotificationService implements NotificationServiceInterface {
 
     await _showBackendNotification(notification);
     _deliveredNotificationIds.add(id);
+    _updateUnreadNotificationsCount(_unreadNotificationsCount + 1);
     await _persistDeliveredNotificationIds();
+  }
+
+  void _updateUnreadNotificationsCount(int count) {
+    final normalizedCount = count < 0 ? 0 : count;
+    if (_unreadNotificationsCount == normalizedCount) {
+      return;
+    }
+    _unreadNotificationsCount = normalizedCount;
+    if (!_unreadNotificationsCountController.isClosed) {
+      _unreadNotificationsCountController.add(normalizedCount);
+    }
+  }
+
+  int _coerceUnreadCount(dynamic rawValue) {
+    if (rawValue is int) {
+      return rawValue;
+    }
+    if (rawValue is num) {
+      return rawValue.toInt();
+    }
+    return int.tryParse(rawValue?.toString() ?? '') ?? 0;
   }
 
   Future<void> _showBackendNotification(
@@ -926,5 +994,6 @@ class CustomApiNotificationService implements NotificationServiceInterface {
   Future<void> dispose() async {
     _pollingTimer?.cancel();
     await _realtimeSubscription?.cancel();
+    await _unreadNotificationsCountController.close();
   }
 }

@@ -39,6 +39,7 @@ import '../backend/interfaces/auth_service_interface.dart';
 import '../backend/interfaces/chat_service_interface.dart';
 import '../backend/interfaces/family_tree_service_interface.dart';
 import '../services/invitation_service.dart';
+import '../services/custom_api_notification_service.dart';
 
 // Ключ для корневого навигатора
 final rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -246,6 +247,11 @@ class AppRouter {
                                   index == navigationShell.currentIndex,
                             );
                           },
+                          unreadNotificationsStream: GetIt.I
+                                  .isRegistered<CustomApiNotificationService>()
+                              ? GetIt.I<CustomApiNotificationService>()
+                                  .unreadNotificationsCountStream
+                              : Stream.value(0),
                           unreadChatsStream: currentUserId != null
                               ? GetIt.I<ChatServiceInterface>()
                                   .getTotalUnreadCountStream(currentUserId)
