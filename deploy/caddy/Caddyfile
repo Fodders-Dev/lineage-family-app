@@ -1,0 +1,41 @@
+{
+  servers {
+    protocols h1 h2
+  }
+}
+
+radioatlas.duckdns.org {
+  reverse_proxy 127.0.0.1:3001
+}
+
+api.rodnya-tree.ru {
+  encode zstd gzip
+  reverse_proxy 127.0.0.1:8080
+}
+
+rodnya-tree.ru, www.rodnya-tree.ru {
+  encode zstd gzip
+  root * /var/www/rodnya-site
+
+  @appEntry {
+    path / /index.html /flutter_bootstrap.js /version.json /manifest.json /AssetManifest.bin.json /AssetManifest.json /FontManifest.json
+  }
+  header @appEntry Cache-Control "no-store, no-cache, must-revalidate"
+
+  @appRuntime {
+    path /flutter.js /main.dart.js
+  }
+  header @appRuntime Cache-Control "no-cache, must-revalidate"
+
+  @pushWorker {
+    path /push/push-sw.js
+  }
+  header @pushWorker Cache-Control "no-cache, must-revalidate"
+
+  @staticAssets {
+    path /assets/* /icons/* /canvaskit/* /splash/* /favicon.png /favicon.ico /apple-touch-icon.png
+  }
+  header @staticAssets Cache-Control "public, max-age=86400"
+
+  file_server
+}
