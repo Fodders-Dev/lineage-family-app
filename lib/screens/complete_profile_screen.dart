@@ -6,6 +6,7 @@ import '../models/user_profile.dart';
 import 'package:go_router/go_router.dart';
 import 'package:get_it/get_it.dart';
 import '../backend/interfaces/auth_service_interface.dart';
+import '../backend/interfaces/family_tree_service_interface.dart';
 import '../backend/interfaces/profile_service_interface.dart';
 import '../backend/models/profile_form_data.dart';
 
@@ -27,6 +28,8 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
   final AuthServiceInterface _authService = GetIt.I<AuthServiceInterface>();
   final ProfileServiceInterface _profileService =
       GetIt.I<ProfileServiceInterface>();
+  final FamilyTreeServiceInterface _familyTreeService =
+      GetIt.I<FamilyTreeServiceInterface>();
   final _formKey = GlobalKey<FormState>();
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
@@ -132,7 +135,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text('Профиль успешно обновлен')));
 
-      context.go('/');
+      context.go(await _resolvePostSaveLocation());
     } catch (e) {
       debugPrint('Ошибка при сохранении профиля: $e');
       if (!mounted) return;
@@ -359,6 +362,20 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
               ),
             ),
     );
+  }
+
+  Future<String> _resolvePostSaveLocation() async {
+    try {
+      final pendingInvitations =
+          await _familyTreeService.getPendingTreeInvitations().first;
+      if (pendingInvitations.isNotEmpty) {
+        return '/trees?tab=invitations';
+      }
+    } catch (_) {
+      // После сохранения профиля не блокируем переход, если polling инвайтов
+      // временно недоступен.
+    }
+    return '/';
   }
 
   Widget _buildCountryPicker() {

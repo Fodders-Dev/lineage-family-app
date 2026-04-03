@@ -14,7 +14,12 @@ import '../services/crashlytics_service.dart';
 import '../services/public_tree_link_service.dart';
 
 class TreesScreen extends StatefulWidget {
-  const TreesScreen({Key? key}) : super(key: key);
+  const TreesScreen({
+    super.key,
+    this.initialTab,
+  });
+
+  final String? initialTab;
 
   @override
   _TreesScreenState createState() => _TreesScreenState();
@@ -27,7 +32,6 @@ class _TreesScreenState extends State<TreesScreen>
       GetIt.I<FamilyTreeServiceInterface>();
   final CrashlyticsService _crashlyticsService = CrashlyticsService();
   late TabController _tabController;
-  bool _appliedInitialRouteTab = false;
 
   // Переменные для хранения состояния
   List<FamilyTree> _myTrees = [];
@@ -36,7 +40,11 @@ class _TreesScreenState extends State<TreesScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(
+      length: 2,
+      vsync: this,
+      initialIndex: widget.initialTab == 'invitations' ? 1 : 0,
+    );
 
     _tabController.addListener(
       _handleTabSelection,
@@ -51,25 +59,6 @@ class _TreesScreenState extends State<TreesScreen>
     _tabController.removeListener(_handleTabSelection); // Удаляем слушателя
     _tabController.dispose();
     super.dispose();
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_appliedInitialRouteTab) {
-      return;
-    }
-    _appliedInitialRouteTab = true;
-
-    String? routeTab;
-    try {
-      routeTab = GoRouterState.of(context).uri.queryParameters['tab'];
-    } catch (_) {
-      routeTab = null;
-    }
-    if (routeTab == 'invitations') {
-      _tabController.index = 1;
-    }
   }
 
   // Метод-обработчик для слушателя

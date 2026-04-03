@@ -588,7 +588,9 @@ class AppRouter {
         pageBuilder: (context, state) => LineageCustomTransitionPage(
           key: state.pageKey,
           constrainWidth: true,
-          child: TreesScreen(),
+          child: TreesScreen(
+            initialTab: state.uri.queryParameters['tab'],
+          ),
           transitionsBuilder: slideTransition,
         ),
         routes: [

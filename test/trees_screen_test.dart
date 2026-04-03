@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
+import 'package:lineage/backend/models/tree_invitation.dart';
 import 'package:lineage/backend/interfaces/auth_service_interface.dart';
 import 'package:lineage/backend/interfaces/family_tree_service_interface.dart';
-import 'package:lineage/backend/models/tree_invitation.dart';
 import 'package:lineage/models/family_tree.dart';
 import 'package:lineage/providers/tree_provider.dart';
 import 'package:lineage/screens/trees_screen.dart';
@@ -157,5 +157,36 @@ void main() {
     expect(find.text('У вас уже есть приглашение в дерево'), findsOneWidget);
     expect(find.text('Открыть приглашения'), findsOneWidget);
     expect(find.text('Создать своё дерево'), findsOneWidget);
+  });
+
+  testWidgets('TreesScreen открывает вкладку приглашений по initialTab',
+      (tester) async {
+    treeService = _FakeFamilyTreeService(
+      trees: [
+        _buildTree(id: 'tree-1', name: 'Семья Кузнецовых'),
+      ],
+      invitations: [
+        TreeInvitation(
+          invitationId: 'invite-1',
+          tree: _buildTree(id: 'tree-2', name: 'Rodnya QA Invite'),
+        ),
+      ],
+    );
+    getIt.registerSingleton<FamilyTreeServiceInterface>(treeService!);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => TreeProvider(),
+        child: const MaterialApp(
+          home: TreesScreen(initialTab: 'invitations'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final tabBar = tester.widget<TabBar>(find.byType(TabBar));
+    expect(tabBar.controller?.index, 1);
+    expect(find.text('Принять'), findsOneWidget);
+    expect(find.text('Отклонить'), findsOneWidget);
   });
 }
