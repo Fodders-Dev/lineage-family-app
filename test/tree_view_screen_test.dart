@@ -181,4 +181,45 @@ void main() {
       greaterThanOrEqualTo(2),
     );
   });
+
+  testWidgets('компактный tree view не забивает экран длинной шапкой',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final familyService = _FakeFamilyTreeService()..showFirstPerson = true;
+    getIt.registerSingleton<FamilyTreeServiceInterface>(familyService);
+    final treeProvider = TreeProvider();
+    await treeProvider.selectTree('tree-1', 'Тест');
+
+    final router = GoRouter(
+      initialLocation: '/tree/view/tree-1?name=%D0%A2%D0%B5%D1%81%D1%82',
+      routes: [
+        GoRoute(
+          path: '/tree/view/:treeId',
+          builder: (context, state) => TreeViewScreen(
+            routeTreeId: state.pathParameters['treeId'],
+            routeTreeName: state.uri.queryParameters['name'],
+          ),
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<TreeProvider>.value(
+        value: treeProvider,
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(find.text('Тест'), findsWidgets);
+    expect(
+      find.textContaining('Открывайте карточки людей, чтобы смотреть детали'),
+      findsNothing,
+    );
+    expect(find.text('Добавить'), findsOneWidget);
+    expect(find.text('Сменить'), findsOneWidget);
+  });
 }

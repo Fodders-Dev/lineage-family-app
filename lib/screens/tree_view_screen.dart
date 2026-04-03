@@ -335,82 +335,202 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
     required String selectedTreeId,
     required String selectedTreeName,
   }) {
-    if (_isLoading) {
-      return _buildTreeState(
-        icon: Icons.sync,
-        title: 'Загружаем дерево',
-        message: 'Подтягиваем людей, связи и текущее состояние дерева.',
-        showProgress: true,
-      );
-    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 600;
 
-    if (_errorMessage.isNotEmpty) {
-      final isEmptyTree = _relativesData.isEmpty && _relationsData.isEmpty;
-      return _buildTreeState(
-        icon: isEmptyTree ? Icons.account_tree : Icons.error_outline,
-        title:
-            isEmptyTree ? 'Дерево пока пустое' : 'Не удалось загрузить дерево',
-        message: isEmptyTree
-            ? 'Добавьте первого человека, чтобы начать собирать структуру семьи.'
-            : _errorMessage,
-        actions: [
-          if (isEmptyTree)
-            FilledButton.icon(
-              onPressed: () => _navigateToAddRelative(selectedTreeId),
-              icon: const Icon(Icons.person_add_alt_1),
-              label: const Text('Добавить первого человека'),
-            ),
-          OutlinedButton.icon(
-            onPressed: () => _loadData(selectedTreeId),
-            icon: const Icon(Icons.refresh),
-            label: const Text('Повторить'),
-          ),
-        ],
-      );
-    }
+        if (_isLoading) {
+          return _buildTreeState(
+            icon: Icons.sync,
+            title: 'Загружаем дерево',
+            message: 'Подтягиваем людей, связи и текущее состояние дерева.',
+            showProgress: true,
+          );
+        }
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-          child: _buildOverviewCard(selectedTreeId, selectedTreeName),
-        ),
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: InteractiveFamilyTree(
-              peopleData: _relativesData,
-              relations: _relationsData,
-              currentUserId: _authService.currentUserId,
-              branchRootPersonId: _branchRootPersonId,
-              onBranchFocusCleared: _resetBranchFocus,
-              onPersonTap: (person) {
-                debugPrint('Нажатие на узел: ${person.name} (${person.id})');
-                context.push('/relative/details/${person.id}');
-              },
-              onBranchFocusRequested: _focusBranch,
-              isEditMode: _isEditMode,
-              selectedEditPersonId: _selectedEditPersonId,
-              onEditPersonSelected: (person) {
-                setState(() {
-                  _selectedEditPersonId = person.id;
-                  _selectedEditPersonName = person.name;
-                });
-              },
-              onAddRelativeTapWithType: _handleAddRelativeFromTree,
-              currentUserIsInTree: _currentUserIsInTree,
-              onAddSelfTapWithType: _handleAddSelfFromTree,
+        if (_errorMessage.isNotEmpty) {
+          final isEmptyTree = _relativesData.isEmpty && _relationsData.isEmpty;
+          return _buildTreeState(
+            icon: isEmptyTree ? Icons.account_tree : Icons.error_outline,
+            title: isEmptyTree
+                ? 'Дерево пока пустое'
+                : 'Не удалось загрузить дерево',
+            message: isEmptyTree
+                ? 'Добавьте первого человека, чтобы начать собирать структуру семьи.'
+                : _errorMessage,
+            actions: [
+              if (isEmptyTree)
+                FilledButton.icon(
+                  onPressed: () => _navigateToAddRelative(selectedTreeId),
+                  icon: const Icon(Icons.person_add_alt_1),
+                  label: const Text('Добавить первого человека'),
+                ),
+              OutlinedButton.icon(
+                onPressed: () => _loadData(selectedTreeId),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Повторить'),
+              ),
+            ],
+          );
+        }
+
+        return Column(
+          children: [
+            Padding(
+              padding: EdgeInsets.fromLTRB(16, isCompact ? 10 : 16, 16, 12),
+              child: isCompact
+                  ? _buildOverviewCard(
+                      selectedTreeId,
+                      selectedTreeName,
+                      compact: true,
+                    )
+                  : _buildOverviewCard(
+                      selectedTreeId,
+                      selectedTreeName,
+                      compact: false,
+                    ),
             ),
-          ),
-        ),
-      ],
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                child: InteractiveFamilyTree(
+                  peopleData: _relativesData,
+                  relations: _relationsData,
+                  currentUserId: _authService.currentUserId,
+                  branchRootPersonId: _branchRootPersonId,
+                  onBranchFocusCleared: _resetBranchFocus,
+                  onPersonTap: (person) {
+                    debugPrint(
+                        'Нажатие на узел: ${person.name} (${person.id})');
+                    context.push('/relative/details/${person.id}');
+                  },
+                  onBranchFocusRequested: _focusBranch,
+                  isEditMode: _isEditMode,
+                  selectedEditPersonId: _selectedEditPersonId,
+                  onEditPersonSelected: (person) {
+                    setState(() {
+                      _selectedEditPersonId = person.id;
+                      _selectedEditPersonName = person.name;
+                    });
+                  },
+                  onAddRelativeTapWithType: _handleAddRelativeFromTree,
+                  currentUserIsInTree: _currentUserIsInTree,
+                  onAddSelfTapWithType: _handleAddSelfFromTree,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
-  Widget _buildOverviewCard(String selectedTreeId, String selectedTreeName) {
+  Widget _buildOverviewCard(
+    String selectedTreeId,
+    String selectedTreeName, {
+    required bool compact,
+  }) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final branchRootPerson = _findBranchRootPerson();
+
+    if (compact) {
+      final compactPrimaryAction =
+          _currentUserIsInTree ? 'Добавить' : 'Добавить себя';
+
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: colorScheme.outlineVariant),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _isEditMode
+                  ? 'Режим редактирования включён'
+                  : 'Дерево готово к просмотру',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '${_relativesData.length} человек, ${_relationsData.length} связей, ${_estimateFamilyBranchCount()} веток семьи.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  onPressed: () => _navigateToAddRelative(selectedTreeId),
+                  icon: const Icon(Icons.person_add_alt_1),
+                  label: Text(compactPrimaryAction),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => context.go('/tree?selector=1'),
+                  icon: const Icon(Icons.swap_horiz),
+                  label: const Text('Сменить'),
+                ),
+                if (_branchRootPersonId != null)
+                  OutlinedButton.icon(
+                    onPressed: _resetBranchFocus,
+                    icon: const Icon(Icons.clear_all),
+                    label: const Text('Сбросить ветку'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _buildInfoChip(
+                  icon: _isEditMode ? Icons.edit : Icons.visibility_outlined,
+                  label: _isEditMode ? 'Редактирование' : 'Просмотр',
+                ),
+                if (_currentTreeMeta != null)
+                  _buildInfoChip(
+                    icon: _currentTreeMeta!.isPrivate
+                        ? Icons.lock_outline
+                        : Icons.public,
+                    label:
+                        _currentTreeMeta!.isPrivate ? 'Приватное' : 'Публичное',
+                  ),
+                _buildInfoChip(
+                  icon: _currentUserIsInTree
+                      ? Icons.verified_user_outlined
+                      : Icons.person_add_alt_1,
+                  label: _currentUserIsInTree
+                      ? 'Вы в дереве'
+                      : 'Вы ещё не добавлены',
+                  highlighted: !_currentUserIsInTree,
+                ),
+                if (_branchRootName != null)
+                  _buildInfoChip(
+                    icon: Icons.alt_route,
+                    label: 'Ветка: $_branchRootName',
+                    highlighted: true,
+                  ),
+                if (_selectedEditPersonName != null && _isEditMode)
+                  _buildInfoChip(
+                    icon: Icons.ads_click_outlined,
+                    label: 'Выбрано: $_selectedEditPersonName',
+                    highlighted: true,
+                  ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
 
     return Container(
       width: double.infinity,
@@ -585,6 +705,7 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
     final colorScheme = theme.colorScheme;
 
     return Container(
+      constraints: const BoxConstraints(maxWidth: 260),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: highlighted ? colorScheme.primaryContainer : colorScheme.surface,
@@ -598,7 +719,12 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
         children: [
           Icon(icon, size: 16),
           const SizedBox(width: 6),
-          Text(label),
+          Flexible(
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
     );

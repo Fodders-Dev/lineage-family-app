@@ -1913,37 +1913,32 @@ class _InteractiveFamilyTreeState extends State<InteractiveFamilyTree> {
                 icon: const Icon(Icons.my_location_outlined),
                 label: const Text('Ко мне'),
               ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: Theme.of(context)
-                    .colorScheme
-                    .surfaceContainerHighest
-                    .withValues(alpha: 0.92),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.outlineVariant,
+            if (!isCompact)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerHighest
+                      .withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                ),
+                child: Text(
+                  'Масштаб $zoomPercent%',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                 ),
               ),
-              child: Text(
-                'Масштаб $zoomPercent%',
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-            ),
           ],
         );
 
         if (isCompact) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              infoCard,
-              const SizedBox(height: 8),
-              controls,
-            ],
-          );
+          return controls;
         }
 
         return Row(

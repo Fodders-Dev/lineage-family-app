@@ -480,6 +480,9 @@ void main() {
   testWidgets(
       'InteractiveFamilyTree shows generation guides, zoom indicator and branch reset',
       (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
     final parent = FamilyPerson(
       id: 'parent',
       treeId: 'tree-1',
