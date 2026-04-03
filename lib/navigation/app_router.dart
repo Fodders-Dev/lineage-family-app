@@ -23,6 +23,7 @@ import '../screens/create_post_screen.dart';
 import '../screens/family_tree/create_tree_screen.dart';
 import '../screens/chat_screen.dart';
 import '../widgets/offline_indicator.dart';
+import '../widgets/main_navigation_bar.dart';
 import '../screens/offline_profiles_screen.dart';
 import '../screens/public_tree_entry_screen.dart';
 import '../screens/public_tree_viewer_screen.dart';
@@ -35,6 +36,7 @@ import 'package:provider/provider.dart';
 import 'package:get_it/get_it.dart';
 import '../backend/interfaces/auth_service_interface.dart';
 import '../backend/interfaces/chat_service_interface.dart';
+import '../backend/interfaces/family_tree_service_interface.dart';
 import '../services/invitation_service.dart';
 
 // Ключ для корневого навигатора
@@ -230,86 +232,28 @@ class AppRouter {
                       ],
                     ),
                     bottomNavigationBar: StreamBuilder<int>(
-                      stream:
-                          GetIt.I<AuthServiceInterface>().currentUserId != null
-                              ? GetIt.I<ChatServiceInterface>()
-                                  .getTotalUnreadCountStream(
-                                      GetIt.I<AuthServiceInterface>()
-                                          .currentUserId!)
-                              : Stream.value(0),
+                      stream: Stream.value(navigationShell.currentIndex),
                       builder: (context, snapshot) {
-                        final unreadCount = snapshot.data ?? 0;
-                        return BottomNavigationBar(
-                          type: BottomNavigationBarType
-                              .fixed, // Важно для > 3 элементов
+                        final currentUserId =
+                            GetIt.I<AuthServiceInterface>().currentUserId;
+                        return MainNavigationBar(
                           currentIndex: navigationShell.currentIndex,
-                          selectedItemColor: Theme.of(context)
-                              .colorScheme
-                              .primary, // Используем colorScheme
-                          unselectedItemColor: Colors.grey,
                           onTap: (index) {
-                            // Переход к ветке с сохранением состояния
                             navigationShell.goBranch(
                               index,
                               initialLocation:
                                   index == navigationShell.currentIndex,
                             );
                           },
-                          items: [
-                            BottomNavigationBarItem(
-                              icon: Icon(Icons.home_outlined),
-                              activeIcon:
-                                  Icon(Icons.home), // Добавим активную иконку
-                              label: 'Главная',
-                            ),
-                            BottomNavigationBarItem(
-                              icon: Icon(Icons.people_outline),
-                              activeIcon: Icon(Icons.people),
-                              label: 'Родные',
-                            ),
-                            BottomNavigationBarItem(
-                              icon: Container(
-                                // Центральная кнопка "Дерево"
-                                padding: EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .primary, // Используем colorScheme
-                                  shape: BoxShape.circle,
-                                ),
-                                child: Icon(
-                                  Icons.account_tree,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onPrimary, // Цвет на фоне основной кнопки
-                                  size: 20,
-                                ),
-                              ),
-                              label: 'Моё дерево',
-                            ),
-                            BottomNavigationBarItem(
-                              icon: Badge(
-                                label: Text(unreadCount > 99
-                                    ? '99+'
-                                    : unreadCount.toString()),
-                                isLabelVisible: unreadCount > 0,
-                                child: const Icon(Icons.chat_bubble_outline),
-                              ),
-                              activeIcon: Badge(
-                                label: Text(unreadCount > 99
-                                    ? '99+'
-                                    : unreadCount.toString()),
-                                isLabelVisible: unreadCount > 0,
-                                child: const Icon(Icons.chat_bubble),
-                              ),
-                              label: 'Чаты',
-                            ),
-                            BottomNavigationBarItem(
-                              icon: Icon(Icons.person_outline),
-                              activeIcon: Icon(Icons.person),
-                              label: 'Профиль',
-                            ),
-                          ],
+                          unreadChatsStream: currentUserId != null
+                              ? GetIt.I<ChatServiceInterface>()
+                                  .getTotalUnreadCountStream(currentUserId)
+                              : Stream.value(0),
+                          pendingInvitationsCountStream: currentUserId != null
+                              ? GetIt.I<FamilyTreeServiceInterface>()
+                                  .getPendingTreeInvitations()
+                                  .map((invitations) => invitations.length)
+                              : Stream.value(0),
                         );
                       },
                     ),
