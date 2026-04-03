@@ -443,10 +443,28 @@ class PendingBackendChatService implements ChatServiceInterface {
   }
 
   @override
+  Future<void> sendMessageToChat({
+    required String chatId,
+    String text = '',
+    List<XFile> attachments = const <XFile>[],
+  }) {
+    throw UnsupportedError(_pendingProviderMessage('chat'));
+  }
+
+  @override
   Future<void> sendTextMessage({
     required String otherUserId,
     required String text,
   }) {
     return sendMessage(otherUserId: otherUserId, text: text);
+  }
+
+  @override
+  Future<String?> createGroupChat({
+    required List<String> participantIds,
+    String? title,
+    String? treeId,
+  }) {
+    throw UnsupportedError(_pendingProviderMessage('chat'));
   }
 }

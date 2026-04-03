@@ -49,16 +49,26 @@ class _OutgoingMessage {
 class ChatScreen extends StatefulWidget {
   const ChatScreen({
     super.key,
-    required this.otherUserId,
-    required this.otherUserName,
-    this.otherUserPhotoUrl,
-    required this.relativeId,
-  });
+    this.chatId,
+    this.otherUserId,
+    this.title = 'Чат',
+    this.photoUrl,
+    this.relativeId,
+    this.chatType = 'direct',
+  }) : assert(
+          (chatId != null && chatId != '') ||
+              (otherUserId != null && otherUserId != ''),
+          'Нужен chatId или otherUserId',
+        );
 
-  final String otherUserId;
-  final String otherUserName;
-  final String? otherUserPhotoUrl;
-  final String relativeId;
+  final String? chatId;
+  final String? otherUserId;
+  final String title;
+  final String? photoUrl;
+  final String? relativeId;
+  final String chatType;
+
+  bool get isGroup => chatType == 'group' || chatType == 'branch';
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -101,14 +111,19 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final currentUserId = _chatService.currentUserId;
       if (currentUserId == null || currentUserId.isEmpty) {
-        throw StateError('Сессия недоступна. Войдите в аккаунт повторно.');
+        throw StateError('Сессия недоступна');
       }
 
-      final resolvedChatId = await _chatService.getOrCreateChat(
-        widget.otherUserId,
-      );
+      String? resolvedChatId = widget.chatId;
       if (resolvedChatId == null || resolvedChatId.isEmpty) {
-        throw StateError('Backend не вернул идентификатор чата.');
+        final otherUserId = widget.otherUserId;
+        if (otherUserId == null || otherUserId.isEmpty) {
+          throw StateError('Не удалось определить чат');
+        }
+        resolvedChatId = await _chatService.getOrCreateChat(otherUserId);
+      }
+      if (resolvedChatId == null || resolvedChatId.isEmpty) {
+        throw StateError('Не удалось определить чат');
       }
 
       if (!mounted) {
@@ -127,7 +142,8 @@ class _ChatScreenState extends State<ChatScreen> {
         return;
       }
       setState(() {
-        _bootstrapError = 'Не удалось открыть чат. ${error.toString()}';
+        _bootstrapError =
+            'Не удалось открыть чат. Проверьте соединение и попробуйте снова.';
         _isBootstrapping = false;
       });
     }
@@ -230,8 +246,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _sendOptimisticMessage(_OutgoingMessage message) async {
     try {
-      await _chatService.sendMessage(
-        otherUserId: widget.otherUserId,
+      final chatId = _chatId;
+      if (chatId == null || chatId.isEmpty) {
+        throw StateError('Чат недоступен');
+      }
+      await _chatService.sendMessageToChat(
+        chatId: chatId,
         text: message.text,
         attachments: message.attachments,
       );
@@ -258,7 +278,7 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка отправки: ${error.toString()}')),
+        const SnackBar(content: Text('Не удалось отправить сообщение.')),
       );
     }
   }
@@ -301,21 +321,21 @@ class _ChatScreenState extends State<ChatScreen> {
         title: Row(
           children: [
             GestureDetector(
-              onTap: () =>
-                  context.push('/relative/details/${widget.relativeId}'),
+              onTap: !widget.isGroup &&
+                      widget.relativeId != null &&
+                      widget.relativeId!.isNotEmpty
+                  ? () => context.push('/relative/details/${widget.relativeId}')
+                  : null,
               child: CircleAvatar(
                 radius: 20,
-                backgroundImage: widget.otherUserPhotoUrl != null &&
-                        widget.otherUserPhotoUrl!.isNotEmpty
-                    ? NetworkImage(widget.otherUserPhotoUrl!)
-                    : null,
-                child: widget.otherUserPhotoUrl == null ||
-                        widget.otherUserPhotoUrl!.isEmpty
-                    ? Text(
-                        widget.otherUserName.isNotEmpty
-                            ? widget.otherUserName[0]
-                            : '?',
-                      )
+                backgroundImage:
+                    widget.photoUrl != null && widget.photoUrl!.isNotEmpty
+                        ? NetworkImage(widget.photoUrl!)
+                        : null,
+                child: widget.photoUrl == null || widget.photoUrl!.isEmpty
+                    ? widget.isGroup
+                        ? const Icon(Icons.group_outlined)
+                        : Text(widget.title.isNotEmpty ? widget.title[0] : '?')
                     : null,
               ),
             ),
@@ -325,7 +345,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.otherUserName,
+                    widget.title,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 16,
@@ -333,7 +353,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   ),
                   Text(
-                    'Личные сообщения',
+                    widget.isGroup ? 'Групповой чат' : 'Личные сообщения',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],

@@ -856,6 +856,115 @@ test("chat endpoints cover preview list, history, send and mark as read", async 
   }
 });
 
+test("group chat endpoints create previews before first message and keep media payload", async () => {
+  const ctx = await startTestServer();
+
+  try {
+    const aliceResponse = await fetch(`${ctx.baseUrl}/v1/auth/register`, {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({
+        email: "group-alice@lineage.app",
+        password: "secret123",
+        displayName: "Alice Group",
+      }),
+    });
+    assert.equal(aliceResponse.status, 201);
+    const alice = await aliceResponse.json();
+
+    const bobResponse = await fetch(`${ctx.baseUrl}/v1/auth/register`, {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({
+        email: "group-bob@lineage.app",
+        password: "secret123",
+        displayName: "Bob Group",
+      }),
+    });
+    assert.equal(bobResponse.status, 201);
+    const bob = await bobResponse.json();
+
+    const caraResponse = await fetch(`${ctx.baseUrl}/v1/auth/register`, {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({
+        email: "group-cara@lineage.app",
+        password: "secret123",
+        displayName: "Cara Group",
+      }),
+    });
+    assert.equal(caraResponse.status, 201);
+    const cara = await caraResponse.json();
+
+    const createGroupResponse = await fetch(`${ctx.baseUrl}/v1/chats/groups`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${alice.accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        title: "Семья Кузнецовых",
+        participantIds: [bob.user.id, cara.user.id],
+      }),
+    });
+    assert.equal(createGroupResponse.status, 201);
+    const createdGroupPayload = await createGroupResponse.json();
+    assert.equal(createdGroupPayload.chat.type, "group");
+    assert.equal(createdGroupPayload.chat.title, "Семья Кузнецовых");
+
+    const bobChatsResponse = await fetch(`${ctx.baseUrl}/v1/chats`, {
+      headers: {authorization: `Bearer ${bob.accessToken}`},
+    });
+    assert.equal(bobChatsResponse.status, 200);
+    const bobChatsPayload = await bobChatsResponse.json();
+    assert.equal(bobChatsPayload.chats.length, 1);
+    assert.equal(bobChatsPayload.chats[0].type, "group");
+    assert.equal(bobChatsPayload.chats[0].title, "Семья Кузнецовых");
+    assert.equal(bobChatsPayload.chats[0].lastMessage, "");
+
+    const sendMessageResponse = await fetch(
+      `${ctx.baseUrl}/v1/chats/${createdGroupPayload.chatId}/messages`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${alice.accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          mediaUrls: ["https://cdn.example.test/photo-1.jpg"],
+          imageUrl: "https://cdn.example.test/photo-1.jpg",
+        }),
+      },
+    );
+    assert.equal(sendMessageResponse.status, 201);
+    const sentMessagePayload = await sendMessageResponse.json();
+    assert.deepEqual(sentMessagePayload.message.mediaUrls, [
+      "https://cdn.example.test/photo-1.jpg",
+    ]);
+
+    const historyResponse = await fetch(
+      `${ctx.baseUrl}/v1/chats/${createdGroupPayload.chatId}/messages`,
+      {
+        headers: {authorization: `Bearer ${cara.accessToken}`},
+      },
+    );
+    assert.equal(historyResponse.status, 200);
+    const historyPayload = await historyResponse.json();
+    assert.equal(historyPayload.chat.type, "group");
+    assert.equal(historyPayload.messages.length, 1);
+    assert.equal(historyPayload.messages[0].imageUrl, "https://cdn.example.test/photo-1.jpg");
+
+    const unreadResponse = await fetch(`${ctx.baseUrl}/v1/chats/unread-count`, {
+      headers: {authorization: `Bearer ${bob.accessToken}`},
+    });
+    assert.equal(unreadResponse.status, 200);
+    const unreadPayload = await unreadResponse.json();
+    assert.equal(unreadPayload.totalUnread, 1);
+  } finally {
+    await stopTestServer(ctx);
+  }
+});
+
 test("relation requests and invite processing work on custom backend", async () => {
   const ctx = await startTestServer();
 

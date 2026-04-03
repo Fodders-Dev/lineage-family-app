@@ -453,12 +453,12 @@ class AppRouter {
                         constrainWidth: true,
                         child: ChatScreen(
                           otherUserId: userId,
-                          otherUserName: name,
-                          otherUserPhotoUrl:
-                              photoUrl != null && photoUrl.isNotEmpty
-                                  ? photoUrl
-                                  : null,
-                          relativeId: relativeId, // <-- ПЕРЕДАЕМ relativeId
+                          title: name,
+                          photoUrl: photoUrl != null && photoUrl.isNotEmpty
+                              ? photoUrl
+                              : null,
+                          relativeId: relativeId,
+                          chatType: 'direct',
                         ),
                         transitionsBuilder: slideTransition,
                       );
@@ -690,6 +690,35 @@ class AppRouter {
       // Маршрут чата ВНЕ оболочки (дублирует тот, что внутри ветки /relatives)
       // Оставляем его для возможности перехода в чат из других мест (уведомления и т.д.)
       GoRoute(
+        path: '/chats/view/:chatId',
+        parentNavigatorKey: rootNavigatorKey,
+        pageBuilder: (context, state) {
+          final chatId = state.pathParameters['chatId'] ?? '';
+          final title = state.uri.queryParameters['title'] ?? 'Чат';
+          final photoUrl = state.uri.queryParameters['photo'];
+          final otherUserId = state.uri.queryParameters['userId'];
+          final relativeId = state.uri.queryParameters['relativeId'];
+          final chatType = state.uri.queryParameters['type'] ?? 'direct';
+
+          return LineageCustomTransitionPage(
+            key: state.pageKey,
+            constrainWidth: true,
+            child: ChatScreen(
+              chatId: chatId,
+              otherUserId: otherUserId,
+              title: title,
+              photoUrl:
+                  photoUrl != null && photoUrl.isNotEmpty ? photoUrl : null,
+              relativeId: relativeId != null && relativeId.isNotEmpty
+                  ? relativeId
+                  : null,
+              chatType: chatType,
+            ),
+            transitionsBuilder: slideTransition,
+          );
+        },
+      ),
+      GoRoute(
         path: '/chat/:userId',
         parentNavigatorKey: rootNavigatorKey,
         pageBuilder: (context, state) {
@@ -717,10 +746,11 @@ class AppRouter {
             constrainWidth: true,
             child: ChatScreen(
               otherUserId: userId,
-              otherUserName: name,
-              otherUserPhotoUrl:
+              title: name,
+              photoUrl:
                   photoUrl != null && photoUrl.isNotEmpty ? photoUrl : null,
-              relativeId: relativeId, // <-- ПЕРЕДАЕМ relativeId
+              relativeId: relativeId,
+              chatType: 'direct',
             ),
             transitionsBuilder: slideTransition,
           );

@@ -1000,11 +1000,31 @@ class CustomApiNotificationService implements NotificationServiceInterface {
 
     if (type == 'chat' || type == 'chat_message') {
       final router = GoRouter.of(navigatorContext);
+      final chatId =
+          rootPayload['chatId']?.toString() ?? data['chatId']?.toString() ?? '';
+      final chatType = rootPayload['chatType']?.toString() ??
+          data['chatType']?.toString() ??
+          'direct';
+      final chatTitle = rootPayload['chatTitle']?.toString() ??
+          data['chatTitle']?.toString() ??
+          '';
       final senderId =
           rootPayload['senderId']?.toString() ?? data['senderId']?.toString();
       final senderName = rootPayload['senderName']?.toString() ??
           data['senderName']?.toString() ??
           'Пользователь';
+      final encodedTitle =
+          Uri.encodeComponent(chatTitle.isNotEmpty ? chatTitle : senderName);
+
+      if (chatId.isNotEmpty) {
+        final userQuery =
+            senderId != null && senderId.isNotEmpty ? '&userId=$senderId' : '';
+        router.go(
+          '/chats/view/$chatId?type=$chatType&title=$encodedTitle$userQuery',
+        );
+        return;
+      }
+
       if (senderId == null || senderId.isEmpty) {
         return;
       }

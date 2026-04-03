@@ -261,6 +261,19 @@ class CustomApiChatService implements ChatServiceInterface {
       throw const CustomApiException('Не удалось определить чат');
     }
 
+    await sendMessageToChat(
+      chatId: chatId,
+      text: text,
+      attachments: attachments,
+    );
+  }
+
+  @override
+  Future<void> sendMessageToChat({
+    required String chatId,
+    String text = '',
+    List<XFile> attachments = const <XFile>[],
+  }) async {
     final trimmedText = text.trim();
     if (trimmedText.isEmpty && attachments.isEmpty) {
       throw const CustomApiException('Сообщение не должно быть пустым');
@@ -307,6 +320,31 @@ class CustomApiChatService implements ChatServiceInterface {
     return chatId;
   }
 
+  @override
+  Future<String?> createGroupChat({
+    required List<String> participantIds,
+    String? title,
+    String? treeId,
+  }) async {
+    final response = await _requestJson(
+      method: 'POST',
+      path: '/v1/chats/groups',
+      body: {
+        'participantIds': participantIds,
+        if (title != null && title.trim().isNotEmpty) 'title': title.trim(),
+        if (treeId != null && treeId.trim().isNotEmpty) 'treeId': treeId.trim(),
+      },
+    );
+
+    final chatId = response['chatId']?.toString();
+    if (chatId == null || chatId.isEmpty) {
+      throw const CustomApiException(
+        'Backend не вернул идентификатор группового чата',
+      );
+    }
+    return chatId;
+  }
+
   Future<List<ChatPreview>> _fetchChatPreviews() async {
     final response = await _requestJson(
       method: 'GET',
@@ -326,6 +364,10 @@ class CustomApiChatService implements ChatServiceInterface {
         'id': chat['id'],
         'chatId': chat['chatId'],
         'userId': chat['userId'],
+        'type': chat['type'],
+        'title': chat['title'],
+        'photoUrl': chat['photoUrl'],
+        'participantIds': chat['participantIds'],
         'otherUserId': chat['otherUserId'],
         'otherUserName': chat['otherUserName'],
         'otherUserPhotoUrl': chat['otherUserPhotoUrl'],

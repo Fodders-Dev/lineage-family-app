@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:lineage/backend/interfaces/auth_service_interface.dart';
 import 'package:lineage/backend/interfaces/chat_service_interface.dart';
@@ -61,6 +62,21 @@ class _FakeChatService implements ChatServiceInterface {
 
   @override
   String buildChatId(String otherUserId) => 'chat-$otherUserId';
+
+  @override
+  Future<void> sendMessageToChat({
+    required String chatId,
+    String text = '',
+    List<XFile> attachments = const <XFile>[],
+  }) async {}
+
+  @override
+  Future<String?> createGroupChat({
+    required List<String> participantIds,
+    String? title,
+    String? treeId,
+  }) async =>
+      'chat-group-1';
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

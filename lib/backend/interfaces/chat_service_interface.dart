@@ -8,6 +8,14 @@ abstract class ChatServiceInterface {
   Stream<List<ChatPreview>> getUserChatsStream(String userId);
   Stream<int> getTotalUnreadCountStream(String userId);
   Stream<List<ChatMessage>> getMessagesStream(String chatId);
+  Future<void> sendMessageToChat({
+    required String chatId,
+    String text = '',
+    List<XFile> attachments = const <XFile>[],
+  }) {
+    throw UnsupportedError('sendMessageToChat is not supported');
+  }
+
   Future<void> sendMessage({
     required String otherUserId,
     String text = '',
@@ -22,4 +30,11 @@ abstract class ChatServiceInterface {
 
   Future<void> markChatAsRead(String chatId, String userId);
   Future<String?> getOrCreateChat(String otherUserId);
+  Future<String?> createGroupChat({
+    required List<String> participantIds,
+    String? title,
+    String? treeId,
+  }) {
+    throw UnsupportedError('createGroupChat is not supported');
+  }
 }

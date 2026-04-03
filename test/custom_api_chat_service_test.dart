@@ -380,6 +380,104 @@ void main() {
     },
   );
 
+  test('CustomApiChatService creates group chat and parses group previews',
+      () async {
+    final client = MockClient((request) async {
+      if (request.url.path == '/v1/chats/groups' && request.method == 'POST') {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(body['participantIds'], ['user-2', 'user-3']);
+        expect(body['title'], 'Семья Кузнецовых');
+        expect(body['treeId'], 'tree-1');
+        return http.Response(
+          jsonEncode({
+            'chatId': 'chat-group-1',
+            'chat': {
+              'id': 'chat-group-1',
+              'type': 'group',
+              'title': 'Семья Кузнецовых',
+              'participantIds': ['user-1', 'user-2', 'user-3'],
+            },
+          }),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+
+      if (request.url.path == '/v1/chats' && request.method == 'GET') {
+        return http.Response(
+          jsonEncode({
+            'chats': [
+              {
+                'id': 'chat-group-1_user-1',
+                'chatId': 'chat-group-1',
+                'userId': 'user-1',
+                'type': 'group',
+                'title': 'Семья Кузнецовых',
+                'participantIds': ['user-1', 'user-2', 'user-3'],
+                'otherUserId': '',
+                'otherUserName': 'Семья Кузнецовых',
+                'otherUserPhotoUrl': null,
+                'lastMessage': '',
+                'lastMessageTime': '2026-03-27T12:00:00.000Z',
+                'unreadCount': 0,
+                'lastMessageSenderId': '',
+              },
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+
+      return http.Response('{"message":"not found"}', 404);
+    });
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      'custom_api_session_v1',
+      jsonEncode({
+        'accessToken': 'access-token',
+        'refreshToken': 'refresh-token',
+        'userId': 'user-1',
+        'email': 'dev@lineage.app',
+        'displayName': 'Dev User',
+        'providerIds': ['password'],
+        'isProfileComplete': true,
+        'missingFields': const [],
+      }),
+    );
+
+    final authService = await CustomApiAuthService.create(
+      httpClient: client,
+      preferences: prefs,
+      runtimeConfig: const BackendRuntimeConfig(
+        apiBaseUrl: 'https://api.example.ru',
+      ),
+      invitationService: InvitationService(),
+    );
+
+    final chatService = CustomApiChatService(
+      authService: authService,
+      runtimeConfig: const BackendRuntimeConfig(
+        apiBaseUrl: 'https://api.example.ru',
+      ),
+      httpClient: client,
+    );
+
+    final chatId = await chatService.createGroupChat(
+      participantIds: const ['user-2', 'user-3'],
+      title: 'Семья Кузнецовых',
+      treeId: 'tree-1',
+    );
+    expect(chatId, 'chat-group-1');
+
+    final previews = await chatService.getUserChatsStream('user-1').first;
+    expect(previews, hasLength(1));
+    expect(previews.first.isGroup, isTrue);
+    expect(previews.first.displayName, 'Семья Кузнецовых');
+    expect(previews.first.participantIds, ['user-1', 'user-2', 'user-3']);
+  });
+
   test(
     'CustomApiChatService clears stale session and returns safe defaults on 401 polling',
     () async {

@@ -65,6 +65,13 @@ class _FakeChatService implements ChatServiceInterface {
   }) async {}
 
   @override
+  Future<void> sendMessageToChat({
+    required String chatId,
+    String text = '',
+    List<XFile> attachments = const <XFile>[],
+  }) async {}
+
+  @override
   Future<void> sendTextMessage({
     required String otherUserId,
     required String text,
@@ -76,6 +83,14 @@ class _FakeChatService implements ChatServiceInterface {
   @override
   Future<String?> getOrCreateChat(String otherUserId) async =>
       'chat-$otherUserId';
+
+  @override
+  Future<String?> createGroupChat({
+    required List<String> participantIds,
+    String? title,
+    String? treeId,
+  }) async =>
+      'chat-group-1';
 }
 
 void main() {
@@ -120,6 +135,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Пока нет чатов'), findsOneWidget);
+    expect(find.text('Создать групповой чат'), findsOneWidget);
     expect(find.text('Открыть родных'), findsOneWidget);
     expect(find.text('Открыть дерево'), findsOneWidget);
   });

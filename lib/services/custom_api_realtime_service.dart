@@ -29,8 +29,15 @@ class CustomApiRealtimeEvent {
     return value is Map<String, dynamic> ? value : null;
   }
 
+  Map<String, dynamic>? get chat {
+    final value = payload['chat'];
+    return value is Map<String, dynamic> ? value : null;
+  }
+
   bool get isChatEvent =>
-      type == 'chat.message.created' || type == 'chat.read.updated';
+      type == 'chat.created' ||
+      type == 'chat.message.created' ||
+      type == 'chat.read.updated';
 
   bool get isNotificationEvent => type == 'notification.created';
 

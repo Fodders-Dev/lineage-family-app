@@ -256,10 +256,30 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
       text: message.text,
       timestamp: message.timestamp,
       isRead: message.isRead === true,
+      imageUrl: message.imageUrl || null,
+      mediaUrls: Array.isArray(message.mediaUrls) ? message.mediaUrls : [],
       participants: Array.isArray(message.participants)
         ? message.participants
         : [],
       senderName: message.senderName,
+    };
+  }
+
+  function mapChatRecord(chat) {
+    return {
+      id: chat.id,
+      type: chat.type || "direct",
+      title: chat.title || null,
+      participantIds: Array.isArray(chat.participantIds)
+        ? chat.participantIds
+        : [],
+      createdBy: chat.createdBy || null,
+      treeId: chat.treeId || null,
+      branchRootPersonIds: Array.isArray(chat.branchRootPersonIds)
+        ? chat.branchRootPersonIds
+        : [],
+      createdAt: chat.createdAt,
+      updatedAt: chat.updatedAt,
     };
   }
 
@@ -268,6 +288,12 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
       id: `${preview.chatId}_${preview.userId}`,
       chatId: preview.chatId,
       userId: preview.userId,
+      type: preview.type || "direct",
+      title: preview.title || null,
+      photoUrl: preview.photoUrl || null,
+      participantIds: Array.isArray(preview.participantIds)
+        ? preview.participantIds
+        : [],
       otherUserId: preview.otherUserId,
       otherUserName: preview.otherUserName || "Пользователь",
       otherUserPhotoUrl: preview.otherUserPhotoUrl || null,
@@ -295,6 +321,24 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
     }
 
     return tree;
+  }
+
+  async function requireChatAccess(req, res, chatId) {
+    const chat = await store.findChat(chatId);
+    if (!chat) {
+      res.status(404).json({message: "Чат не найден"});
+      return null;
+    }
+
+    const participantIds = Array.isArray(chat.participantIds)
+      ? chat.participantIds
+      : [];
+    if (!participantIds.includes(req.auth.user.id)) {
+      res.status(403).json({message: "Доступ к чату запрещён"});
+      return null;
+    }
+
+    return chat;
   }
 
   function authResponse(user, sessionTokens) {
@@ -1331,40 +1375,85 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
       return;
     }
 
-    const participants = [req.auth.user.id, otherUserId].sort();
-    const chatId = participants.join("_");
-    res.json({chatId});
+    const chat = await store.ensureDirectChat(req.auth.user.id, otherUserId);
+    if (chat === null) {
+      res.status(400).json({message: "Не удалось создать личный чат"});
+      return;
+    }
+    if (chat === undefined) {
+      res.status(404).json({message: "Один из участников не найден"});
+      return;
+    }
+
+    res.json({
+      chatId: chat.id,
+      chat: mapChatRecord(chat),
+    });
+  });
+
+  app.post("/v1/chats/groups", requireAuth, async (req, res) => {
+    const participantIds = Array.isArray(req.body?.participantIds)
+      ? req.body.participantIds
+      : [];
+    const title = req.body?.title;
+    const treeId = req.body?.treeId;
+
+    const chat = await store.createGroupChat({
+      title,
+      participantIds,
+      createdBy: req.auth.user.id,
+      treeId,
+    });
+    if (chat === false) {
+      res.status(400).json({
+        message: "Для группового чата нужно выбрать минимум двух участников",
+      });
+      return;
+    }
+    if (chat === null) {
+      res.status(404).json({message: "Один или несколько участников не найдены"});
+      return;
+    }
+
+    const mappedChat = mapChatRecord(chat);
+    for (const participantId of chat.participantIds) {
+      realtimeHub?.publishToUser(participantId, {
+        type: "chat.created",
+        chatId: chat.id,
+        chat: mappedChat,
+      });
+    }
+
+    res.status(201).json({
+      chatId: chat.id,
+      chat: mappedChat,
+    });
   });
 
   app.get("/v1/chats/:chatId/messages", requireAuth, async (req, res) => {
-    const participants = String(req.params.chatId || "")
-      .split("_")
-      .map((value) => value.trim())
-      .filter(Boolean);
-    if (!participants.includes(req.auth.user.id)) {
-      res.status(403).json({message: "Доступ к чату запрещён"});
+    const chat = await requireChatAccess(req, res, req.params.chatId);
+    if (!chat) {
       return;
     }
 
     const messages = await store.listChatMessages(req.params.chatId);
     res.json({
+      chat: mapChatRecord(chat),
       messages: messages.map(mapChatMessage),
     });
   });
 
   app.post("/v1/chats/:chatId/messages", requireAuth, async (req, res) => {
-    const participants = String(req.params.chatId || "")
-      .split("_")
-      .map((value) => value.trim())
-      .filter(Boolean);
-    if (!participants.includes(req.auth.user.id)) {
-      res.status(403).json({message: "Доступ к чату запрещён"});
+    const chat = await requireChatAccess(req, res, req.params.chatId);
+    if (!chat) {
       return;
     }
 
     const text = String(req.body?.text || "").trim();
-    if (!text) {
-      res.status(400).json({message: "Нужен text"});
+    const mediaUrls = Array.isArray(req.body?.mediaUrls) ? req.body.mediaUrls : [];
+    const imageUrl = req.body?.imageUrl;
+    if (!text && mediaUrls.length === 0 && !String(imageUrl || "").trim()) {
+      res.status(400).json({message: "Нужен text или вложение"});
       return;
     }
 
@@ -1372,24 +1461,39 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
       chatId: req.params.chatId,
       senderId: req.auth.user.id,
       text,
+      mediaUrls,
+      imageUrl,
     });
 
+    if (message === false) {
+      res.status(400).json({message: "Сообщение не должно быть пустым"});
+      return;
+    }
     if (!message) {
       res.status(400).json({message: "Не удалось отправить сообщение"});
       return;
     }
 
-    const recipientId = participants.find(
-      (participant) => participant !== req.auth.user.id,
+    const recipientIds = (chat.participantIds || []).filter(
+      (participantId) => participantId !== req.auth.user.id,
     );
-    if (recipientId) {
+    for (const recipientId of recipientIds) {
       await createAndDispatchNotification({
         userId: recipientId,
         type: "chat_message",
-        title: message.senderName || "Новое сообщение",
-        body: message.text,
+        title:
+          chat.type === "group" || chat.type === "branch"
+            ? chat.title || message.senderName || "Групповой чат"
+            : message.senderName || "Новое сообщение",
+        body:
+          message.text ||
+          (Array.isArray(message.mediaUrls) && message.mediaUrls.length > 0
+            ? "Фото"
+            : "Новое сообщение"),
         data: {
           chatId: message.chatId,
+          chatType: chat.type || "direct",
+          chatTitle: chat.title || null,
           senderId: message.senderId,
           senderName: message.senderName,
           messageId: message.id,
@@ -1398,10 +1502,11 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
     }
 
     const mappedMessage = mapChatMessage(message);
-    for (const participantId of participants) {
+    for (const participantId of chat.participantIds || []) {
       realtimeHub?.publishToUser(participantId, {
         type: "chat.message.created",
         chatId: message.chatId,
+        chat: mapChatRecord(chat),
         message: mappedMessage,
       });
     }
@@ -1410,12 +1515,8 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
   });
 
   app.post("/v1/chats/:chatId/read", requireAuth, async (req, res) => {
-    const participants = String(req.params.chatId || "")
-      .split("_")
-      .map((value) => value.trim())
-      .filter(Boolean);
-    if (!participants.includes(req.auth.user.id)) {
-      res.status(403).json({message: "Доступ к чату запрещён"});
+    const chat = await requireChatAccess(req, res, req.params.chatId);
+    if (!chat) {
       return;
     }
 
@@ -1423,6 +1524,7 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
     realtimeHub?.publishToUser(req.auth.user.id, {
       type: "chat.read.updated",
       chatId: req.params.chatId,
+      chat: mapChatRecord(chat),
       userId: req.auth.user.id,
     });
     res.json({ok: true});

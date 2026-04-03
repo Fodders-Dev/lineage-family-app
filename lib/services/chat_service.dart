@@ -107,7 +107,7 @@ class ChatService implements ChatServiceInterface {
     }
   }
 
-  // Отметить чат как прочитанный
+  @override
   Future<void> markChatAsRead(String chatId, String userId) async {
     try {
       // Обновляем превью чата - снижаем счетчик непрочитанных до нуля
@@ -195,6 +195,19 @@ class ChatService implements ChatServiceInterface {
     String text = '',
     List<XFile> attachments = const <XFile>[],
   }) async {
+    await sendMessageToChat(
+      chatId: buildChatId(otherUserId),
+      text: text,
+      attachments: attachments,
+    );
+  }
+
+  @override
+  Future<void> sendMessageToChat({
+    required String chatId,
+    String text = '',
+    List<XFile> attachments = const <XFile>[],
+  }) async {
     final currentUser = _auth.currentUser;
     if (currentUser == null) {
       throw Exception('Пользователь не авторизован');
@@ -216,23 +229,32 @@ class ChatService implements ChatServiceInterface {
       }
     }
 
+    final participants = chatId
+        .split('_')
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList();
+    if (!participants.contains(currentUser.uid) || participants.length < 2) {
+      throw Exception('Групповые чаты пока недоступны в этом backend');
+    }
+
     final message = ChatMessage(
       id: '',
-      chatId: buildChatId(otherUserId),
+      chatId: chatId,
       senderId: currentUser.uid,
       text: trimmedText,
       timestamp: DateTime.now(),
       isRead: false,
       imageUrl: uploadedUrls.isNotEmpty ? uploadedUrls.first : null,
       mediaUrls: uploadedUrls.isNotEmpty ? uploadedUrls : null,
-      participants: [currentUser.uid, otherUserId],
+      participants: participants,
       senderName: currentUser.displayName ?? 'Пользователь',
     );
 
     await _persistMessage(message);
   }
 
-  // Добавляем метод getOrCreateChat в класс ChatService
+  @override
   Future<String?> getOrCreateChat(String otherUserId) async {
     try {
       final currentUser = _auth.currentUser;
@@ -285,6 +307,75 @@ class ChatService implements ChatServiceInterface {
       return chatId;
     } catch (e) {
       print('Ошибка при создании/получении чата: $e');
+      return null;
+    }
+  }
+
+  @override
+  Future<String?> createGroupChat({
+    required List<String> participantIds,
+    String? title,
+    String? treeId,
+  }) async {
+    try {
+      final currentUser = _auth.currentUser;
+      if (currentUser == null) {
+        throw Exception('Пользователь не авторизован');
+      }
+
+      final normalizedParticipants = <String>{
+        currentUser.uid,
+        ...participantIds.where((value) => value.trim().isNotEmpty),
+      }.toList()
+        ..sort();
+      if (normalizedParticipants.length < 3) {
+        throw Exception('Нужно минимум два участника кроме вас');
+      }
+
+      final chatRef = _firestore.collection('chats').doc();
+      final chatId = chatRef.id;
+      final previewTitle =
+          (title ?? '').trim().isNotEmpty ? title!.trim() : 'Групповой чат';
+      final timestamp = Timestamp.now();
+
+      await chatRef.set({
+        'type': 'group',
+        'title': previewTitle,
+        'participantIds': normalizedParticipants,
+        'treeId': treeId,
+        'createdBy': currentUser.uid,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      final batch = _firestore.batch();
+      for (final participantId in normalizedParticipants) {
+        batch.set(
+          _firestore
+              .collection('chat_previews')
+              .doc('${chatId}_$participantId'),
+          {
+            'chatId': chatId,
+            'userId': participantId,
+            'type': 'group',
+            'title': previewTitle,
+            'participantIds': normalizedParticipants,
+            'otherUserId': '',
+            'otherUserName': previewTitle,
+            'otherUserPhotoUrl': null,
+            'lastMessage': '',
+            'lastMessageTime': timestamp,
+            'unreadCount': 0,
+            'lastMessageSenderId': '',
+          },
+          SetOptions(merge: true),
+        );
+      }
+      await batch.commit();
+
+      return chatId;
+    } catch (e) {
+      print('Ошибка при создании группового чата: $e');
       return null;
     }
   }

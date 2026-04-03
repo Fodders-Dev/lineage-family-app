@@ -8,6 +8,7 @@ const EMPTY_DB = {
   trees: [],
   persons: [],
   relations: [],
+  chats: [],
   messages: [],
   relationRequests: [],
   treeInvitations: [],
@@ -85,6 +86,67 @@ function createPushDeliveryRecord({
     lastError: null,
     responseCode: null,
   };
+}
+
+function normalizeParticipantIds(participantIds) {
+  return Array.from(
+    new Set(
+      (Array.isArray(participantIds) ? participantIds : [])
+        .map((value) => String(value || "").trim())
+        .filter(Boolean),
+    ),
+  ).sort((left, right) => left.localeCompare(right));
+}
+
+function createChatRecord({
+  id = null,
+  type = "direct",
+  participantIds = [],
+  title = null,
+  createdBy = null,
+  treeId = null,
+  branchRootPersonIds = [],
+}) {
+  const timestamp = nowIso();
+  return {
+    id: id || crypto.randomUUID(),
+    type: String(type || "direct").trim() || "direct",
+    participantIds: normalizeParticipantIds(participantIds),
+    title: normalizeNullableString(title),
+    createdBy: normalizeNullableString(createdBy),
+    treeId: normalizeNullableString(treeId),
+    branchRootPersonIds: normalizeParticipantIds(branchRootPersonIds),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
+function parseDirectParticipantsFromChatId(chatId) {
+  const participants = String(chatId || "")
+    .split("_")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  return participants.length === 2 ? normalizeParticipantIds(participants) : [];
+}
+
+function describeMessagePreview(message) {
+  const text = String(message?.text || "").trim();
+  if (text) {
+    return text;
+  }
+
+  const mediaCount = Array.isArray(message?.mediaUrls)
+    ? message.mediaUrls.filter(Boolean).length
+    : 0;
+  if (mediaCount > 1) {
+    return `Фото (${mediaCount})`;
+  }
+  if (mediaCount === 1 || String(message?.imageUrl || "").trim()) {
+    return "Фото";
+  }
+
+  return "";
 }
 
 function relationMirror(relationType) {
@@ -283,6 +345,7 @@ class FileStore {
       trees: Array.isArray(parsed.trees) ? parsed.trees : [],
       persons: Array.isArray(parsed.persons) ? parsed.persons : [],
       relations: Array.isArray(parsed.relations) ? parsed.relations : [],
+      chats: Array.isArray(parsed.chats) ? parsed.chats : [],
       messages: Array.isArray(parsed.messages) ? parsed.messages : [],
       relationRequests: Array.isArray(parsed.relationRequests)
         ? parsed.relationRequests
@@ -466,6 +529,28 @@ class FileStore {
       memberIds: (tree.memberIds || []).filter((memberId) => memberId !== userId),
       members: (tree.members || []).filter((memberId) => memberId !== userId),
     }));
+    db.chats = db.chats
+      .map((chat) => ({
+        ...chat,
+        participantIds: normalizeParticipantIds(
+          (chat.participantIds || []).filter((entry) => entry !== userId),
+        ),
+      }))
+      .filter((chat) => {
+        if (chat.type === "direct") {
+          return chat.participantIds.length === 2;
+        }
+        return chat.participantIds.length >= 2;
+      });
+    const activeChatIds = new Set(db.chats.map((chat) => chat.id));
+    db.messages = db.messages.filter((entry) => {
+      return (
+        entry.senderId !== userId &&
+        (!Array.isArray(entry.participants) ||
+          !entry.participants.includes(userId)) &&
+        activeChatIds.has(entry.chatId)
+      );
+    });
     db.persons = db.persons.filter((entry) => entry.userId !== userId);
     db.relationRequests = db.relationRequests.filter(
       (entry) => entry.senderId !== userId && entry.recipientId !== userId,
@@ -561,6 +646,13 @@ class FileStore {
       db.trees.splice(treeIndex, 1);
       db.persons = db.persons.filter((entry) => entry.treeId !== treeId);
       db.relations = db.relations.filter((entry) => entry.treeId !== treeId);
+      const removedChatIds = db.chats
+        .filter((entry) => entry.treeId === treeId)
+        .map((entry) => entry.id);
+      db.chats = db.chats.filter((entry) => entry.treeId !== treeId);
+      db.messages = db.messages.filter(
+        (entry) => !removedChatIds.includes(entry.chatId),
+      );
       db.relationRequests = db.relationRequests.filter(
         (entry) => entry.treeId !== treeId,
       );
@@ -1471,6 +1563,117 @@ class FileStore {
     return structuredClone(notification);
   }
 
+  _findStoredChat(db, chatId) {
+    return db.chats.find((entry) => entry.id === chatId) || null;
+  }
+
+  _resolveChat(db, chatId) {
+    const storedChat = this._findStoredChat(db, chatId);
+    if (storedChat) {
+      return storedChat;
+    }
+
+    const directParticipants = parseDirectParticipantsFromChatId(chatId);
+    if (directParticipants.length === 2) {
+      const relatedMessages = db.messages
+        .filter((entry) => entry.chatId === chatId)
+        .sort((left, right) =>
+          String(left.timestamp || "").localeCompare(String(right.timestamp || "")),
+        );
+      const firstTimestamp = relatedMessages[0]?.timestamp || nowIso();
+      const lastTimestamp =
+        relatedMessages[relatedMessages.length - 1]?.timestamp || firstTimestamp;
+      return {
+        id: chatId,
+        type: "direct",
+        participantIds: directParticipants,
+        title: null,
+        createdBy: directParticipants[0],
+        treeId: null,
+        branchRootPersonIds: [],
+        createdAt: firstTimestamp,
+        updatedAt: lastTimestamp,
+      };
+    }
+
+    return null;
+  }
+
+  async findChat(chatId) {
+    const db = await this._read();
+    const chat = this._resolveChat(db, chatId);
+    return chat ? structuredClone(chat) : null;
+  }
+
+  async ensureDirectChat(userIdA, userIdB) {
+    const db = await this._read();
+    const participantIds = normalizeParticipantIds([userIdA, userIdB]);
+    if (participantIds.length !== 2) {
+      return null;
+    }
+
+    const missingUser = participantIds.some((participantId) => {
+      return !db.users.some((entry) => entry.id === participantId);
+    });
+    if (missingUser) {
+      return undefined;
+    }
+
+    const chatId = participantIds.join("_");
+    let chat = this._findStoredChat(db, chatId);
+    if (!chat) {
+      chat = createChatRecord({
+        id: chatId,
+        type: "direct",
+        participantIds,
+        createdBy: participantIds[0],
+      });
+      db.chats.push(chat);
+      await this._write(db);
+    }
+
+    return structuredClone(chat);
+  }
+
+  async createGroupChat({
+    title,
+    participantIds,
+    createdBy,
+    treeId = null,
+    branchRootPersonIds = [],
+  }) {
+    const db = await this._read();
+    const normalizedParticipants = normalizeParticipantIds([
+      createdBy,
+      ...(Array.isArray(participantIds) ? participantIds : []),
+    ]);
+
+    if (!normalizedParticipants.includes(createdBy) ||
+        normalizedParticipants.length < 3) {
+      return false;
+    }
+
+    const missingUser = normalizedParticipants.some((participantId) => {
+      return !db.users.some((entry) => entry.id === participantId);
+    });
+    if (missingUser) {
+      return null;
+    }
+
+    const chat = createChatRecord({
+      id: `chat_${crypto.randomUUID()}`,
+      type: "group",
+      participantIds: normalizedParticipants,
+      title,
+      createdBy,
+      treeId,
+      branchRootPersonIds,
+    });
+    db.chats.push(chat);
+    await this._write(db);
+    return structuredClone(chat);
+  }
+
   async listChatMessages(chatId) {
     const db = await this._read();
     return db.messages
@@ -1481,29 +1684,56 @@ class FileStore {
       .map((message) => structuredClone(message));
   }
 
-  async addChatMessage({chatId, senderId, text}) {
+  async addChatMessage({
+    chatId,
+    senderId,
+    text,
+    mediaUrls = [],
+    imageUrl = null,
+  }) {
     const db = await this._read();
-    const participants = String(chatId || "")
-      .split("_")
-      .map((value) => value.trim())
-      .filter(Boolean);
+    let chat = this._resolveChat(db, chatId);
+    if (!chat) {
+      return null;
+    }
 
+    if (!db.chats.some((entry) => entry.id === chat.id)) {
+      db.chats.push(chat);
+    }
+
+    const participants = normalizeParticipantIds(chat.participantIds);
     if (!participants.includes(senderId) || participants.length < 2) {
       return null;
     }
 
     const sender = db.users.find((entry) => entry.id === senderId);
+    const normalizedText = String(text || "").trim();
+    const normalizedMediaUrls = (Array.isArray(mediaUrls) ? mediaUrls : [])
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+    const normalizedImageUrl = String(imageUrl || "").trim() || null;
+    if (!normalizedText && normalizedMediaUrls.length === 0 && !normalizedImageUrl) {
+      return false;
+    }
+
     const timestamp = nowIso();
     const message = {
       id: crypto.randomUUID(),
       chatId,
       senderId,
-      text: String(text || "").trim(),
+      text: normalizedText,
       timestamp,
       isRead: false,
       participants,
       senderName: sender?.profile?.displayName || "Пользователь",
+      imageUrl: normalizedImageUrl,
+      mediaUrls: normalizedMediaUrls.length > 0 ? normalizedMediaUrls : null,
     };
+
+    const storedChat = db.chats.find((entry) => entry.id === chat.id);
+    if (storedChat) {
+      storedChat.updatedAt = timestamp;
+    }
 
     db.messages.push(message);
     await this._write(db);
@@ -1512,6 +1742,11 @@ class FileStore {
 
   async markChatAsRead(chatId, userId) {
     const db = await this._read();
+    const chat = this._resolveChat(db, chatId);
+    if (!chat || !chat.participantIds.includes(userId)) {
+      return false;
+    }
+
     let changed = false;
 
     for (const message of db.messages) {
@@ -1535,64 +1770,83 @@ class FileStore {
   async listChatPreviews(userId) {
     const db = await this._read();
     const previews = new Map();
+    const relatedChats = new Map();
 
-    for (const message of db.messages) {
-      const participants = Array.isArray(message.participants)
-        ? message.participants
-        : String(message.chatId || "")
-            .split("_")
-            .map((value) => value.trim())
-            .filter(Boolean);
-
-      if (!participants.includes(userId)) {
-        continue;
-      }
-
-      const otherUserId = participants.find((participant) => participant !== userId);
-      if (!otherUserId) {
-        continue;
-      }
-
-      const existingPreview = previews.get(message.chatId);
-      const shouldReplace =
-        !existingPreview ||
-        String(message.timestamp || "").localeCompare(
-          String(existingPreview.lastMessageTime || ""),
-        ) > 0;
-
-      if (!existingPreview) {
-        previews.set(message.chatId, {
-          chatId: message.chatId,
-          userId,
-          otherUserId,
-          otherUserName: "Пользователь",
-          otherUserPhotoUrl: null,
-          lastMessage: "",
-          lastMessageTime: "",
-          unreadCount: 0,
-          lastMessageSenderId: "",
-        });
-      }
-
-      const preview = previews.get(message.chatId);
-      if (message.senderId !== userId && message.isRead !== true) {
-        preview.unreadCount += 1;
-      }
-
-      if (shouldReplace) {
-        preview.lastMessage = message.text;
-        preview.lastMessageTime = message.timestamp;
-        preview.lastMessageSenderId = message.senderId;
+    for (const chat of db.chats) {
+      if (Array.isArray(chat.participantIds) && chat.participantIds.includes(userId)) {
+        relatedChats.set(chat.id, chat);
       }
     }
 
-    for (const preview of previews.values()) {
-      const otherUser = db.users.find((entry) => entry.id === preview.otherUserId);
-      if (otherUser) {
-        preview.otherUserName =
-          otherUser.profile?.displayName || otherUser.email || "Пользователь";
-        preview.otherUserPhotoUrl = otherUser.profile?.photoUrl || null;
+    for (const message of db.messages) {
+      const resolvedChat = this._resolveChat(db, message.chatId);
+      if (!resolvedChat || !resolvedChat.participantIds.includes(userId)) {
+        continue;
       }
+      relatedChats.set(resolvedChat.id, resolvedChat);
+    }
+
+    for (const chat of relatedChats.values()) {
+      const participants = normalizeParticipantIds(chat.participantIds);
+      const isGroup = chat.type === "group" || chat.type === "branch";
+      const otherUserId = isGroup
+        ? ""
+        : participants.find((participant) => participant !== userId) || "";
+      const preview = {
+        chatId: chat.id,
+        userId,
+        type: chat.type || "direct",
+        title: chat.title || null,
+        photoUrl: null,
+        participantIds: participants,
+        otherUserId,
+        otherUserName: "Пользователь",
+        otherUserPhotoUrl: null,
+        lastMessage: "",
+        lastMessageTime: chat.updatedAt || chat.createdAt || "",
+        unreadCount: 0,
+        lastMessageSenderId: "",
+      };
+
+      const relevantMessages = db.messages
+        .filter((message) => message.chatId === chat.id)
+        .sort((left, right) =>
+          String(right.timestamp || "").localeCompare(String(left.timestamp || "")),
+        );
+      const lastMessage = relevantMessages[0] || null;
+      if (lastMessage) {
+        preview.lastMessage = describeMessagePreview(lastMessage);
+        preview.lastMessageTime = lastMessage.timestamp;
+        preview.lastMessageSenderId = lastMessage.senderId;
+      }
+
+      preview.unreadCount = relevantMessages.filter((message) => {
+        return message.senderId !== userId && message.isRead !== true;
+      }).length;
+
+      if (isGroup) {
+        const otherParticipantNames = participants
+          .filter((participantId) => participantId !== userId)
+          .map((participantId) => {
+            const participant = db.users.find((entry) => entry.id === participantId);
+            return participant?.profile?.displayName || participant?.email || "";
+          })
+          .filter(Boolean);
+        preview.otherUserName =
+          chat.title ||
+          (otherParticipantNames.length > 0
+            ? otherParticipantNames.slice(0, 3).join(", ")
+            : "Групповой чат");
+      } else {
+        const otherUser = db.users.find((entry) => entry.id === otherUserId);
+        if (otherUser) {
+          preview.otherUserName =
+            otherUser.profile?.displayName || otherUser.email || "Пользователь";
+          preview.otherUserPhotoUrl = otherUser.profile?.photoUrl || null;
+        }
+      }
+
+      previews.set(chat.id, preview);
     }
 
     return Array.from(previews.values())

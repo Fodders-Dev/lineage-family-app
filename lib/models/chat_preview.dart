@@ -4,6 +4,10 @@ class ChatPreview {
   final String id;
   final String chatId;
   final String userId;
+  final String type;
+  final String? title;
+  final String? photoUrl;
+  final List<String> participantIds;
   final String otherUserId;
   final String otherUserName;
   final String? otherUserPhotoUrl;
@@ -16,6 +20,10 @@ class ChatPreview {
     required this.id,
     required this.chatId,
     required this.userId,
+    this.type = 'direct',
+    this.title,
+    this.photoUrl,
+    this.participantIds = const <String>[],
     required this.otherUserId,
     required this.otherUserName,
     this.otherUserPhotoUrl,
@@ -25,11 +33,32 @@ class ChatPreview {
     required this.lastMessageSenderId,
   });
 
+  bool get isGroup => type == 'group' || type == 'branch';
+
+  String get displayName {
+    if (!isGroup) {
+      return otherUserName;
+    }
+
+    final normalizedTitle = (title ?? '').trim();
+    if (normalizedTitle.isNotEmpty) {
+      return normalizedTitle;
+    }
+
+    return 'Групповой чат';
+  }
+
+  String? get displayPhotoUrl => isGroup ? photoUrl : otherUserPhotoUrl;
+
   factory ChatPreview.fromMap(Map<String, dynamic> map) {
     return ChatPreview(
       id: map['id'] ?? '',
       chatId: map['chatId'] ?? '',
       userId: map['userId'] ?? '',
+      type: map['type']?.toString() ?? 'direct',
+      title: map['title']?.toString(),
+      photoUrl: map['photoUrl']?.toString(),
+      participantIds: List<String>.from(map['participantIds'] ?? const []),
       otherUserId: map['otherUserId'] ?? '',
       otherUserName: map['otherUserName'] ?? 'Пользователь',
       otherUserPhotoUrl: map['otherUserPhotoUrl'],
