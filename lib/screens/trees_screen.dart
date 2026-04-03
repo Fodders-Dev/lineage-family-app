@@ -151,6 +151,29 @@ class _TreesScreenState extends State<TreesScreen>
           final selectedTreeId = context.select<TreeProvider, String?>(
             (provider) => provider.selectedTreeId,
           );
+          final currentTree = selectedTreeId == null
+              ? null
+              : _myTrees.cast<FamilyTree?>().firstWhere(
+                    (tree) => tree?.id == selectedTreeId,
+                    orElse: () => null,
+                  );
+          final ownTrees = _myTrees
+              .where(
+                (tree) =>
+                    tree.creatorId == _authService.currentUserId &&
+                    tree.id != selectedTreeId,
+              )
+              .toList()
+            ..sort((left, right) => left.name.compareTo(right.name));
+          final memberTrees = _myTrees
+              .where(
+                (tree) =>
+                    tree.creatorId != _authService.currentUserId &&
+                    tree.id != selectedTreeId,
+              )
+              .toList()
+            ..sort((left, right) => left.name.compareTo(right.name));
+
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
             children: [
@@ -190,19 +213,56 @@ class _TreesScreenState extends State<TreesScreen>
                   ],
                 ),
               ),
-              ..._myTrees.map((tree) {
-                final role = tree.creatorId == _authService.currentUserId
-                    ? MemberRole.owner
-                    : MemberRole.editor;
-                return TreeCard(
-                  tree: tree,
-                  role: role,
-                  isSelected: selectedTreeId == tree.id,
-                  onCopyPublicLink:
-                      tree.isPublic ? () => _copyPublicLink(tree) : null,
-                  onTap: () => _openTree(tree),
-                );
-              }),
+              if (currentTree != null) ...[
+                const _TreeSectionHeader(
+                  title: 'Активное дерево',
+                  subtitle:
+                      'Это дерево сейчас активно в приложении и откроется первым.',
+                ),
+                TreeCard(
+                  tree: currentTree,
+                  role: _resolveRole(currentTree),
+                  isSelected: true,
+                  onCopyPublicLink: currentTree.isPublic
+                      ? () => _copyPublicLink(currentTree)
+                      : null,
+                  onTap: () => _openTree(currentTree),
+                ),
+              ],
+              if (ownTrees.isNotEmpty) ...[
+                _TreeSectionHeader(
+                  title: 'Мои деревья',
+                  subtitle: ownTrees.length == 1
+                      ? 'Дерево, которое вы создали.'
+                      : 'Деревья, которые вы создали сами.',
+                ),
+                ...ownTrees.map(
+                  (tree) => TreeCard(
+                    tree: tree,
+                    role: _resolveRole(tree),
+                    onCopyPublicLink:
+                        tree.isPublic ? () => _copyPublicLink(tree) : null,
+                    onTap: () => _openTree(tree),
+                  ),
+                ),
+              ],
+              if (memberTrees.isNotEmpty) ...[
+                _TreeSectionHeader(
+                  title: 'Другие деревья',
+                  subtitle: memberTrees.length == 1
+                      ? 'Дерево, куда вас добавили.'
+                      : 'Деревья, куда вас добавили другие родственники.',
+                ),
+                ...memberTrees.map(
+                  (tree) => TreeCard(
+                    tree: tree,
+                    role: _resolveRole(tree),
+                    onCopyPublicLink:
+                        tree.isPublic ? () => _copyPublicLink(tree) : null,
+                    onTap: () => _openTree(tree),
+                  ),
+                ),
+              ],
             ],
           );
         },
@@ -481,7 +541,49 @@ class _TreesScreenState extends State<TreesScreen>
     );
   }
 
+  MemberRole _resolveRole(FamilyTree tree) {
+    return tree.creatorId == _authService.currentUserId
+        ? MemberRole.owner
+        : MemberRole.editor;
+  }
+
   // --- КОНЕЦ РЕАЛИЗАЦИИ REFRESH ---
+}
+
+class _TreeSectionHeader extends StatelessWidget {
+  const _TreeSectionHeader({
+    required this.title,
+    required this.subtitle,
+  });
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 12, 4, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _PendingInvitationsBanner extends StatelessWidget {

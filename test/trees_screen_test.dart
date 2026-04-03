@@ -67,18 +67,20 @@ class _FakeLocalStorageService implements LocalStorageService {
 FamilyTree _buildTree({
   required String id,
   required String name,
+  String creatorId = 'user-1',
+  List<String> memberIds = const ['user-1'],
 }) {
   final now = DateTime(2024, 1, 1);
   return FamilyTree(
     id: id,
     name: name,
     description: '',
-    creatorId: 'user-1',
-    memberIds: const ['user-1'],
+    creatorId: creatorId,
+    memberIds: memberIds,
     createdAt: now,
     updatedAt: now,
     isPrivate: true,
-    members: const ['user-1'],
+    members: memberIds,
   );
 }
 
@@ -188,5 +190,48 @@ void main() {
     expect(tabBar.controller?.index, 1);
     expect(find.text('Принять'), findsOneWidget);
     expect(find.text('Отклонить'), findsOneWidget);
+  });
+
+  testWidgets('TreesScreen группирует текущее, свои и чужие деревья',
+      (tester) async {
+    treeService = _FakeFamilyTreeService(
+      trees: [
+        _buildTree(id: 'tree-current', name: 'Сейчас открыто'),
+        _buildTree(id: 'tree-own', name: 'Моё второе дерево'),
+        _buildTree(
+          id: 'tree-member',
+          name: 'Дерево родственников',
+          creatorId: 'user-2',
+          memberIds: const ['user-1', 'user-2'],
+        ),
+      ],
+      invitations: const [],
+    );
+    getIt.registerSingleton<FamilyTreeServiceInterface>(treeService!);
+
+    final treeProvider = TreeProvider();
+    await treeProvider.selectTree('tree-current', 'Сейчас открыто');
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: treeProvider,
+        child: const MaterialApp(home: TreesScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Активное дерево'), findsOneWidget);
+    expect(find.text('Мои деревья'), findsNWidgets(2));
+    expect(find.text('Сейчас открыто'), findsOneWidget);
+    expect(find.text('Моё второе дерево'), findsOneWidget);
+    await tester.dragUntilVisible(
+      find.text('Дерево родственников'),
+      find.byType(Scrollable).first,
+      const Offset(0, -250),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Другие деревья'), findsOneWidget);
+    expect(find.text('Дерево родственников'), findsOneWidget);
+    expect(find.text('Участник'), findsOneWidget);
   });
 }
