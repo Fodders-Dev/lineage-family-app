@@ -1,6 +1,8 @@
 import 'package:hive/hive.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'chat_attachment.dart';
+
 part 'chat_message.g.dart';
 
 @HiveType(typeId: 4)
@@ -17,14 +19,12 @@ class ChatMessage extends HiveObject {
   final DateTime timestamp;
   @HiveField(5)
   final bool isRead;
-  @HiveField(6)
-  final String? imageUrl;
-  @HiveField(7)
-  final List<String>? mediaUrls;
   @HiveField(8)
   final List<String> participants;
   @HiveField(9)
   final String? senderName;
+  @HiveField(10)
+  final List<ChatAttachment> attachments;
 
   ChatMessage({
     required this.id,
@@ -33,11 +33,33 @@ class ChatMessage extends HiveObject {
     required this.text,
     required this.timestamp,
     required this.isRead,
-    this.imageUrl,
-    this.mediaUrls,
     required this.participants,
     this.senderName,
+    this.attachments = const <ChatAttachment>[],
   });
+
+  String? get imageUrl {
+    for (final attachment in attachments) {
+      if (attachment.type == ChatAttachmentType.image &&
+          attachment.url.trim().isNotEmpty) {
+        return attachment.url;
+      }
+    }
+    if (attachments.isNotEmpty) {
+      return attachments.first.url;
+    }
+    return null;
+  }
+
+  List<String>? get mediaUrls {
+    if (attachments.isEmpty) {
+      return null;
+    }
+    return attachments
+        .map((attachment) => attachment.url.trim())
+        .where((url) => url.isNotEmpty)
+        .toList();
+  }
 
   DateTime getDateTime() {
     return timestamp;
@@ -63,11 +85,9 @@ class ChatMessage extends HiveObject {
       text: map['text'] ?? '',
       timestamp: parsedTimestamp,
       isRead: map['isRead'] ?? false,
-      imageUrl: map['imageUrl'],
-      mediaUrls:
-          map['mediaUrls'] != null ? List<String>.from(map['mediaUrls']) : null,
       participants: List<String>.from(map['participants'] ?? []),
       senderName: map['senderName'],
+      attachments: _attachmentsFromMap(map),
     );
   }
 
@@ -78,6 +98,8 @@ class ChatMessage extends HiveObject {
       'text': text,
       'timestamp': Timestamp.fromDate(timestamp),
       'isRead': isRead,
+      'attachments':
+          attachments.map((attachment) => attachment.toMap()).toList(),
       'imageUrl': imageUrl,
       'mediaUrls': mediaUrls,
       'participants': participants,
@@ -94,14 +116,11 @@ class ChatMessage extends HiveObject {
       text: data['text'] ?? '',
       timestamp: (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
       isRead: data['isRead'] ?? false,
-      imageUrl: data['imageUrl'] as String?,
-      mediaUrls: (data['mediaUrls'] as List<dynamic>? ?? [])
-          .map((e) => e.toString())
-          .toList(),
       participants: (data['participants'] as List<dynamic>? ?? [])
           .map((e) => e.toString())
           .toList(),
       senderName: data['senderName'] as String?,
+      attachments: _attachmentsFromMap(data),
     );
   }
 
@@ -109,6 +128,7 @@ class ChatMessage extends HiveObject {
     required String chatId,
     required String senderId,
     required String text,
+    List<ChatAttachment>? attachments,
     String? imageUrl,
     List<String>? mediaUrls,
     required List<String> participants,
@@ -121,10 +141,45 @@ class ChatMessage extends HiveObject {
       text: text,
       timestamp: DateTime.now(),
       isRead: false,
-      imageUrl: imageUrl,
-      mediaUrls: mediaUrls,
       participants: participants,
       senderName: senderName,
+      attachments: attachments ?? _legacyAttachments(imageUrl, mediaUrls),
     );
+  }
+
+  static List<ChatAttachment> _attachmentsFromMap(Map<String, dynamic> map) {
+    final explicitAttachments =
+        ChatAttachment.listFromDynamic(map['attachments']);
+    if (explicitAttachments.isNotEmpty) {
+      return explicitAttachments;
+    }
+
+    return _legacyAttachments(
+      map['imageUrl']?.toString(),
+      map['mediaUrls'] is List<dynamic>
+          ? List<String>.from(map['mediaUrls'])
+          : null,
+    );
+  }
+
+  static List<ChatAttachment> _legacyAttachments(
+    String? imageUrl,
+    List<String>? mediaUrls,
+  ) {
+    final normalizedUrls = <String>{
+      ...?mediaUrls
+          ?.map((value) => value.trim())
+          .where((value) => value.isNotEmpty),
+      if (imageUrl != null && imageUrl.trim().isNotEmpty) imageUrl.trim(),
+    }.toList();
+
+    return normalizedUrls
+        .map(
+          (url) => ChatAttachment(
+            type: ChatAttachmentType.image,
+            url: url,
+          ),
+        )
+        .toList();
   }
 }

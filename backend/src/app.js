@@ -249,6 +249,51 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
   }
 
   function mapChatMessage(message) {
+    const explicitAttachments = Array.isArray(message.attachments)
+      ? message.attachments
+          .filter((attachment) => String(attachment?.url || "").trim())
+          .map((attachment) => ({
+            type: String(attachment.type || "file"),
+            url: String(attachment.url || "").trim(),
+            mimeType: attachment.mimeType || null,
+            fileName: attachment.fileName || null,
+            sizeBytes: Number.isFinite(Number(attachment.sizeBytes))
+              ? Number(attachment.sizeBytes)
+              : null,
+            durationMs: Number.isFinite(Number(attachment.durationMs))
+              ? Number(attachment.durationMs)
+              : null,
+            width: Number.isFinite(Number(attachment.width))
+              ? Number(attachment.width)
+              : null,
+            height: Number.isFinite(Number(attachment.height))
+              ? Number(attachment.height)
+              : null,
+            thumbnailUrl: attachment.thumbnailUrl || null,
+          }))
+      : [];
+    const attachments = explicitAttachments.length > 0
+      ? explicitAttachments
+      : [
+          ...new Set(
+            [
+              ...(Array.isArray(message.mediaUrls) ? message.mediaUrls : []),
+              message.imageUrl,
+            ]
+              .map((value) => String(value || "").trim())
+              .filter(Boolean),
+          ),
+        ].map((url) => ({
+          type: "image",
+          url,
+          mimeType: "image/jpeg",
+          fileName: null,
+          sizeBytes: null,
+          durationMs: null,
+          width: null,
+          height: null,
+          thumbnailUrl: null,
+        }));
     return {
       id: message.id,
       chatId: message.chatId,
@@ -256,6 +301,7 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
       text: message.text,
       timestamp: message.timestamp,
       isRead: message.isRead === true,
+      attachments,
       imageUrl: message.imageUrl || null,
       mediaUrls: Array.isArray(message.mediaUrls) ? message.mediaUrls : [],
       participants: Array.isArray(message.participants)
@@ -1499,9 +1545,17 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
     }
 
     const text = String(req.body?.text || "").trim();
+    const attachments = Array.isArray(req.body?.attachments)
+      ? req.body.attachments
+      : [];
     const mediaUrls = Array.isArray(req.body?.mediaUrls) ? req.body.mediaUrls : [];
     const imageUrl = req.body?.imageUrl;
-    if (!text && mediaUrls.length === 0 && !String(imageUrl || "").trim()) {
+    if (
+      !text &&
+      attachments.length === 0 &&
+      mediaUrls.length === 0 &&
+      !String(imageUrl || "").trim()
+    ) {
       res.status(400).json({message: "Нужен text или вложение"});
       return;
     }
@@ -1510,6 +1564,7 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
       chatId: req.params.chatId,
       senderId: req.auth.user.id,
       text,
+      attachments,
       mediaUrls,
       imageUrl,
     });
@@ -1523,10 +1578,16 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
       return;
     }
 
+    const mappedMessage = mapChatMessage(message);
     const recipientIds = (chat.participantIds || []).filter(
       (participantId) => participantId !== req.auth.user.id,
     );
     for (const recipientId of recipientIds) {
+      const firstAttachmentType = Array.isArray(mappedMessage.attachments)
+        ? mappedMessage.attachments.find((attachment) =>
+            String(attachment?.url || "").trim(),
+          )?.type
+        : null;
       await createAndDispatchNotification({
         userId: recipientId,
         type: "chat_message",
@@ -1536,9 +1597,15 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
             : message.senderName || "Новое сообщение",
         body:
           message.text ||
-          (Array.isArray(message.mediaUrls) && message.mediaUrls.length > 0
-            ? "Фото"
-            : "Новое сообщение"),
+          (firstAttachmentType === "video"
+            ? "Видео"
+            : firstAttachmentType === "audio"
+              ? "Голосовое"
+              : firstAttachmentType === "file"
+                ? "Файл"
+                : (Array.isArray(message.mediaUrls) && message.mediaUrls.length > 0)
+                  ? "Фото"
+                  : "Новое сообщение"),
         data: {
           chatId: message.chatId,
           chatType: chat.type || "direct",
@@ -1546,11 +1613,11 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
           senderId: message.senderId,
           senderName: message.senderName,
           messageId: message.id,
+          attachments: mappedMessage.attachments,
         },
       });
     }
 
-    const mappedMessage = mapChatMessage(message);
     for (const participantId of chat.participantIds || []) {
       realtimeHub?.publishToUser(participantId, {
         type: "chat.message.created",

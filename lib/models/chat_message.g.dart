@@ -23,17 +23,29 @@ class ChatMessageAdapter extends TypeAdapter<ChatMessage> {
       text: fields[3] as String,
       timestamp: fields[4] as DateTime,
       isRead: fields[5] as bool,
-      imageUrl: fields[6] as String?,
-      mediaUrls: (fields[7] as List?)?.cast<String>(),
       participants: (fields[8] as List).cast<String>(),
       senderName: fields[9] as String?,
+      attachments: (fields[10] as List?)
+              ?.whereType<Map>()
+              .map((entry) => Map<String, dynamic>.from(entry))
+              .map(ChatAttachment.fromMap)
+              .toList() ??
+          ChatMessage.create(
+            chatId: fields[1] as String,
+            senderId: fields[2] as String,
+            text: fields[3] as String,
+            imageUrl: fields[6] as String?,
+            mediaUrls: (fields[7] as List?)?.cast<String>(),
+            participants: (fields[8] as List).cast<String>(),
+            senderName: fields[9] as String?,
+          ).attachments,
     );
   }
 
   @override
   void write(BinaryWriter writer, ChatMessage obj) {
     writer
-      ..writeByte(10)
+      ..writeByte(11)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -53,7 +65,9 @@ class ChatMessageAdapter extends TypeAdapter<ChatMessage> {
       ..writeByte(8)
       ..write(obj.participants)
       ..writeByte(9)
-      ..write(obj.senderName);
+      ..write(obj.senderName)
+      ..writeByte(10)
+      ..write(obj.attachments.map((attachment) => attachment.toMap()).toList());
   }
 
   @override

@@ -551,6 +551,7 @@ void main() {
 
   test('CustomApiChatService reports attachment upload progress', () async {
     final uploadedUrls = <String>[];
+    final uploadedAttachments = <Map<String, dynamic>>[];
     final uploadFolders = <String>[];
     final storageService = _FakeStorageService(
       onUpload: (index) => 'https://cdn.example.test/photo-$index.jpg',
@@ -564,6 +565,11 @@ void main() {
         final body = jsonDecode(request.body) as Map<String, dynamic>;
         uploadedUrls.addAll(
           (body['mediaUrls'] as List<dynamic>).map((item) => item.toString()),
+        );
+        uploadedAttachments.addAll(
+          (body['attachments'] as List<dynamic>)
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item)),
         );
         return http.Response(
           jsonEncode({'ok': true}),
@@ -625,6 +631,18 @@ void main() {
       'chat-media/user-1',
       'chat-media/user-1',
     ]);
+    expect(
+      uploadedAttachments
+          .map((attachment) => attachment['type']?.toString())
+          .toList(),
+      ['image', 'image'],
+    );
+    expect(
+      uploadedAttachments
+          .map((attachment) => attachment['fileName']?.toString())
+          .toList(),
+      ['photo-1.jpg', 'photo-2.jpg'],
+    );
     expect(
       progressEvents.map((event) => event.stage).toList(),
       [

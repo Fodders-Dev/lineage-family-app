@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get_it/get_it.dart';
 import 'package:image_picker/image_picker.dart';
+import '../models/chat_attachment.dart';
 import '../models/chat_message.dart';
 import '../models/chat_preview.dart';
 import '../models/chat_send_progress.dart';
@@ -220,7 +221,7 @@ class ChatService implements ChatServiceInterface {
       throw Exception('Сообщение не должно быть пустым');
     }
 
-    final uploadedUrls = <String>[];
+    final uploadedAttachments = <ChatAttachment>[];
     if (attachments.isNotEmpty) {
       onProgress?.call(
         const ChatSendProgress(
@@ -245,7 +246,15 @@ class ChatService implements ChatServiceInterface {
         'chat-media/${currentUser.uid}',
       );
       if (uploadedUrl != null && uploadedUrl.isNotEmpty) {
-        uploadedUrls.add(uploadedUrl);
+        uploadedAttachments.add(
+          ChatAttachment(
+            type: _attachmentTypeForFile(attachment, uploadedUrl),
+            url: uploadedUrl,
+            mimeType: attachment.mimeType,
+            fileName: _attachmentFileName(attachment, uploadedUrl),
+            sizeBytes: await attachment.length(),
+          ),
+        );
       }
       onProgress?.call(
         ChatSendProgress(
@@ -280,13 +289,72 @@ class ChatService implements ChatServiceInterface {
       text: trimmedText,
       timestamp: DateTime.now(),
       isRead: false,
-      imageUrl: uploadedUrls.isNotEmpty ? uploadedUrls.first : null,
-      mediaUrls: uploadedUrls.isNotEmpty ? uploadedUrls : null,
+      attachments: uploadedAttachments,
       participants: participants,
       senderName: currentUser.displayName ?? 'Пользователь',
     );
 
     await _persistMessage(message);
+  }
+
+  ChatAttachmentType _attachmentTypeForFile(
+    XFile attachment,
+    String uploadedUrl,
+  ) {
+    final mimeType = (attachment.mimeType ?? '').toLowerCase().trim();
+    final name = attachment.name.toLowerCase().trim();
+    final url = uploadedUrl.toLowerCase().trim();
+    if (mimeType.startsWith('video/') ||
+        name.endsWith('.mp4') ||
+        name.endsWith('.mov') ||
+        name.endsWith('.webm') ||
+        url.endsWith('.mp4') ||
+        url.endsWith('.mov') ||
+        url.endsWith('.webm')) {
+      return ChatAttachmentType.video;
+    }
+    if (mimeType.startsWith('audio/') ||
+        name.endsWith('.m4a') ||
+        name.endsWith('.aac') ||
+        name.endsWith('.mp3') ||
+        name.endsWith('.wav') ||
+        name.endsWith('.ogg') ||
+        url.endsWith('.m4a') ||
+        url.endsWith('.aac') ||
+        url.endsWith('.mp3') ||
+        url.endsWith('.wav') ||
+        url.endsWith('.ogg')) {
+      return ChatAttachmentType.audio;
+    }
+    if (mimeType.startsWith('image/') ||
+        name.endsWith('.jpg') ||
+        name.endsWith('.jpeg') ||
+        name.endsWith('.png') ||
+        name.endsWith('.webp') ||
+        name.endsWith('.heic') ||
+        name.endsWith('.gif') ||
+        url.endsWith('.jpg') ||
+        url.endsWith('.jpeg') ||
+        url.endsWith('.png') ||
+        url.endsWith('.webp') ||
+        url.endsWith('.heic') ||
+        url.endsWith('.gif')) {
+      return ChatAttachmentType.image;
+    }
+    return ChatAttachmentType.file;
+  }
+
+  String? _attachmentFileName(XFile attachment, String uploadedUrl) {
+    final name = attachment.name.trim();
+    if (name.isNotEmpty) {
+      return name;
+    }
+
+    final uri = Uri.tryParse(uploadedUrl);
+    final lastSegment = uri?.pathSegments.isNotEmpty == true
+        ? uri!.pathSegments.last.trim()
+        : '';
+    return lastSegment.isNotEmpty ? lastSegment : null;
   }
 
   @override

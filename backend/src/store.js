@@ -136,17 +136,132 @@ function describeMessagePreview(message) {
     return text;
   }
 
-  const mediaCount = Array.isArray(message?.mediaUrls)
-    ? message.mediaUrls.filter(Boolean).length
-    : 0;
-  if (mediaCount > 1) {
-    return `Фото (${mediaCount})`;
+  const attachments = normalizeMessageAttachments(message);
+  const imageCount = attachments.filter((attachment) => attachment.type === "image")
+    .length;
+  if (imageCount > 1) {
+    return `Фото (${imageCount})`;
   }
-  if (mediaCount === 1 || String(message?.imageUrl || "").trim()) {
+  if (attachments.some((attachment) => attachment.type === "video")) {
+    return "Видео";
+  }
+  if (attachments.some((attachment) => attachment.type === "audio")) {
+    return "Голосовое";
+  }
+  if (imageCount === 1) {
     return "Фото";
+  }
+  if (attachments.some((attachment) => attachment.type === "file")) {
+    return "Файл";
   }
 
   return "";
+}
+
+function normalizeAttachmentType(rawType, url, mimeType) {
+  const normalizedType = String(rawType || "").trim().toLowerCase();
+  if (normalizedType === "image" ||
+      normalizedType === "video" ||
+      normalizedType === "audio" ||
+      normalizedType === "file") {
+    return normalizedType;
+  }
+
+  const normalizedMimeType = String(mimeType || "").trim().toLowerCase();
+  if (normalizedMimeType.startsWith("image/")) {
+    return "image";
+  }
+  if (normalizedMimeType.startsWith("video/")) {
+    return "video";
+  }
+  if (normalizedMimeType.startsWith("audio/")) {
+    return "audio";
+  }
+
+  const normalizedUrl = String(url || "").trim().toLowerCase();
+  if (/\.(png|jpe?g|gif|webp)$/.test(normalizedUrl)) {
+    return "image";
+  }
+  if (/\.(mp4|mov|webm)$/.test(normalizedUrl)) {
+    return "video";
+  }
+  if (/\.(m4a|aac|mp3|wav|ogg)$/.test(normalizedUrl)) {
+    return "audio";
+  }
+
+  return "file";
+}
+
+function normalizeMessageAttachments(message) {
+  const explicitAttachments = Array.isArray(message?.attachments)
+    ? message.attachments
+        .map((attachment) => {
+          const url = String(attachment?.url || "").trim();
+          if (!url) {
+            return null;
+          }
+
+          return {
+            type: normalizeAttachmentType(
+              attachment?.type,
+              url,
+              attachment?.mimeType,
+            ),
+            url,
+            mimeType: attachment?.mimeType
+              ? String(attachment.mimeType).trim()
+              : null,
+            fileName: attachment?.fileName
+              ? String(attachment.fileName).trim()
+              : null,
+            sizeBytes: Number.isFinite(Number(attachment?.sizeBytes))
+              ? Number(attachment.sizeBytes)
+              : null,
+            durationMs: Number.isFinite(Number(attachment?.durationMs))
+              ? Number(attachment.durationMs)
+              : null,
+            width: Number.isFinite(Number(attachment?.width))
+              ? Number(attachment.width)
+              : null,
+            height: Number.isFinite(Number(attachment?.height))
+              ? Number(attachment.height)
+              : null,
+            thumbnailUrl: attachment?.thumbnailUrl
+              ? String(attachment.thumbnailUrl).trim()
+              : null,
+          };
+        })
+        .filter(Boolean)
+    : [];
+  if (explicitAttachments.length > 0) {
+    return explicitAttachments;
+  }
+
+  const legacyUrls = new Set();
+  if (Array.isArray(message?.mediaUrls)) {
+    for (const entry of message.mediaUrls) {
+      const value = String(entry || "").trim();
+      if (value) {
+        legacyUrls.add(value);
+      }
+    }
+  }
+  const imageUrl = String(message?.imageUrl || "").trim();
+  if (imageUrl) {
+    legacyUrls.add(imageUrl);
+  }
+
+  return Array.from(legacyUrls).map((url) => ({
+    type: normalizeAttachmentType("image", url, "image/jpeg"),
+    url,
+    mimeType: "image/jpeg",
+    fileName: null,
+    sizeBytes: null,
+    durationMs: null,
+    width: null,
+    height: null,
+    thumbnailUrl: null,
+  }));
 }
 
 function sameNormalizedIds(left, right) {
@@ -1852,6 +1967,7 @@ class FileStore {
     chatId,
     senderId,
     text,
+    attachments = [],
     mediaUrls = [],
     imageUrl = null,
   }) {
@@ -1872,11 +1988,17 @@ class FileStore {
 
     const sender = db.users.find((entry) => entry.id === senderId);
     const normalizedText = String(text || "").trim();
-    const normalizedMediaUrls = (Array.isArray(mediaUrls) ? mediaUrls : [])
-      .map((value) => String(value || "").trim())
-      .filter(Boolean);
-    const normalizedImageUrl = String(imageUrl || "").trim() || null;
-    if (!normalizedText && normalizedMediaUrls.length === 0 && !normalizedImageUrl) {
+    const normalizedAttachments = normalizeMessageAttachments({
+      attachments,
+      mediaUrls,
+      imageUrl,
+    });
+    const normalizedMediaUrls = normalizedAttachments.map((entry) => entry.url);
+    const normalizedImageUrl =
+      normalizedAttachments.find((entry) => entry.type === "image")?.url ||
+      normalizedAttachments[0]?.url ||
+      null;
+    if (!normalizedText && normalizedAttachments.length === 0) {
       return false;
     }
 
@@ -1890,6 +2012,7 @@ class FileStore {
       isRead: false,
       participants,
       senderName: sender?.profile?.displayName || "Пользователь",
+      attachments: normalizedAttachments,
       imageUrl: normalizedImageUrl,
       mediaUrls: normalizedMediaUrls.length > 0 ? normalizedMediaUrls : null,
     };

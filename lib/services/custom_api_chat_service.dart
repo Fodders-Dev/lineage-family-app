@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import '../backend/backend_runtime_config.dart';
 import '../backend/interfaces/chat_service_interface.dart';
 import '../backend/interfaces/storage_service_interface.dart';
+import '../models/chat_attachment.dart';
 import '../models/chat_message.dart';
 import '../models/chat_preview.dart';
 import '../models/chat_send_progress.dart';
@@ -281,7 +282,7 @@ class CustomApiChatService implements ChatServiceInterface {
       throw const CustomApiException('Сообщение не должно быть пустым');
     }
 
-    final mediaUrls = await _uploadAttachments(
+    final uploadedAttachments = await _uploadAttachments(
       attachments,
       onProgress: onProgress,
     );
@@ -299,8 +300,15 @@ class CustomApiChatService implements ChatServiceInterface {
       path: '/v1/chats/$chatId/messages',
       body: {
         'text': trimmedText,
-        if (mediaUrls.isNotEmpty) 'mediaUrls': mediaUrls,
-        if (mediaUrls.isNotEmpty) 'imageUrl': mediaUrls.first,
+        if (uploadedAttachments.isNotEmpty)
+          'attachments': uploadedAttachments
+              .map((attachment) => attachment.toMap())
+              .toList(),
+        if (uploadedAttachments.isNotEmpty)
+          'mediaUrls':
+              uploadedAttachments.map((attachment) => attachment.url).toList(),
+        if (uploadedAttachments.isNotEmpty)
+          'imageUrl': uploadedAttachments.first.url,
       },
     );
   }
@@ -445,6 +453,7 @@ class CustomApiChatService implements ChatServiceInterface {
         'text': message['text'],
         'timestamp': message['timestamp'],
         'isRead': message['isRead'],
+        'attachments': message['attachments'],
         'imageUrl': message['imageUrl'],
         'mediaUrls': message['mediaUrls'],
         'participants': message['participants'],
@@ -453,12 +462,12 @@ class CustomApiChatService implements ChatServiceInterface {
     }).toList();
   }
 
-  Future<List<String>> _uploadAttachments(
+  Future<List<ChatAttachment>> _uploadAttachments(
     List<XFile> attachments, {
     void Function(ChatSendProgress progress)? onProgress,
   }) async {
     if (attachments.isEmpty) {
-      return const <String>[];
+      return const <ChatAttachment>[];
     }
 
     final storageService = _storageService ??
@@ -485,7 +494,7 @@ class CustomApiChatService implements ChatServiceInterface {
       ),
     );
 
-    final mediaUrls = <String>[];
+    final uploadedAttachments = <ChatAttachment>[];
     for (var index = 0; index < attachments.length; index++) {
       final attachment = attachments[index];
       final uploadedUrl = await storageService.uploadImage(
@@ -493,7 +502,15 @@ class CustomApiChatService implements ChatServiceInterface {
         'chat-media/$userId',
       );
       if (uploadedUrl != null && uploadedUrl.isNotEmpty) {
-        mediaUrls.add(uploadedUrl);
+        uploadedAttachments.add(
+          ChatAttachment(
+            type: _attachmentTypeForFile(attachment, uploadedUrl),
+            url: uploadedUrl,
+            mimeType: attachment.mimeType,
+            fileName: _attachmentFileName(attachment, uploadedUrl),
+            sizeBytes: await attachment.length(),
+          ),
+        );
       }
       onProgress?.call(
         ChatSendProgress(
@@ -503,7 +520,67 @@ class CustomApiChatService implements ChatServiceInterface {
         ),
       );
     }
-    return mediaUrls;
+    return uploadedAttachments;
+  }
+
+  ChatAttachmentType _attachmentTypeForFile(
+    XFile attachment,
+    String uploadedUrl,
+  ) {
+    final mimeType = (attachment.mimeType ?? '').toLowerCase().trim();
+    final name = attachment.name.toLowerCase().trim();
+    final url = uploadedUrl.toLowerCase().trim();
+    if (mimeType.startsWith('video/') ||
+        name.endsWith('.mp4') ||
+        name.endsWith('.mov') ||
+        name.endsWith('.webm') ||
+        url.endsWith('.mp4') ||
+        url.endsWith('.mov') ||
+        url.endsWith('.webm')) {
+      return ChatAttachmentType.video;
+    }
+    if (mimeType.startsWith('audio/') ||
+        name.endsWith('.m4a') ||
+        name.endsWith('.aac') ||
+        name.endsWith('.mp3') ||
+        name.endsWith('.wav') ||
+        name.endsWith('.ogg') ||
+        url.endsWith('.m4a') ||
+        url.endsWith('.aac') ||
+        url.endsWith('.mp3') ||
+        url.endsWith('.wav') ||
+        url.endsWith('.ogg')) {
+      return ChatAttachmentType.audio;
+    }
+    if (mimeType.startsWith('image/') ||
+        name.endsWith('.jpg') ||
+        name.endsWith('.jpeg') ||
+        name.endsWith('.png') ||
+        name.endsWith('.webp') ||
+        name.endsWith('.heic') ||
+        name.endsWith('.gif') ||
+        url.endsWith('.jpg') ||
+        url.endsWith('.jpeg') ||
+        url.endsWith('.png') ||
+        url.endsWith('.webp') ||
+        url.endsWith('.heic') ||
+        url.endsWith('.gif')) {
+      return ChatAttachmentType.image;
+    }
+    return ChatAttachmentType.file;
+  }
+
+  String? _attachmentFileName(XFile attachment, String uploadedUrl) {
+    final name = attachment.name.trim();
+    if (name.isNotEmpty) {
+      return name;
+    }
+
+    final uri = Uri.tryParse(uploadedUrl);
+    final lastSegment = uri?.pathSegments.isNotEmpty == true
+        ? uri!.pathSegments.last.trim()
+        : '';
+    return lastSegment.isNotEmpty ? lastSegment : null;
   }
 
   Future<Map<String, dynamic>> _requestJson({

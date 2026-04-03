@@ -931,6 +931,15 @@ test("group chat endpoints create previews before first message and keep media p
           "content-type": "application/json",
         },
         body: JSON.stringify({
+          attachments: [
+            {
+              type: "image",
+              url: "https://cdn.example.test/photo-1.jpg",
+              mimeType: "image/jpeg",
+              fileName: "photo-1.jpg",
+              sizeBytes: 2048,
+            },
+          ],
           mediaUrls: ["https://cdn.example.test/photo-1.jpg"],
           imageUrl: "https://cdn.example.test/photo-1.jpg",
         }),
@@ -941,6 +950,8 @@ test("group chat endpoints create previews before first message and keep media p
     assert.deepEqual(sentMessagePayload.message.mediaUrls, [
       "https://cdn.example.test/photo-1.jpg",
     ]);
+    assert.equal(sentMessagePayload.message.attachments.length, 1);
+    assert.equal(sentMessagePayload.message.attachments[0].type, "image");
 
     const historyResponse = await fetch(
       `${ctx.baseUrl}/v1/chats/${createdGroupPayload.chatId}/messages`,
@@ -953,6 +964,8 @@ test("group chat endpoints create previews before first message and keep media p
     assert.equal(historyPayload.chat.type, "group");
     assert.equal(historyPayload.messages.length, 1);
     assert.equal(historyPayload.messages[0].imageUrl, "https://cdn.example.test/photo-1.jpg");
+    assert.equal(historyPayload.messages[0].attachments.length, 1);
+    assert.equal(historyPayload.messages[0].attachments[0].fileName, "photo-1.jpg");
 
     const unreadResponse = await fetch(`${ctx.baseUrl}/v1/chats/unread-count`, {
       headers: {authorization: `Bearer ${bob.accessToken}`},
