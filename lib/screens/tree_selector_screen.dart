@@ -61,15 +61,24 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isCompact = MediaQuery.sizeOf(context).width < 600;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Выберите дерево'),
+        title: const Text('Семейные деревья'),
         actions: [
-          TextButton.icon(
-            onPressed: () => context.push('/trees'),
-            icon: const Icon(Icons.explore_outlined),
-            label: const Text('Все деревья'),
-          ),
+          if (isCompact)
+            IconButton(
+              tooltip: 'Все деревья',
+              onPressed: () => context.push('/trees'),
+              icon: const Icon(Icons.explore_outlined),
+            )
+          else
+            TextButton.icon(
+              onPressed: () => context.push('/trees'),
+              icon: const Icon(Icons.explore_outlined),
+              label: const Text('Все деревья'),
+            ),
           const SizedBox(width: 8),
         ],
       ),
@@ -127,26 +136,27 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
             Icon(Icons.account_tree, size: 80, color: Colors.grey[400]),
             const SizedBox(height: 16),
             const Text(
-              'У вас нет семейных деревьев',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              'Создайте первое дерево',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 8),
             Text(
-              'Создайте первое дерево или примите приглашение. После этого сможете быстро переключаться между ветками семьи.',
+              'Сразу после создания откроется схема семьи. Потом сможете добавить первого человека и пригласить родных.',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey[600]),
             ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
+            const SizedBox(height: 20),
+            FilledButton.icon(
               icon: const Icon(Icons.add),
-              label: const Text('Создать дерево'),
-              onPressed: () {
-                context.push('/trees/create').then((result) {
-                  if (result == true) {
-                    _loadUserTrees();
-                  }
-                });
-              },
+              label: const Text('Создать первое дерево'),
+              onPressed: _openCreateTree,
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => context.push('/trees'),
+              icon: const Icon(Icons.mail_outline),
+              label: const Text('У меня есть приглашение'),
             ),
           ],
         ),
@@ -178,16 +188,36 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
                   color: Theme.of(context).colorScheme.outlineVariant,
                 ),
               ),
-              child: const Column(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Ваши деревья',
+                  const Text(
+                    'Откройте нужное дерево',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
                   ),
-                  SizedBox(height: 6),
+                  const SizedBox(height: 6),
                   Text(
-                    'Выберите нужную ветку семьи. После выбора откроется интерактивная схема, а редактирование можно включить уже внутри дерева.',
+                    'Выбор занимает один тап. Новое дерево можно создать сразу отсюда.',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: _openCreateTree,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Создать дерево'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _loadUserTrees,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Обновить'),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -353,6 +383,14 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
       const SnackBar(content: Text('Публичная ссылка скопирована.')),
     );
   }
+
+  void _openCreateTree() {
+    context.push('/trees/create').then((result) {
+      if (result == true) {
+        _loadUserTrees();
+      }
+    });
+  }
 }
 
 class _SelectorChip extends StatelessWidget {
@@ -369,12 +407,15 @@ class _SelectorChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final chipBackground =
+        highlighted ? colorScheme.primary : colorScheme.surfaceContainerHighest;
+    final chipForeground =
+        highlighted ? colorScheme.onPrimary : colorScheme.onSurfaceVariant;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: highlighted
-            ? colorScheme.primaryContainer
-            : colorScheme.surfaceContainerHighest,
+        color: chipBackground,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
@@ -383,9 +424,7 @@ class _SelectorChip extends StatelessWidget {
           Icon(
             icon,
             size: 14,
-            color: highlighted
-                ? colorScheme.primary
-                : colorScheme.onSurfaceVariant,
+            color: chipForeground,
           ),
           const SizedBox(width: 4),
           Text(
@@ -393,9 +432,7 @@ class _SelectorChip extends StatelessWidget {
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: highlighted
-                  ? colorScheme.primary
-                  : colorScheme.onSurfaceVariant,
+              color: chipForeground,
             ),
           ),
         ],

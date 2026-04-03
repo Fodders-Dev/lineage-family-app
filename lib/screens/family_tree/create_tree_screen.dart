@@ -68,7 +68,7 @@ class _CreateTreeScreenState extends State<CreateTreeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Создать семейное дерево')),
+      appBar: AppBar(title: const Text('Новое дерево')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Form(
@@ -77,36 +77,18 @@ class _CreateTreeScreenState extends State<CreateTreeScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Создайте новое семейное дерево',
+                'С чего начнём?',
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
               const SizedBox(height: 8),
               Text(
-                'Добавьте информацию о вашем семейном дереве',
+                'Введите название и сразу откроете дерево для добавления родственников.',
                 style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 16),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .surfaceContainerHighest
-                      .withValues(alpha: 0.45),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                  ),
-                ),
-                child: Text(
-                  'Сразу после создания вы перейдёте в это дерево и сможете добавить первого человека без лишних переходов.',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
               ),
               const SizedBox(height: 24),
               TextFormField(
                 controller: _nameController,
+                autofocus: true,
                 decoration: const InputDecoration(
                   labelText: 'Название дерева',
                   hintText: 'Например: Семья Ивановых',
@@ -123,33 +105,29 @@ class _CreateTreeScreenState extends State<CreateTreeScreen> {
               TextFormField(
                 controller: _descriptionController,
                 decoration: const InputDecoration(
-                  labelText: 'Описание',
-                  hintText: 'Кратко опишите ваше семейное дерево',
+                  labelText: 'Описание, если нужно',
+                  hintText: 'Например: род по линии бабушки',
                   prefixIcon: Icon(Icons.description),
                   alignLabelWithHint: true,
                 ),
                 maxLines: 3,
               ),
-              const SizedBox(height: 32),
-              Switch(
+              const SizedBox(height: 20),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
                 value: _isPrivate,
                 onChanged: (value) {
                   setState(() {
                     _isPrivate = value;
                   });
                 },
-                activeColor: Theme.of(context).primaryColor,
-              ),
-              Text(
-                _isPrivate ? 'Приватное дерево' : 'Публичное дерево',
-                style: TextStyle(color: Colors.grey[700]),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _isPrivate
-                    ? 'Приватное дерево видят только приглашённые участники.'
-                    : 'Публичное дерево можно будет открывать по ссылке в гостевом режиме. Сертификация и публичные заметки подключаются поверх этого режима.',
-                style: Theme.of(context).textTheme.bodySmall,
+                title:
+                    Text(_isPrivate ? 'Приватное дерево' : 'Публичное дерево'),
+                subtitle: Text(
+                  _isPrivate
+                      ? 'Его увидят только приглашённые участники.'
+                      : 'Его можно будет открывать по ссылке.',
+                ),
               ),
               const SizedBox(height: 24),
               SizedBox(
@@ -167,7 +145,7 @@ class _CreateTreeScreenState extends State<CreateTreeScreen> {
                               strokeWidth: 2,
                             ),
                           )
-                        : const Text('Создать семейное дерево'),
+                        : const Text('Создать и открыть'),
                   ),
                 ),
               ),
