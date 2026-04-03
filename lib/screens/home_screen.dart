@@ -171,6 +171,11 @@ class _HomeScreenState extends State<HomeScreen> {
         title: Text(selectedTreeName ?? 'Главная'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.notifications_outlined),
+            tooltip: 'Активность',
+            onPressed: () => context.push('/notifications'),
+          ),
+          IconButton(
             icon: Icon(Icons.account_tree_outlined),
             tooltip: 'Выбрать дерево',
             onPressed: () => context.go('/tree?selector=1'),

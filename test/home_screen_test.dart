@@ -290,4 +290,37 @@ void main() {
       );
     },
   );
+
+  testWidgets(
+    'HomeScreen открывает экран активности из app bar',
+    (tester) async {
+      final treeProvider = TreeProvider();
+      final router = GoRouter(
+        initialLocation: '/',
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (context, state) =>
+                ChangeNotifierProvider<TreeProvider>.value(
+              value: treeProvider,
+              child: const HomeScreen(),
+            ),
+          ),
+          GoRoute(
+            path: '/notifications',
+            builder: (context, state) =>
+                const Scaffold(body: Center(child: Text('notifications'))),
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Активность'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('notifications'), findsOneWidget);
+    },
+  );
 }

@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../backend/backend_runtime_config.dart';
 import '../backend/interfaces/family_tree_service_interface.dart';
 import '../backend/interfaces/notification_service_interface.dart';
+import '../models/app_notification_item.dart';
 import '../models/family_person.dart' as lineage_models;
 import '../navigation/app_router.dart';
 import '../providers/tree_provider.dart';
@@ -289,6 +290,59 @@ class CustomApiNotificationService implements NotificationServiceInterface {
 
   BrowserNotificationPermissionStatus get browserPermissionStatus =>
       _browserNotificationBridge.permissionStatus;
+
+  Future<List<AppNotificationItem>> fetchUnreadNotifications({
+    int limit = 50,
+  }) async {
+    final authService = _authService;
+    final runtimeConfig = _runtimeConfig;
+    if (authService == null || runtimeConfig == null) {
+      return const <AppNotificationItem>[];
+    }
+
+    final token = authService.accessToken;
+    if (token == null || token.isEmpty) {
+      return const <AppNotificationItem>[];
+    }
+
+    try {
+      final response = await _httpClient.get(
+        _buildUri(
+            runtimeConfig, '/v1/notifications?status=unread&limit=$limit'),
+        headers: _headers(token),
+      );
+      final payload = _decodeResponse(response);
+      final rawNotifications = payload['notifications'];
+      if (rawNotifications is! List<dynamic>) {
+        return const <AppNotificationItem>[];
+      }
+
+      final notifications = rawNotifications
+          .whereType<Map<String, dynamic>>()
+          .map(AppNotificationItem.fromBackendJson)
+          .toList()
+        ..sort((left, right) {
+          final leftCreatedAt =
+              left.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final rightCreatedAt =
+              right.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          return rightCreatedAt.compareTo(leftCreatedAt);
+        });
+      return notifications;
+    } on CustomApiException catch (error) {
+      if (await _handleUnauthorizedError(error)) {
+        return const <AppNotificationItem>[];
+      }
+      rethrow;
+    }
+  }
+
+  void openNotificationPayload(String payload) {
+    if (payload.isEmpty) {
+      return;
+    }
+    _schedulePayloadNavigation(payload);
+  }
 
   Future<bool> setNotificationsEnabled(
     bool enabled, {
@@ -692,7 +746,12 @@ class CustomApiNotificationService implements NotificationServiceInterface {
       return;
     }
 
-    if (type == 'tree_invitation' || type == 'tree_update') {
+    if (type == 'tree_invitation') {
+      GoRouter.of(navigatorContext).go('/trees?tab=invitations');
+      return;
+    }
+
+    if (type == 'tree_update') {
       final treeId =
           rootPayload['treeId']?.toString() ?? data['treeId']?.toString();
       if (treeId != null && treeId.isNotEmpty) {

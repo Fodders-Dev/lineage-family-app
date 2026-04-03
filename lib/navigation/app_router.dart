@@ -29,6 +29,7 @@ import '../screens/public_tree_entry_screen.dart';
 import '../screens/public_tree_viewer_screen.dart';
 import '../screens/relative_details_screen.dart';
 import '../screens/user_profile_entry_screen.dart';
+import '../screens/notifications_screen.dart';
 import '../models/family_person.dart';
 import '../screens/privacy_policy_screen.dart';
 import '../providers/tree_provider.dart';
@@ -582,6 +583,16 @@ class AppRouter {
       // --- Маршруты вне основного Shell (доступны без BottomNavigationBar) ---
 
       // Деревья (перенесено из вкладки в отдельный маршрут)
+      GoRoute(
+        path: '/notifications',
+        parentNavigatorKey: rootNavigatorKey,
+        pageBuilder: (context, state) => LineageCustomTransitionPage(
+          key: state.pageKey,
+          constrainWidth: true,
+          child: const NotificationsScreen(),
+          transitionsBuilder: slideTransition,
+        ),
+      ),
       GoRoute(
         path: '/trees',
         parentNavigatorKey: rootNavigatorKey,
