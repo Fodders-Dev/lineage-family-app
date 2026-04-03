@@ -1,5 +1,6 @@
 import '../../models/chat_message.dart';
 import '../../models/chat_preview.dart';
+import '../../models/chat_send_progress.dart';
 import 'package:image_picker/image_picker.dart';
 
 abstract class ChatServiceInterface {
@@ -12,6 +13,7 @@ abstract class ChatServiceInterface {
     required String chatId,
     String text = '',
     List<XFile> attachments = const <XFile>[],
+    void Function(ChatSendProgress progress)? onProgress,
   }) {
     throw UnsupportedError('sendMessageToChat is not supported');
   }

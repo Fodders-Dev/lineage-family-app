@@ -4,6 +4,7 @@ import 'package:get_it/get_it.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/chat_message.dart';
 import '../models/chat_preview.dart';
+import '../models/chat_send_progress.dart';
 import '../backend/interfaces/chat_service_interface.dart';
 import '../backend/interfaces/storage_service_interface.dart';
 
@@ -207,6 +208,7 @@ class ChatService implements ChatServiceInterface {
     required String chatId,
     String text = '',
     List<XFile> attachments = const <XFile>[],
+    void Function(ChatSendProgress progress)? onProgress,
   }) async {
     final currentUser = _auth.currentUser;
     if (currentUser == null) {
@@ -219,7 +221,25 @@ class ChatService implements ChatServiceInterface {
     }
 
     final uploadedUrls = <String>[];
-    for (final attachment in attachments) {
+    if (attachments.isNotEmpty) {
+      onProgress?.call(
+        const ChatSendProgress(
+          stage: ChatSendProgressStage.preparing,
+          completed: 0,
+          total: 1,
+        ),
+      );
+      onProgress?.call(
+        ChatSendProgress(
+          stage: ChatSendProgressStage.uploading,
+          completed: 0,
+          total: attachments.length,
+        ),
+      );
+    }
+
+    for (var index = 0; index < attachments.length; index++) {
+      final attachment = attachments[index];
       final uploadedUrl = await _storageService.uploadImage(
         attachment,
         'chat-images/${currentUser.uid}',
@@ -227,6 +247,13 @@ class ChatService implements ChatServiceInterface {
       if (uploadedUrl != null && uploadedUrl.isNotEmpty) {
         uploadedUrls.add(uploadedUrl);
       }
+      onProgress?.call(
+        ChatSendProgress(
+          stage: ChatSendProgressStage.uploading,
+          completed: index + 1,
+          total: attachments.length,
+        ),
+      );
     }
 
     final participants = chatId
@@ -237,6 +264,14 @@ class ChatService implements ChatServiceInterface {
     if (!participants.contains(currentUser.uid) || participants.length < 2) {
       throw Exception('Групповые чаты пока недоступны в этом backend');
     }
+
+    onProgress?.call(
+      const ChatSendProgress(
+        stage: ChatSendProgressStage.sending,
+        completed: 1,
+        total: 1,
+      ),
+    );
 
     final message = ChatMessage(
       id: '',

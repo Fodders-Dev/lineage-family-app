@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 
 import '../backend/interfaces/chat_service_interface.dart';
 import '../models/chat_message.dart';
+import '../models/chat_send_progress.dart';
 
 enum _OutgoingMessageStatus { pending, sent, failed }
 
@@ -19,6 +20,7 @@ class _OutgoingMessage {
     required this.timestamp,
     required this.attachments,
     required this.status,
+    this.progress,
     this.errorText,
   });
 
@@ -28,10 +30,12 @@ class _OutgoingMessage {
   final DateTime timestamp;
   final List<XFile> attachments;
   final _OutgoingMessageStatus status;
+  final ChatSendProgress? progress;
   final String? errorText;
 
   _OutgoingMessage copyWith({
     _OutgoingMessageStatus? status,
+    ChatSendProgress? progress,
     String? errorText,
   }) {
     return _OutgoingMessage(
@@ -41,6 +45,7 @@ class _OutgoingMessage {
       timestamp: timestamp,
       attachments: attachments,
       status: status ?? this.status,
+      progress: progress ?? this.progress,
       errorText: errorText,
     );
   }
@@ -236,6 +241,17 @@ class _ChatScreenState extends State<ChatScreen> {
           timestamp: DateTime.now(),
           attachments: attachments,
           status: _OutgoingMessageStatus.pending,
+          progress: attachments.isNotEmpty
+              ? const ChatSendProgress(
+                  stage: ChatSendProgressStage.preparing,
+                  completed: 0,
+                  total: 1,
+                )
+              : const ChatSendProgress(
+                  stage: ChatSendProgressStage.sending,
+                  completed: 1,
+                  total: 1,
+                ),
         ),
       );
     });
@@ -254,6 +270,21 @@ class _ChatScreenState extends State<ChatScreen> {
         chatId: chatId,
         text: message.text,
         attachments: message.attachments,
+        onProgress: (progress) {
+          if (!mounted) {
+            return;
+          }
+          setState(() {
+            final currentIndex = _optimisticMessages.indexWhere(
+              (item) => item.localId == message.localId,
+            );
+            if (currentIndex == -1) {
+              return;
+            }
+            _optimisticMessages[currentIndex] =
+                _optimisticMessages[currentIndex].copyWith(progress: progress);
+          });
+        },
       );
       if (!mounted) {
         return;
@@ -603,18 +634,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildOptimisticBubble(_OutgoingMessage message) {
     final timeLabel = DateFormat.Hm('ru').format(message.timestamp);
-    String statusLabel;
-    switch (message.status) {
-      case _OutgoingMessageStatus.pending:
-        statusLabel = 'Отправляется...';
-        break;
-      case _OutgoingMessageStatus.sent:
-        statusLabel = 'Отправлено';
-        break;
-      case _OutgoingMessageStatus.failed:
-        statusLabel = message.errorText ?? 'Ошибка отправки';
-        break;
-    }
+    final statusLabel = _statusLabelForOutgoingMessage(message);
+    final progressValue = message.progress?.value;
+    final showProgressBar = message.status == _OutgoingMessageStatus.pending &&
+        message.attachments.isNotEmpty;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 8),
@@ -653,10 +676,41 @@ class _ChatScreenState extends State<ChatScreen> {
                 ],
               ],
             ),
+            if (showProgressBar) ...[
+              const SizedBox(height: 4),
+              SizedBox(
+                width: 140,
+                child: LinearProgressIndicator(value: progressValue),
+              ),
+            ],
           ],
         ),
       ),
     );
+  }
+
+  String _statusLabelForOutgoingMessage(_OutgoingMessage message) {
+    if (message.status == _OutgoingMessageStatus.failed) {
+      return message.errorText ?? 'Ошибка отправки';
+    }
+    if (message.status == _OutgoingMessageStatus.sent) {
+      return 'Отправлено';
+    }
+
+    switch (message.progress?.stage) {
+      case ChatSendProgressStage.preparing:
+        return 'Подготовка фото...';
+      case ChatSendProgressStage.uploading:
+        final total = message.progress?.total ?? 0;
+        final completed = message.progress?.completed ?? 0;
+        if (total > 1) {
+          return 'Загрузка фото $completed/$total';
+        }
+        return 'Загрузка фото...';
+      case ChatSendProgressStage.sending:
+      case null:
+        return 'Отправляется...';
+    }
   }
 }
 

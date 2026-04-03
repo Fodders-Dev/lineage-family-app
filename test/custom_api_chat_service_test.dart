@@ -1,11 +1,15 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:lineage/backend/backend_runtime_config.dart';
 import 'package:lineage/models/chat_message.dart';
+import 'package:lineage/models/chat_send_progress.dart';
+import 'package:lineage/backend/interfaces/storage_service_interface.dart';
 import 'package:lineage/services/custom_api_auth_service.dart';
 import 'package:lineage/services/custom_api_chat_service.dart';
 import 'package:lineage/services/custom_api_realtime_service.dart';
@@ -545,6 +549,92 @@ void main() {
     expect(chatId, 'chat-branch-1');
   });
 
+  test('CustomApiChatService reports attachment upload progress', () async {
+    final uploadedUrls = <String>[];
+    final storageService = _FakeStorageService(
+      onUpload: (index) => 'https://cdn.example.test/photo-$index.jpg',
+    );
+    final progressEvents = <ChatSendProgress>[];
+
+    final client = MockClient((request) async {
+      if (request.url.path == '/v1/chats/chat-1/messages' &&
+          request.method == 'POST') {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        uploadedUrls.addAll(
+          (body['mediaUrls'] as List<dynamic>).map((item) => item.toString()),
+        );
+        return http.Response(
+          jsonEncode({'ok': true}),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+
+      return http.Response('{"message":"not found"}', 404);
+    });
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      'custom_api_session_v1',
+      jsonEncode({
+        'accessToken': 'access-token',
+        'refreshToken': 'refresh-token',
+        'userId': 'user-1',
+        'email': 'dev@lineage.app',
+        'displayName': 'Dev User',
+        'providerIds': ['password'],
+        'isProfileComplete': true,
+        'missingFields': const [],
+      }),
+    );
+
+    final authService = await CustomApiAuthService.create(
+      httpClient: client,
+      preferences: prefs,
+      runtimeConfig: const BackendRuntimeConfig(
+        apiBaseUrl: 'https://api.example.ru',
+      ),
+      invitationService: InvitationService(),
+    );
+
+    final chatService = CustomApiChatService(
+      authService: authService,
+      runtimeConfig: const BackendRuntimeConfig(
+        apiBaseUrl: 'https://api.example.ru',
+      ),
+      httpClient: client,
+      storageService: storageService,
+    );
+
+    await chatService.sendMessageToChat(
+      chatId: 'chat-1',
+      attachments: [
+        XFile.fromData(Uint8List.fromList([1, 2, 3]), name: 'one.jpg'),
+        XFile.fromData(Uint8List.fromList([4, 5, 6]), name: 'two.jpg'),
+      ],
+      onProgress: progressEvents.add,
+    );
+
+    expect(uploadedUrls, [
+      'https://cdn.example.test/photo-1.jpg',
+      'https://cdn.example.test/photo-2.jpg',
+    ]);
+    expect(
+      progressEvents.map((event) => event.stage).toList(),
+      [
+        ChatSendProgressStage.preparing,
+        ChatSendProgressStage.uploading,
+        ChatSendProgressStage.uploading,
+        ChatSendProgressStage.uploading,
+        ChatSendProgressStage.sending,
+      ],
+    );
+    expect(progressEvents[1].completed, 0);
+    expect(progressEvents[1].total, 2);
+    expect(progressEvents[3].completed, 2);
+    expect(progressEvents[3].total, 2);
+  });
+
   test(
     'CustomApiChatService clears stale session and returns safe defaults on 401 polling',
     () async {
@@ -698,4 +788,20 @@ class _FakeWebSocketSink implements WebSocketSink {
 
   @override
   Future get done async {}
+}
+
+class _FakeStorageService implements StorageServiceInterface {
+  _FakeStorageService({required this.onUpload});
+
+  final String Function(int index) onUpload;
+  int _uploadCounter = 0;
+
+  @override
+  Future<String?> uploadImage(XFile imageFile, String folder) async {
+    _uploadCounter += 1;
+    return onUpload(_uploadCounter);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

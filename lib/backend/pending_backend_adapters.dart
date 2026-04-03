@@ -2,6 +2,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../models/chat_message.dart';
 import '../models/chat_preview.dart';
+import '../models/chat_send_progress.dart';
 import '../models/family_person.dart';
 import '../models/family_relation.dart';
 import '../models/family_tree.dart';
@@ -447,6 +448,7 @@ class PendingBackendChatService implements ChatServiceInterface {
     required String chatId,
     String text = '',
     List<XFile> attachments = const <XFile>[],
+    void Function(ChatSendProgress progress)? onProgress,
   }) {
     throw UnsupportedError(_pendingProviderMessage('chat'));
   }

@@ -11,6 +11,7 @@ import '../backend/interfaces/chat_service_interface.dart';
 import '../backend/interfaces/storage_service_interface.dart';
 import '../models/chat_message.dart';
 import '../models/chat_preview.dart';
+import '../models/chat_send_progress.dart';
 import 'custom_api_auth_service.dart';
 import 'custom_api_realtime_service.dart';
 
@@ -273,13 +274,25 @@ class CustomApiChatService implements ChatServiceInterface {
     required String chatId,
     String text = '',
     List<XFile> attachments = const <XFile>[],
+    void Function(ChatSendProgress progress)? onProgress,
   }) async {
     final trimmedText = text.trim();
     if (trimmedText.isEmpty && attachments.isEmpty) {
       throw const CustomApiException('Сообщение не должно быть пустым');
     }
 
-    final mediaUrls = await _uploadAttachments(attachments);
+    final mediaUrls = await _uploadAttachments(
+      attachments,
+      onProgress: onProgress,
+    );
+
+    onProgress?.call(
+      const ChatSendProgress(
+        stage: ChatSendProgressStage.sending,
+        completed: 1,
+        total: 1,
+      ),
+    );
 
     await _requestJson(
       method: 'POST',
@@ -440,7 +453,10 @@ class CustomApiChatService implements ChatServiceInterface {
     }).toList();
   }
 
-  Future<List<String>> _uploadAttachments(List<XFile> attachments) async {
+  Future<List<String>> _uploadAttachments(
+    List<XFile> attachments, {
+    void Function(ChatSendProgress progress)? onProgress,
+  }) async {
     if (attachments.isEmpty) {
       return const <String>[];
     }
@@ -454,8 +470,24 @@ class CustomApiChatService implements ChatServiceInterface {
       throw const CustomApiException('Не удалось подготовить вложения');
     }
 
+    onProgress?.call(
+      const ChatSendProgress(
+        stage: ChatSendProgressStage.preparing,
+        completed: 0,
+        total: 1,
+      ),
+    );
+    onProgress?.call(
+      ChatSendProgress(
+        stage: ChatSendProgressStage.uploading,
+        completed: 0,
+        total: attachments.length,
+      ),
+    );
+
     final mediaUrls = <String>[];
-    for (final attachment in attachments) {
+    for (var index = 0; index < attachments.length; index++) {
+      final attachment = attachments[index];
       final uploadedUrl = await storageService.uploadImage(
         attachment,
         'chat-images/$userId',
@@ -463,6 +495,13 @@ class CustomApiChatService implements ChatServiceInterface {
       if (uploadedUrl != null && uploadedUrl.isNotEmpty) {
         mediaUrls.add(uploadedUrl);
       }
+      onProgress?.call(
+        ChatSendProgress(
+          stage: ChatSendProgressStage.uploading,
+          completed: index + 1,
+          total: attachments.length,
+        ),
+      );
     }
     return mediaUrls;
   }
