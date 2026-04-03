@@ -10,6 +10,16 @@ function createConfig() {
   const webPushSubject = String(
     process.env.LINEAGE_WEB_PUSH_SUBJECT || "https://rodnya-tree.ru",
   ).trim();
+  const rustorePushProjectId = String(
+    process.env.LINEAGE_RUSTORE_PUSH_PROJECT_ID || "",
+  ).trim();
+  const rustorePushServiceToken = String(
+    process.env.LINEAGE_RUSTORE_PUSH_SERVICE_TOKEN || "",
+  ).trim();
+  const rustorePushApiBaseUrl = String(
+    process.env.LINEAGE_RUSTORE_PUSH_API_BASE_URL ||
+      "https://vkpns.rustore.ru",
+  ).trim();
 
   return {
     port: Number(process.env.PORT || 8080),
@@ -26,6 +36,12 @@ function createConfig() {
     webPushPrivateKey,
     webPushSubject,
     webPushEnabled: Boolean(webPushPublicKey && webPushPrivateKey),
+    rustorePushProjectId,
+    rustorePushServiceToken,
+    rustorePushApiBaseUrl,
+    rustorePushEnabled: Boolean(
+      rustorePushProjectId && rustorePushServiceToken,
+    ),
   };
 }
 

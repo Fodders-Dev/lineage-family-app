@@ -1607,3 +1607,143 @@ test("websocket realtime and push queue work for chat delivery", async () => {
     await stopTestServer(ctx);
   }
 });
+
+test("rustore push delivery sends notification through RuStore API", async () => {
+  const observedRequests = [];
+  const ctx = await startConfiguredTestServer({
+    configOverrides: {
+      rustorePushEnabled: true,
+      rustorePushProjectId: "rustore-project-1",
+      rustorePushServiceToken: "rustore-service-token",
+      rustorePushApiBaseUrl: "https://vkpns.rustore.ru",
+    },
+    pushGatewayFactory: ({store, config}) =>
+      new PushGateway({
+        store,
+        config,
+        httpClient: async (url, options) => {
+          observedRequests.push({
+            url,
+            method: options?.method,
+            headers: options?.headers,
+            body: JSON.parse(String(options?.body || "{}")),
+          });
+          return {
+            ok: true,
+            status: 200,
+            text: async () => "{}",
+          };
+        },
+      }),
+  });
+
+  try {
+    const senderResponse = await fetch(`${ctx.baseUrl}/v1/auth/register`, {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({
+        email: "rustore-sender@lineage.app",
+        password: "secret123",
+        displayName: "Rustore Sender",
+      }),
+    });
+    assert.equal(senderResponse.status, 201);
+    const sender = await senderResponse.json();
+
+    const recipientResponse = await fetch(`${ctx.baseUrl}/v1/auth/register`, {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({
+        email: "rustore-recipient@lineage.app",
+        password: "secret123",
+        displayName: "Rustore Recipient",
+      }),
+    });
+    assert.equal(recipientResponse.status, 201);
+    const recipient = await recipientResponse.json();
+
+    const deviceResponse = await fetch(`${ctx.baseUrl}/v1/push/devices`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${recipient.accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        provider: "rustore",
+        token: "rustore-live-token",
+        platform: "android",
+      }),
+    });
+    assert.equal(deviceResponse.status, 201);
+
+    const chatResponse = await fetch(`${ctx.baseUrl}/v1/chats/direct`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${sender.accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({otherUserId: recipient.user.id}),
+    });
+    assert.equal(chatResponse.status, 200);
+    const chat = await chatResponse.json();
+
+    const sendMessageResponse = await fetch(
+      `${ctx.baseUrl}/v1/chats/${chat.chatId}/messages`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${sender.accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({text: "RuStore push check"}),
+      },
+    );
+    assert.equal(sendMessageResponse.status, 201);
+
+    assert.equal(observedRequests.length, 1);
+    assert.equal(
+      observedRequests[0].url,
+      "https://vkpns.rustore.ru/v1/projects/rustore-project-1/messages:send",
+    );
+    assert.equal(observedRequests[0].method, "POST");
+    assert.equal(
+      observedRequests[0].headers.authorization,
+      "Bearer rustore-service-token",
+    );
+    assert.equal(
+      observedRequests[0].body.message.token,
+      "rustore-live-token",
+    );
+    assert.equal(
+      observedRequests[0].body.message.notification.title,
+      "Rustore Sender",
+    );
+    assert.equal(
+      observedRequests[0].body.message.notification.body,
+      "RuStore push check",
+    );
+    assert.equal(
+      observedRequests[0].body.message.data.type,
+      "chat_message",
+    );
+
+    const deliveriesResponse = await fetch(
+      `${ctx.baseUrl}/v1/push/deliveries?limit=10`,
+      {
+        headers: {authorization: `Bearer ${recipient.accessToken}`},
+      },
+    );
+    assert.equal(deliveriesResponse.status, 200);
+    const deliveriesPayload = await deliveriesResponse.json();
+    assert.ok(
+      deliveriesPayload.deliveries.some(
+        (delivery) =>
+          delivery.provider === "rustore" &&
+          delivery.status === "sent" &&
+          delivery.responseCode === 200,
+      ),
+    );
+  } finally {
+    await stopTestServer(ctx);
+  }
+});

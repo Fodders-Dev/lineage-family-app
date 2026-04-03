@@ -6,6 +6,7 @@ class PushGateway {
     logger = console,
     config = {},
     webPushClient = webPush,
+    httpClient = globalThis.fetch?.bind(globalThis),
   }) {
     this.store = store;
     this.logger = logger;
@@ -20,8 +21,20 @@ class PushGateway {
         config.webPushEnabled ||
             (config.webPushPublicKey && config.webPushPrivateKey),
       ),
+      rustorePushProjectId: String(config.rustorePushProjectId || "").trim(),
+      rustorePushServiceToken: String(
+        config.rustorePushServiceToken || "",
+      ).trim(),
+      rustorePushApiBaseUrl: String(
+        config.rustorePushApiBaseUrl || "https://vkpns.rustore.ru",
+      ).replace(/\/+$/, ""),
+      rustorePushEnabled: Boolean(
+        config.rustorePushEnabled ||
+          (config.rustorePushProjectId && config.rustorePushServiceToken),
+      ),
     };
     this.webPushClient = webPushClient;
+    this.httpClient = httpClient;
 
     if (this.config.webPushEnabled) {
       this.webPushClient.setVapidDetails(
@@ -63,9 +76,7 @@ class PushGateway {
     }
 
     if (device.provider === "rustore") {
-      this.logger.info?.(
-        `[lineage-backend] rustore push delivery ${delivery.id} queued until vendor adapter is configured`,
-      );
+      await this._deliverRustorePush(notification, device, delivery);
       return;
     }
   }
@@ -133,6 +144,103 @@ class PushGateway {
       }),
     );
     return `${baseUrl}/?notificationPayload=${payload}#/notifications`;
+  }
+
+  async _deliverRustorePush(notification, device, delivery) {
+    if (!this.config.rustorePushEnabled) {
+      await this.store.updatePushDelivery(delivery.id, {
+        status: "queued",
+        lastError: "rustore_not_configured",
+      });
+      return;
+    }
+
+    if (typeof this.httpClient !== "function") {
+      await this.store.updatePushDelivery(delivery.id, {
+        status: "failed",
+        lastError: "rustore_http_client_unavailable",
+      });
+      return;
+    }
+
+    const requestBody = {
+      message: {
+        token: String(device.token || "").trim(),
+        notification: {
+          title: notification.title || "Родня",
+          body: notification.body || "",
+        },
+        data: this._buildRustoreDataPayload(notification),
+      },
+    };
+    const requestUrl = `${this.config.rustorePushApiBaseUrl}/v1/projects/${encodeURIComponent(this.config.rustorePushProjectId)}/messages:send`;
+
+    try {
+      const response = await this.httpClient(requestUrl, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${this.config.rustorePushServiceToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (response.ok) {
+        await this.store.updatePushDelivery(delivery.id, {
+          status: "sent",
+          deliveredAt: new Date().toISOString(),
+          responseCode: Number(response.status || 200),
+          lastError: null,
+        });
+        return;
+      }
+
+      const responseText = await this._safeReadResponse(response);
+      await this.store.updatePushDelivery(delivery.id, {
+        status: "failed",
+        lastError: responseText || `rustore_http_${response.status || 0}`,
+        responseCode: Number(response.status || 0) || null,
+      });
+    } catch (error) {
+      await this.store.updatePushDelivery(delivery.id, {
+        status: "failed",
+        lastError: error?.message || String(error),
+      });
+    }
+  }
+
+  _buildRustoreDataPayload(notification) {
+    const payload = {
+      notificationId: notification.id,
+      type: notification.type || "generic",
+      payload: JSON.stringify({
+        id: notification.id,
+        type: notification.type,
+        data: notification.data || {},
+      }),
+    };
+
+    for (const [key, value] of Object.entries(notification.data || {})) {
+      if (value == null) {
+        continue;
+      }
+      payload[String(key)] =
+        typeof value === "string" ? value : JSON.stringify(value);
+    }
+
+    return payload;
+  }
+
+  async _safeReadResponse(response) {
+    if (!response || typeof response.text !== "function") {
+      return "";
+    }
+
+    try {
+      return String(await response.text()).trim();
+    } catch (_) {
+      return "";
+    }
   }
 }
 
