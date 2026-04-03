@@ -345,6 +345,31 @@ class CustomApiChatService implements ChatServiceInterface {
     return chatId;
   }
 
+  @override
+  Future<String?> createBranchChat({
+    required String treeId,
+    required List<String> branchRootPersonIds,
+    String? title,
+  }) async {
+    final response = await _requestJson(
+      method: 'POST',
+      path: '/v1/chats/branches',
+      body: {
+        'treeId': treeId.trim(),
+        'branchRootPersonIds': branchRootPersonIds,
+        if (title != null && title.trim().isNotEmpty) 'title': title.trim(),
+      },
+    );
+
+    final chatId = response['chatId']?.toString();
+    if (chatId == null || chatId.isEmpty) {
+      throw const CustomApiException(
+        'Backend не вернул идентификатор чата ветки',
+      );
+    }
+    return chatId;
+  }
+
   Future<List<ChatPreview>> _fetchChatPreviews() async {
     final response = await _requestJson(
       method: 'GET',

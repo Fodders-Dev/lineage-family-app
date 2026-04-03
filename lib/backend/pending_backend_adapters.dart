@@ -467,4 +467,13 @@ class PendingBackendChatService implements ChatServiceInterface {
   }) {
     throw UnsupportedError(_pendingProviderMessage('chat'));
   }
+
+  @override
+  Future<String?> createBranchChat({
+    required String treeId,
+    required List<String> branchRootPersonIds,
+    String? title,
+  }) {
+    throw UnsupportedError(_pendingProviderMessage('chat'));
+  }
 }

@@ -34,6 +34,7 @@ class ChatPreview {
   });
 
   bool get isGroup => type == 'group' || type == 'branch';
+  bool get isBranch => type == 'branch';
 
   String get displayName {
     if (!isGroup) {
@@ -45,7 +46,7 @@ class ChatPreview {
       return normalizedTitle;
     }
 
-    return 'Групповой чат';
+    return isBranch ? 'Чат ветки' : 'Групповой чат';
   }
 
   String? get displayPhotoUrl => isGroup ? photoUrl : otherUserPhotoUrl;

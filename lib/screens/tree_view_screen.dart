@@ -12,6 +12,7 @@ import '../providers/tree_provider.dart'; // Импортируем TreeProvider
 import 'package:go_router/go_router.dart'; // Для навигации
 import '../models/user_profile.dart';
 import '../backend/interfaces/auth_service_interface.dart';
+import '../backend/interfaces/chat_service_interface.dart';
 import '../backend/interfaces/family_tree_service_interface.dart';
 import '../services/crashlytics_service.dart';
 import '../services/public_tree_link_service.dart';
@@ -56,6 +57,7 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
   final FamilyTreeServiceInterface _familyService =
       GetIt.I<FamilyTreeServiceInterface>();
   final AuthServiceInterface _authService = GetIt.I<AuthServiceInterface>();
+  final ChatServiceInterface _chatService = GetIt.I<ChatServiceInterface>();
   final CrashlyticsService _crashlyticsService = CrashlyticsService();
 
   // Map<String, dynamic> _graphData = {'nodes': [], 'edges': []}; // Больше не нужно
@@ -449,6 +451,7 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
     if (compact) {
       final compactPrimaryAction =
           _currentUserIsInTree ? 'Добавить' : 'Добавить себя';
+      final canOpenBranchChat = branchRootPerson != null;
 
       return Container(
         width: double.infinity,
@@ -486,6 +489,13 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
                   icon: const Icon(Icons.person_add_alt_1),
                   label: Text(compactPrimaryAction),
                 ),
+                if (canOpenBranchChat)
+                  OutlinedButton.icon(
+                    onPressed: () =>
+                        _openBranchChat(selectedTreeId, branchRootPerson),
+                    icon: const Icon(Icons.forum_outlined),
+                    label: const Text('Написать ветке'),
+                  ),
                 OutlinedButton.icon(
                   onPressed: () => context.go('/tree?selector=1'),
                   icon: const Icon(Icons.swap_horiz),
@@ -677,6 +687,13 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
                   onPressed: _resetBranchFocus,
                   icon: const Icon(Icons.account_tree_outlined),
                   label: const Text('Показать всё дерево'),
+                ),
+              if (branchRootPerson != null)
+                OutlinedButton.icon(
+                  onPressed: () =>
+                      _openBranchChat(selectedTreeId, branchRootPerson),
+                  icon: const Icon(Icons.forum_outlined),
+                  label: const Text('Написать ветке'),
                 ),
               if (branchRootPerson != null)
                 OutlinedButton.icon(
@@ -1096,6 +1113,75 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
     return null;
   }
 
+  Set<String> _buildBranchVisiblePersonIds(String branchRootPersonId) {
+    final personIds = _relativesData
+        .map((entry) => entry['person'])
+        .whereType<FamilyPerson>()
+        .map((person) => person.id)
+        .toSet();
+    if (!personIds.contains(branchRootPersonId)) {
+      return personIds;
+    }
+
+    final childrenByParent = <String, Set<String>>{};
+    final spousesByPerson = <String, Set<String>>{};
+    for (final relation in _relationsData) {
+      final parentId = _parentIdFromRelation(relation);
+      final childId = _childIdFromRelation(relation);
+      if (parentId != null && childId != null) {
+        childrenByParent.putIfAbsent(parentId, () => <String>{}).add(childId);
+      }
+      if (_isSpouseRelation(relation)) {
+        spousesByPerson.putIfAbsent(relation.person1Id, () => <String>{})
+          ..add(relation.person2Id);
+        spousesByPerson.putIfAbsent(relation.person2Id, () => <String>{})
+          ..add(relation.person1Id);
+      }
+    }
+
+    final visibleIds = <String>{branchRootPersonId};
+    final queue = <String>[branchRootPersonId];
+    while (queue.isNotEmpty) {
+      final currentId = queue.removeAt(0);
+      for (final spouseId in spousesByPerson[currentId] ?? const <String>{}) {
+        if (visibleIds.add(spouseId)) {
+          queue.add(spouseId);
+        }
+      }
+      for (final childId in childrenByParent[currentId] ?? const <String>{}) {
+        if (visibleIds.add(childId)) {
+          queue.add(childId);
+        }
+      }
+    }
+
+    return visibleIds;
+  }
+
+  List<String> _buildBranchChatParticipantIds(String branchRootPersonId) {
+    final participantIds = <String>{};
+    final currentUserId = _authService.currentUserId;
+    if (currentUserId != null && currentUserId.isNotEmpty) {
+      participantIds.add(currentUserId);
+    }
+
+    final visibleIds = _buildBranchVisiblePersonIds(branchRootPersonId);
+    for (final entry in _relativesData) {
+      final person = entry['person'];
+      if (person is! FamilyPerson || !visibleIds.contains(person.id)) {
+        continue;
+      }
+      final linkedUserId = person.userId?.trim();
+      if (linkedUserId != null && linkedUserId.isNotEmpty) {
+        participantIds.add(linkedUserId);
+      }
+    }
+
+    final sortedIds = participantIds.toList();
+    sortedIds.sort();
+    return sortedIds;
+  }
+
   Future<FamilyTree?> _loadCurrentTreeMeta(String treeId) async {
     try {
       final trees = await _familyService.getUserTrees();
@@ -1141,6 +1227,58 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
       }
     }
     return null;
+  }
+
+  Future<void> _openBranchChat(
+    String treeId,
+    FamilyPerson? branchRootPerson,
+  ) async {
+    if (branchRootPerson == null) {
+      return;
+    }
+
+    final participantIds = _buildBranchChatParticipantIds(branchRootPerson.id);
+    if (participantIds.length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('В этой ветке пока некому писать в общий чат.'),
+        ),
+      );
+      return;
+    }
+
+    final title = 'Ветка ${branchRootPerson.name}';
+    try {
+      final chatId = await _chatService.createBranchChat(
+        treeId: treeId,
+        branchRootPersonIds: <String>[branchRootPerson.id],
+        title: title,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (chatId == null || chatId.isEmpty) {
+        throw StateError('Не удалось создать чат ветки');
+      }
+
+      context.push(
+        '/chats/view/$chatId?type=branch&title=${Uri.encodeComponent(title)}',
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _describeTreeActionError(
+              error,
+              fallbackMessage: 'Не удалось открыть чат ветки.',
+            ),
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _copyPublicTreeLink() async {

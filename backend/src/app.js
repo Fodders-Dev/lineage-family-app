@@ -1430,6 +1430,55 @@ function createApp({store, config, realtimeHub = null, pushGateway = null}) {
     });
   });
 
+  app.post("/v1/chats/branches", requireAuth, async (req, res) => {
+    const treeId = String(req.body?.treeId || "").trim();
+    const branchRootPersonIds = Array.isArray(req.body?.branchRootPersonIds)
+      ? req.body.branchRootPersonIds
+      : [];
+    const title = req.body?.title;
+
+    if (!treeId) {
+      res.status(400).json({message: "Нужен treeId"});
+      return;
+    }
+
+    const tree = await requireTreeAccess(req, res, treeId);
+    if (!tree) {
+      return;
+    }
+
+    const chat = await store.createBranchChat({
+      treeId: tree.id,
+      branchRootPersonIds,
+      createdBy: req.auth.user.id,
+      title,
+    });
+    if (chat === false) {
+      res.status(400).json({
+        message: "В этой ветке пока нет других участников с аккаунтами",
+      });
+      return;
+    }
+    if (chat === null) {
+      res.status(404).json({message: "Ветка не найдена в выбранном дереве"});
+      return;
+    }
+
+    const mappedChat = mapChatRecord(chat);
+    for (const participantId of chat.participantIds) {
+      realtimeHub?.publishToUser(participantId, {
+        type: "chat.created",
+        chatId: chat.id,
+        chat: mappedChat,
+      });
+    }
+
+    res.status(201).json({
+      chatId: chat.id,
+      chat: mappedChat,
+    });
+  });
+
   app.get("/v1/chats/:chatId/messages", requireAuth, async (req, res) => {
     const chat = await requireChatAccess(req, res, req.params.chatId);
     if (!chat) {

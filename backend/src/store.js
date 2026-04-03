@@ -149,6 +149,57 @@ function describeMessagePreview(message) {
   return "";
 }
 
+function sameNormalizedIds(left, right) {
+  const normalizedLeft = normalizeParticipantIds(left);
+  const normalizedRight = normalizeParticipantIds(right);
+  if (normalizedLeft.length !== normalizedRight.length) {
+    return false;
+  }
+
+  return normalizedLeft.every((value, index) => value === normalizedRight[index]);
+}
+
+function isSpouseLikeRelation(relation) {
+  return (
+    relation?.relation1to2 === "spouse" ||
+    relation?.relation2to1 === "spouse" ||
+    relation?.relation1to2 === "partner" ||
+    relation?.relation2to1 === "partner"
+  );
+}
+
+function parentIdFromRelation(relation) {
+  if (
+    relation?.relation1to2 === "parent" ||
+    relation?.relation2to1 === "child"
+  ) {
+    return relation.person1Id;
+  }
+  if (
+    relation?.relation2to1 === "parent" ||
+    relation?.relation1to2 === "child"
+  ) {
+    return relation.person2Id;
+  }
+  return null;
+}
+
+function childIdFromRelation(relation) {
+  if (
+    relation?.relation1to2 === "parent" ||
+    relation?.relation2to1 === "child"
+  ) {
+    return relation.person2Id;
+  }
+  if (
+    relation?.relation2to1 === "parent" ||
+    relation?.relation1to2 === "child"
+  ) {
+    return relation.person1Id;
+  }
+  return null;
+}
+
 function relationMirror(relationType) {
   switch (String(relationType || "other")) {
     case "parent":
@@ -1668,6 +1719,119 @@ class FileStore {
       createdBy,
       treeId,
       branchRootPersonIds,
+    });
+    db.chats.push(chat);
+    await this._write(db);
+    return structuredClone(chat);
+  }
+
+  async createBranchChat({
+    treeId,
+    branchRootPersonIds,
+    createdBy,
+    title,
+  }) {
+    const db = await this._read();
+    const tree = db.trees.find((entry) => entry.id === treeId);
+    if (!tree) {
+      return null;
+    }
+
+    const treePersons = db.persons.filter((entry) => entry.treeId === treeId);
+    const personIds = new Set(treePersons.map((entry) => entry.id));
+    const normalizedRoots = normalizeParticipantIds(branchRootPersonIds).filter(
+      (personId) => personIds.has(personId),
+    );
+    if (normalizedRoots.length === 0) {
+      return null;
+    }
+
+    const treeRelations = db.relations.filter((entry) => entry.treeId === treeId);
+    const childrenByParent = new Map();
+    const spousesByPerson = new Map();
+    for (const relation of treeRelations) {
+      const parentId = parentIdFromRelation(relation);
+      const childId = childIdFromRelation(relation);
+      if (parentId && childId) {
+        if (!childrenByParent.has(parentId)) {
+          childrenByParent.set(parentId, new Set());
+        }
+        childrenByParent.get(parentId).add(childId);
+      }
+      if (isSpouseLikeRelation(relation)) {
+        if (!spousesByPerson.has(relation.person1Id)) {
+          spousesByPerson.set(relation.person1Id, new Set());
+        }
+        if (!spousesByPerson.has(relation.person2Id)) {
+          spousesByPerson.set(relation.person2Id, new Set());
+        }
+        spousesByPerson.get(relation.person1Id).add(relation.person2Id);
+        spousesByPerson.get(relation.person2Id).add(relation.person1Id);
+      }
+    }
+
+    const visiblePersonIds = new Set(normalizedRoots);
+    const queue = [...normalizedRoots];
+    while (queue.length > 0) {
+      const currentId = queue.shift();
+      for (const spouseId of spousesByPerson.get(currentId) || []) {
+        if (!visiblePersonIds.has(spouseId)) {
+          visiblePersonIds.add(spouseId);
+          queue.push(spouseId);
+        }
+      }
+      for (const childId of childrenByParent.get(currentId) || []) {
+        if (!visiblePersonIds.has(childId)) {
+          visiblePersonIds.add(childId);
+          queue.push(childId);
+        }
+      }
+    }
+
+    const participantIds = normalizeParticipantIds([
+      createdBy,
+      ...treePersons
+        .filter((entry) => visiblePersonIds.has(entry.id))
+        .map((entry) => String(entry.userId || "").trim())
+        .filter(Boolean),
+    ]);
+    if (!participantIds.includes(createdBy) || participantIds.length < 2) {
+      return false;
+    }
+
+    const normalizedTitle = normalizeNullableString(title);
+    const existingChat = db.chats.find((entry) => {
+      return (
+        entry.type === "branch" &&
+        entry.treeId === treeId &&
+        sameNormalizedIds(entry.branchRootPersonIds || [], normalizedRoots)
+      );
+    });
+    if (existingChat) {
+      let hasChanges = false;
+      if (!sameNormalizedIds(existingChat.participantIds || [], participantIds)) {
+        existingChat.participantIds = participantIds;
+        hasChanges = true;
+      }
+      if (normalizedTitle && normalizedTitle !== existingChat.title) {
+        existingChat.title = normalizedTitle;
+        hasChanges = true;
+      }
+      if (hasChanges) {
+        existingChat.updatedAt = nowIso();
+        await this._write(db);
+      }
+      return structuredClone(existingChat);
+    }
+
+    const chat = createChatRecord({
+      id: `chat_${crypto.randomUUID()}`,
+      type: "branch",
+      participantIds,
+      title: normalizedTitle,
+      createdBy,
+      treeId,
+      branchRootPersonIds: normalizedRoots,
     });
     db.chats.push(chat);
     await this._write(db);

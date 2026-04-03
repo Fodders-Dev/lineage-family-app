@@ -79,6 +79,14 @@ class _FakeChatService implements ChatServiceInterface {
       'chat-group-1';
 
   @override
+  Future<String?> createBranchChat({
+    required String treeId,
+    required List<String> branchRootPersonIds,
+    String? title,
+  }) async =>
+      'chat-branch-1';
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 

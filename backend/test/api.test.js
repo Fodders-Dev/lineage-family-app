@@ -965,6 +965,176 @@ test("group chat endpoints create previews before first message and keep media p
   }
 });
 
+test("branch chat endpoint reuses branch thread and limits participants to that branch", async () => {
+  const ctx = await startTestServer();
+
+  try {
+    const aliceResponse = await fetch(`${ctx.baseUrl}/v1/auth/register`, {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({
+        email: "branch-alice@lineage.app",
+        password: "secret123",
+        displayName: "Alice Branch",
+      }),
+    });
+    assert.equal(aliceResponse.status, 201);
+    const alice = await aliceResponse.json();
+
+    const bobResponse = await fetch(`${ctx.baseUrl}/v1/auth/register`, {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({
+        email: "branch-bob@lineage.app",
+        password: "secret123",
+        displayName: "Bob Branch",
+      }),
+    });
+    assert.equal(bobResponse.status, 201);
+    const bob = await bobResponse.json();
+
+    const createTreeResponse = await fetch(`${ctx.baseUrl}/v1/trees`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${alice.accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "Ветка Кузнецовых",
+        description: "Проверка веточного чата",
+        isPrivate: true,
+      }),
+    });
+    assert.equal(createTreeResponse.status, 201);
+    const createdTreePayload = await createTreeResponse.json();
+    const treeId = createdTreePayload.tree.id;
+
+    const personsResponse = await fetch(
+      `${ctx.baseUrl}/v1/trees/${treeId}/persons`,
+      {
+        headers: {authorization: `Bearer ${alice.accessToken}`},
+      },
+    );
+    assert.equal(personsResponse.status, 200);
+    const personsPayload = await personsResponse.json();
+    const alicePersonId = personsPayload.persons[0].id;
+
+    const inviteResponse = await fetch(
+      `${ctx.baseUrl}/v1/trees/${treeId}/invitations`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${alice.accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          recipientUserId: bob.user.id,
+        }),
+      },
+    );
+    assert.equal(inviteResponse.status, 201);
+    const invitePayload = await inviteResponse.json();
+
+    const acceptInviteResponse = await fetch(
+      `${ctx.baseUrl}/v1/tree-invitations/${invitePayload.invitation.invitationId}/respond`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${bob.accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({accept: true}),
+      },
+    );
+    assert.equal(acceptInviteResponse.status, 200);
+
+    const bobPersonResponse = await fetch(
+      `${ctx.baseUrl}/v1/trees/${treeId}/persons`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${bob.accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          firstName: "Боб",
+          lastName: "Кузнецов",
+          gender: "male",
+          userId: bob.user.id,
+        }),
+      },
+    );
+    assert.equal(bobPersonResponse.status, 201);
+    const bobPersonPayload = await bobPersonResponse.json();
+
+    const relationResponse = await fetch(
+      `${ctx.baseUrl}/v1/trees/${treeId}/relations`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${alice.accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          person1Id: alicePersonId,
+          person2Id: bobPersonPayload.person.id,
+          relation1to2: "spouse",
+          isConfirmed: true,
+        }),
+      },
+    );
+    assert.equal(relationResponse.status, 201);
+
+    const createBranchResponse = await fetch(`${ctx.baseUrl}/v1/chats/branches`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${alice.accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        treeId,
+        branchRootPersonIds: [alicePersonId],
+        title: "Ветка Ивана",
+      }),
+    });
+    assert.equal(createBranchResponse.status, 201);
+    const createdBranchPayload = await createBranchResponse.json();
+    assert.equal(createdBranchPayload.chat.type, "branch");
+    assert.equal(createdBranchPayload.chat.title, "Ветка Ивана");
+    assert.deepEqual(createdBranchPayload.chat.participantIds.sort(), [
+      alice.user.id,
+      bob.user.id,
+    ].sort());
+
+    const repeatedBranchResponse = await fetch(`${ctx.baseUrl}/v1/chats/branches`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${alice.accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        treeId,
+        branchRootPersonIds: [alicePersonId],
+        title: "Ветка Ивана",
+      }),
+    });
+    assert.equal(repeatedBranchResponse.status, 201);
+    const repeatedBranchPayload = await repeatedBranchResponse.json();
+    assert.equal(repeatedBranchPayload.chatId, createdBranchPayload.chatId);
+
+    const bobChatsResponse = await fetch(`${ctx.baseUrl}/v1/chats`, {
+      headers: {authorization: `Bearer ${bob.accessToken}`},
+    });
+    assert.equal(bobChatsResponse.status, 200);
+    const bobChatsPayload = await bobChatsResponse.json();
+    assert.equal(bobChatsPayload.chats.length, 1);
+    assert.equal(bobChatsPayload.chats[0].type, "branch");
+    assert.equal(bobChatsPayload.chats[0].title, "Ветка Ивана");
+  } finally {
+    await stopTestServer(ctx);
+  }
+});
+
 test("relation requests and invite processing work on custom backend", async () => {
   const ctx = await startTestServer();
 

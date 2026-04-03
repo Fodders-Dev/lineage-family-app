@@ -478,6 +478,73 @@ void main() {
     expect(previews.first.participantIds, ['user-1', 'user-2', 'user-3']);
   });
 
+  test('CustomApiChatService creates branch chat', () async {
+    final client = MockClient((request) async {
+      if (request.url.path == '/v1/chats/branches' &&
+          request.method == 'POST') {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(body['treeId'], 'tree-1');
+        expect(body['branchRootPersonIds'], ['person-1']);
+        expect(body['title'], 'Ветка Иван Петров');
+        return http.Response(
+          jsonEncode({
+            'chatId': 'chat-branch-1',
+            'chat': {
+              'id': 'chat-branch-1',
+              'type': 'branch',
+              'title': 'Ветка Иван Петров',
+              'participantIds': ['user-1', 'user-2'],
+              'branchRootPersonIds': ['person-1'],
+            },
+          }),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+
+      return http.Response('{"message":"not found"}', 404);
+    });
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      'custom_api_session_v1',
+      jsonEncode({
+        'accessToken': 'access-token',
+        'refreshToken': 'refresh-token',
+        'userId': 'user-1',
+        'email': 'dev@lineage.app',
+        'displayName': 'Dev User',
+        'providerIds': ['password'],
+        'isProfileComplete': true,
+        'missingFields': const [],
+      }),
+    );
+
+    final authService = await CustomApiAuthService.create(
+      httpClient: client,
+      preferences: prefs,
+      runtimeConfig: const BackendRuntimeConfig(
+        apiBaseUrl: 'https://api.example.ru',
+      ),
+      invitationService: InvitationService(),
+    );
+
+    final chatService = CustomApiChatService(
+      authService: authService,
+      runtimeConfig: const BackendRuntimeConfig(
+        apiBaseUrl: 'https://api.example.ru',
+      ),
+      httpClient: client,
+    );
+
+    final chatId = await chatService.createBranchChat(
+      treeId: 'tree-1',
+      branchRootPersonIds: const ['person-1'],
+      title: 'Ветка Иван Петров',
+    );
+    expect(chatId, 'chat-branch-1');
+  });
+
   test(
     'CustomApiChatService clears stale session and returns safe defaults on 401 polling',
     () async {

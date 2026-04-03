@@ -342,7 +342,9 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
                           chat.displayPhotoUrl!.isEmpty
                       ? chat.isGroup
                           ? Icon(
-                              Icons.group_outlined,
+                              chat.isBranch
+                                  ? Icons.account_tree_outlined
+                                  : Icons.group_outlined,
                               color: theme.colorScheme.onPrimaryContainer,
                             )
                           : Text(
@@ -397,7 +399,9 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
                         children: [
                           if (chat.isGroup) ...[
                             Icon(
-                              Icons.groups_2_outlined,
+                              chat.isBranch
+                                  ? Icons.account_tree_outlined
+                                  : Icons.groups_2_outlined,
                               size: 15,
                               color: Colors.grey[500],
                             ),

@@ -379,4 +379,13 @@ class ChatService implements ChatServiceInterface {
       return null;
     }
   }
+
+  @override
+  Future<String?> createBranchChat({
+    required String treeId,
+    required List<String> branchRootPersonIds,
+    String? title,
+  }) async {
+    return null;
+  }
 }

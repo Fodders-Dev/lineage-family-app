@@ -37,4 +37,12 @@ abstract class ChatServiceInterface {
   }) {
     throw UnsupportedError('createGroupChat is not supported');
   }
+
+  Future<String?> createBranchChat({
+    required String treeId,
+    required List<String> branchRootPersonIds,
+    String? title,
+  }) {
+    throw UnsupportedError('createBranchChat is not supported');
+  }
 }
