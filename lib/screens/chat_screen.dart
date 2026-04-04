@@ -8,8 +8,13 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as path;
 
+import 'package:audioplayers/audioplayers.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
+
 import '../backend/interfaces/chat_service_interface.dart';
 import '../backend/interfaces/family_tree_service_interface.dart';
+import '../models/chat_attachment.dart';
 import '../models/chat_details.dart';
 import '../models/chat_message.dart';
 import '../models/chat_send_progress.dart';
@@ -106,6 +111,13 @@ class _ChatScreenState extends State<ChatScreen> {
   final List<XFile> _selectedAttachments = <XFile>[];
   final List<_OutgoingMessage> _optimisticMessages = <_OutgoingMessage>[];
 
+  // Voice recording state
+  bool _isRecording = false;
+  final AudioRecorder _recorder = AudioRecorder();
+  Timer? _recordingTimer;
+  int _recordingDurationSeconds = 0;
+  String? _lastRecordedPath;
+
   @override
   void initState() {
     super.initState();
@@ -116,6 +128,8 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void dispose() {
     _messageController.dispose();
+    _recordingTimer?.cancel();
+    _recorder.dispose();
     super.dispose();
   }
 
@@ -240,19 +254,26 @@ class _ChatScreenState extends State<ChatScreen> {
         return;
       }
 
-      final next = <XFile>[..._selectedAttachments, ...picked];
       setState(() {
-        _selectedAttachments
-          ..clear()
-          ..addAll(next.take(_maxAttachments));
+        // Clear if we had a video or voice (detected by extension/mime)
+        final hadHeavyMedia = _selectedAttachments.any((f) {
+          final ext = path.extension(f.name).toLowerCase();
+          return ext == '.mp4' || ext == '.mov' || ext == '.m4a';
+        });
+        if (hadHeavyMedia) {
+          _selectedAttachments.clear();
+        }
+
+        final remaining = 6 - _selectedAttachments.length;
+        if (picked.length > remaining) {
+          _selectedAttachments.addAll(picked.take(remaining));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Можно добавить не более 6 фото.')),
+          );
+        } else {
+          _selectedAttachments.addAll(picked);
+        }
       });
-      if (_selectedAttachments.length < next.length && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Можно прикрепить не более 6 вложений.'),
-          ),
-        );
-      }
     } catch (_) {
       if (!mounted) {
         return;
@@ -264,15 +285,6 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _pickVideoAttachment() async {
-    if (_selectedAttachments.length >= _maxAttachments) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Можно прикрепить не более 6 вложений.'),
-        ),
-      );
-      return;
-    }
-
     try {
       final picked = widget.pickVideo != null
           ? await widget.pickVideo!()
@@ -284,7 +296,20 @@ class _ChatScreenState extends State<ChatScreen> {
         return;
       }
 
+      final size = await picked.length();
+      if (size > 50 * 1024 * 1024) {
+        // 50MB limit
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('Видео слишком большое (макс. 50 МБ).')),
+          );
+        }
+        return;
+      }
+
       setState(() {
+        _selectedAttachments.clear();
         _selectedAttachments.add(picked);
       });
     } catch (_) {
@@ -337,6 +362,70 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     await _pickVideoAttachment();
+  }
+
+  Future<void> _startRecording() async {
+    try {
+      if (await _recorder.hasPermission()) {
+        final directory = await getTemporaryDirectory();
+        final path =
+            '${directory.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
+        await _recorder.start(const RecordConfig(), path: path);
+
+        setState(() {
+          _isRecording = true;
+          _recordingDurationSeconds = 0;
+          _lastRecordedPath = path;
+        });
+
+        _recordingTimer?.cancel();
+        _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+          setState(() {
+            _recordingDurationSeconds++;
+          });
+        });
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Нужен доступ к микрофону.')),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error starting recording: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось начать запись.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _stopAndSendRecording() async {
+    _recordingTimer?.cancel();
+    final path = await _recorder.stop();
+    setState(() {
+      _isRecording = false;
+    });
+
+    if (path != null && _recordingDurationSeconds > 0) {
+      final voiceFile = XFile(path, mimeType: 'audio/m4a');
+      // Per roadmap: no mixing voice with other media.
+      // Ensure other attachments are cleared if we use this method.
+      _selectedAttachments.clear();
+      _selectedAttachments.add(voiceFile);
+      await _sendCurrentMessage();
+    }
+  }
+
+  Future<void> _cancelRecording() async {
+    _recordingTimer?.cancel();
+    await _recorder.stop();
+    setState(() {
+      _isRecording = false;
+      _recordingDurationSeconds = 0;
+    });
   }
 
   Future<void> _sendCurrentMessage() async {
@@ -603,8 +692,58 @@ class _ChatScreenState extends State<ChatScreen> {
       body: Column(
         children: [
           Expanded(child: _buildMessagesBody()),
-          _buildMessageInputArea(),
+          if (_isRecording) _buildRecordingArea() else _buildMessageInputArea(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildRecordingArea() {
+    final theme = Theme.of(context);
+    final minutes =
+        (_recordingDurationSeconds ~/ 60).toString().padLeft(2, '0');
+    final seconds = (_recordingDurationSeconds % 60).toString().padLeft(2, '0');
+
+    return Material(
+      elevation: 5,
+      color: theme.cardColor,
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 12,
+          bottom: MediaQuery.of(context).padding.bottom + 12,
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.mic, color: Colors.red),
+            const SizedBox(width: 12),
+            Text(
+              '$minutes:$seconds',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: Colors.red,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Запись аудио...',
+                style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey),
+              ),
+            ),
+            IconButton(
+              onPressed: _cancelRecording,
+              icon: const Icon(Icons.delete_outline, color: Colors.grey),
+              tooltip: 'Отмена',
+            ),
+            IconButton(
+              onPressed: _stopAndSendRecording,
+              icon: Icon(Icons.send_rounded, color: theme.colorScheme.primary),
+              tooltip: 'Отправить',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -836,9 +975,10 @@ class _ChatScreenState extends State<ChatScreen> {
                 const SizedBox(width: 8),
                 FloatingActionButton(
                   mini: true,
-                  onPressed: canSend ? _sendCurrentMessage : null,
+                  onPressed: canSend ? _sendCurrentMessage : _startRecording,
                   elevation: 0,
-                  child: const Icon(Icons.send),
+                  tooltip: canSend ? 'Отправить' : 'Голосовое сообщение',
+                  child: Icon(canSend ? Icons.send : Icons.mic_none_rounded),
                 ),
               ],
             ),
@@ -857,10 +997,7 @@ class _ChatScreenState extends State<ChatScreen> {
       text: message.text,
       timeLabel: DateFormat.Hm('ru').format(message.timestamp),
       isRead: message.isRead,
-      mediaUrls: message.mediaUrls ??
-          (message.imageUrl != null
-              ? <String>[message.imageUrl!]
-              : const <String>[]),
+      remoteAttachments: message.attachments,
     );
   }
 
@@ -883,7 +1020,7 @@ class _ChatScreenState extends State<ChatScreen> {
               text: message.text,
               timeLabel: timeLabel,
               isRead: false,
-              mediaUrls: const <String>[],
+              remoteAttachments: const <ChatAttachment>[],
               localAttachments: message.attachments,
             ),
             const SizedBox(height: 2),
@@ -1524,7 +1661,7 @@ class _ChatBubble extends StatelessWidget {
     required this.timeLabel,
     required this.isRead,
     this.senderLabel,
-    this.mediaUrls = const <String>[],
+    this.remoteAttachments = const <ChatAttachment>[],
     this.localAttachments = const <XFile>[],
   });
 
@@ -1533,7 +1670,7 @@ class _ChatBubble extends StatelessWidget {
   final String timeLabel;
   final bool isRead;
   final String? senderLabel;
-  final List<String> mediaUrls;
+  final List<ChatAttachment> remoteAttachments;
   final List<XFile> localAttachments;
 
   @override
@@ -1573,12 +1710,12 @@ class _ChatBubble extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
               ],
-              if (mediaUrls.isNotEmpty) ...[
-                _RemoteMediaGrid(urls: mediaUrls),
+              if (remoteAttachments.isNotEmpty) ...[
+                _buildRemoteAttachments(context),
                 const SizedBox(height: 8),
               ],
               if (localAttachments.isNotEmpty) ...[
-                _LocalMediaGrid(files: localAttachments),
+                _buildLocalAttachments(context),
                 const SizedBox(height: 8),
               ],
               if (text.isNotEmpty)
@@ -1589,7 +1726,9 @@ class _ChatBubble extends StatelessWidget {
                     fontSize: 16,
                   ),
                 ),
-              if (text.isEmpty && mediaUrls.isEmpty && localAttachments.isEmpty)
+              if (text.isEmpty &&
+                  remoteAttachments.isEmpty &&
+                  localAttachments.isEmpty)
                 Text(
                   'Сообщение',
                   style: TextStyle(
@@ -1627,6 +1766,199 @@ class _ChatBubble extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Widget _buildRemoteAttachments(BuildContext context) {
+    final audio = remoteAttachments
+        .where((a) => a.type == ChatAttachmentType.audio)
+        .toList();
+    final visuals = remoteAttachments
+        .where((a) => a.type != ChatAttachmentType.audio)
+        .toList();
+
+    return Column(
+      crossAxisAlignment:
+          isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        if (audio.isNotEmpty)
+          ...audio.map((a) => _VoicePlayerWidget(url: a.url, isMe: isMe)),
+        if (visuals.isNotEmpty)
+          _RemoteMediaGrid(urls: visuals.map((v) => v.url).toList()),
+      ],
+    );
+  }
+
+  Widget _buildLocalAttachments(BuildContext context) {
+    final audio = localAttachments
+        .where((f) =>
+            _attachmentKindFromName(f.name, f.path) ==
+            _ChatAttachmentKind.audio)
+        .toList();
+    final visuals = localAttachments
+        .where((f) =>
+            _attachmentKindFromName(f.name, f.path) !=
+            _ChatAttachmentKind.audio)
+        .toList();
+
+    return Column(
+      crossAxisAlignment:
+          isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        if (audio.isNotEmpty)
+          ...audio.map((f) => _VoicePlayerWidget(path: f.path, isMe: isMe)),
+        if (visuals.isNotEmpty) _LocalMediaGrid(files: visuals),
+      ],
+    );
+  }
+}
+
+class _VoicePlayerWidget extends StatefulWidget {
+  const _VoicePlayerWidget({
+    this.url,
+    this.path,
+    required this.isMe,
+  });
+
+  final String? url;
+  final String? path;
+  final bool isMe;
+
+  @override
+  State<_VoicePlayerWidget> createState() => _VoicePlayerWidgetState();
+}
+
+class _VoicePlayerWidgetState extends State<_VoicePlayerWidget> {
+  late final AudioPlayer _player;
+  PlayerState _playerState = PlayerState.stopped;
+  Duration _duration = Duration.zero;
+  Duration _position = Duration.zero;
+
+  StreamSubscription? _stateSub;
+  StreamSubscription? _durationSub;
+  StreamSubscription? _posSub;
+  StreamSubscription? _compSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _player = AudioPlayer();
+    _stateSub = _player.onPlayerStateChanged.listen((s) {
+      if (mounted) setState(() => _playerState = s);
+    });
+    _durationSub = _player.onDurationChanged.listen((d) {
+      if (mounted) setState(() => _duration = d);
+    });
+    _posSub = _player.onPositionChanged.listen((p) {
+      if (mounted) setState(() => _position = p);
+    });
+    _compSub = _player.onPlayerComplete.listen((_) {
+      if (mounted)
+        setState(() {
+          _playerState = PlayerState.stopped;
+          _position = Duration.zero;
+        });
+    });
+  }
+
+  @override
+  void dispose() {
+    _stateSub?.cancel();
+    _durationSub?.cancel();
+    _posSub?.cancel();
+    _compSub?.cancel();
+    _player.dispose();
+    super.dispose();
+  }
+
+  Future<void> _play() async {
+    try {
+      if (widget.url != null) {
+        await _player.play(UrlSource(widget.url!));
+      } else if (widget.path != null) {
+        await _player.play(DeviceFileSource(widget.path!));
+      }
+    } catch (e) {
+      debugPrint('Error playing audio: $e');
+    }
+  }
+
+  Future<void> _pause() async {
+    await _player.pause();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isPlaying = _playerState == PlayerState.playing;
+    final color = widget.isMe ? Colors.white : Colors.blue[700];
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: widget.isMe
+            ? Colors.white.withValues(alpha: 0.15)
+            : Colors.blue.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            onPressed: isPlaying ? _pause : _play,
+            icon: Icon(isPlaying
+                ? Icons.pause_circle_filled
+                : Icons.play_circle_filled),
+            color: color,
+            iconSize: 32,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 120,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SliderTheme(
+                  data: SliderThemeData(
+                    trackHeight: 2,
+                    thumbShape:
+                        const RoundSliderThumbShape(enabledThumbRadius: 4),
+                    overlayShape:
+                        const RoundSliderOverlayShape(overlayRadius: 10),
+                    activeTrackColor: color,
+                    inactiveTrackColor: color?.withValues(alpha: 0.3),
+                    thumbColor: color,
+                  ),
+                  child: Slider(
+                    value: _position.inMilliseconds.toDouble(),
+                    max: _duration.inMilliseconds.toDouble() > 0
+                        ? _duration.inMilliseconds.toDouble()
+                        : 1.0,
+                    onChanged: (val) {
+                      _player.seek(Duration(milliseconds: val.toInt()));
+                    },
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Text(
+                    _formatDuration(_position),
+                    style: TextStyle(color: color, fontSize: 10),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDuration(Duration d) {
+    final min = d.inMinutes;
+    final sec = d.inSeconds % 60;
+    return '$min:${sec.toString().padLeft(2, '0')}';
   }
 }
 
@@ -1753,6 +2085,12 @@ class _LocalMediaTile extends StatelessWidget {
     if (kind == _ChatAttachmentKind.image) {
       return _LocalImagePreview(file: file);
     }
+    if (kind == _ChatAttachmentKind.audio) {
+      return const _AttachmentPlaceholder(
+        icon: Icons.mic_none_outlined,
+        label: 'Голосовое сообщение',
+      );
+    }
 
     return _AttachmentPlaceholder(
       icon: kind == _ChatAttachmentKind.video
@@ -1780,6 +2118,12 @@ class _RemoteMediaTile extends StatelessWidget {
           icon: Icons.broken_image_outlined,
           label: 'Файл',
         ),
+      );
+    }
+    if (kind == _ChatAttachmentKind.audio) {
+      return const _AttachmentPlaceholder(
+        icon: Icons.mic_none_outlined,
+        label: 'Голосовое сообщение',
       );
     }
 
@@ -1828,7 +2172,7 @@ class _AttachmentPlaceholder extends StatelessWidget {
   }
 }
 
-enum _ChatAttachmentKind { image, video, other }
+enum _ChatAttachmentKind { image, video, audio, other }
 
 _ChatAttachmentKind _attachmentKindFromName(
   String? preferredName,
@@ -1863,6 +2207,17 @@ _ChatAttachmentKind _attachmentKindFromName(
   };
   if (videoExtensions.contains(extension)) {
     return _ChatAttachmentKind.video;
+  }
+
+  const audioExtensions = <String>{
+    '.mp3',
+    '.m4a',
+    '.wav',
+    '.ogg',
+    '.aac',
+  };
+  if (audioExtensions.contains(extension)) {
+    return _ChatAttachmentKind.audio;
   }
 
   return _ChatAttachmentKind.other;

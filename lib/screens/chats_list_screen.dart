@@ -27,18 +27,23 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
 
   StreamSubscription<List<ChatPreview>>? _chatsSubscription;
   List<ChatPreview> _chatPreviews = [];
+  List<_GroupChatParticipant> _relatives = [];
   bool _isLoading = true;
   String? _errorMessage;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
     _loadChats();
+    _loadRelatives();
   }
 
   @override
   void dispose() {
     _chatsSubscription?.cancel();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -99,6 +104,36 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
     return DateFormat('d MMM', 'ru').format(timestamp);
   }
 
+  void _loadRelatives() async {
+    try {
+      final treeId =
+          Provider.of<TreeProvider>(context, listen: false).selectedTreeId;
+      if (treeId == null || treeId.isEmpty) return;
+
+      final service = GetIt.I<FamilyTreeServiceInterface>();
+      final relatives = await service.getRelatives(treeId);
+      final currentUserId = _authService.currentUserId;
+
+      if (!mounted) return;
+      setState(() {
+        _relatives = relatives
+            .where((p) => p.userId != null && p.userId != currentUserId)
+            .map((p) => _GroupChatParticipant(
+                  userId: p.userId!,
+                  name: p.name.trim().isNotEmpty ? p.name : 'Родственник',
+                  photoUrl: p.photoUrl,
+                  relationLabel: (p.relation ?? '').trim().isNotEmpty
+                      ? p.relation!
+                      : 'Родственник',
+                ))
+            .toList()
+          ..sort((a, b) => a.name.compareTo(b.name));
+      });
+    } catch (e) {
+      debugPrint('Error loading relatives for search: $e');
+    }
+  }
+
   Future<void> _openChatComposer() async {
     final currentUserId = _authService.currentUserId;
     final messenger = ScaffoldMessenger.of(context);
@@ -150,7 +185,12 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
       late final String? chatId;
       late final String title;
       late final String chatType;
-      if (draft.mode == _ChatComposerMode.branch) {
+      if (draft.mode == _ChatComposerMode.direct) {
+        title = draft.directUserName ?? 'Личный чат';
+        chatType = 'direct';
+        chatId = await _chatService.getOrCreateChat(draft.directUserId ?? '');
+      } else if (draft.mode == _ChatComposerMode.branch ||
+          draft.mode == _ChatComposerMode.branches) {
         title = _resolveBranchChatTitle(draft);
         chatType = 'branch';
         chatId = await _chatService.createBranchChat(
@@ -186,9 +226,12 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            draft.mode == _ChatComposerMode.branch
+            draft.mode == _ChatComposerMode.branch ||
+                    draft.mode == _ChatComposerMode.branches
                 ? 'Не удалось создать чат ветки.'
-                : 'Не удалось создать групповой чат.',
+                : draft.mode == _ChatComposerMode.direct
+                    ? 'Не удалось открыть личный чат.'
+                    : 'Не удалось создать групповой чат.',
           ),
         ),
       );
@@ -238,9 +281,63 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _errorMessage != null
               ? _buildErrorState()
-              : _chatPreviews.isEmpty
-                  ? _buildEmptyState(theme)
-                  : _buildChatList(theme, currentUserId),
+              : Column(
+                  children: [
+                    _buildSearchBar(theme),
+                    Expanded(
+                      child: _chatPreviews.isEmpty && _searchQuery.isEmpty
+                          ? _buildEmptyState(theme)
+                          : _buildChatList(theme, currentUserId),
+                    ),
+                  ],
+                ),
+    );
+  }
+
+  Widget _buildSearchBar(ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      child: TextField(
+        controller: _searchController,
+        onChanged: (value) {
+          setState(() {
+            _searchQuery = value.trim().toLowerCase();
+          });
+        },
+        decoration: InputDecoration(
+          hintText: 'Поиск чатов и людей',
+          prefixIcon: const Icon(Icons.search, size: 22),
+          suffixIcon: _searchQuery.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.close, size: 20),
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() {
+                      _searchQuery = '';
+                    });
+                  },
+                )
+              : null,
+          filled: true,
+          fillColor:
+              theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+          contentPadding:
+              const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(
+                color: theme.colorScheme.primary.withValues(alpha: 0.5)),
+          ),
+        ),
+      ),
     );
   }
 
@@ -339,48 +436,149 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
   }
 
   Widget _buildChatList(ThemeData theme, String currentUserId) {
-    return ListView.separated(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      itemCount: _chatPreviews.length,
-      separatorBuilder: (_, __) => Divider(
-        height: 1,
-        indent: 76,
-        color: theme.dividerColor.withValues(alpha: 0.3),
-      ),
-      itemBuilder: (context, index) {
-        final chat = _chatPreviews[index];
-        final hasUnread = chat.unreadCount > 0;
-        final isLastFromMe = chat.lastMessageSenderId == currentUserId;
-        final messageTime = chat.lastMessageTime.toDate();
-        final timeLabel = _formatTimestamp(messageTime);
+    final filteredChats = _chatPreviews.where((chat) {
+      if (_searchQuery.isEmpty) return true;
+      return chat.displayName.toLowerCase().contains(_searchQuery) ||
+          chat.lastMessage.toLowerCase().contains(_searchQuery);
+    }).toList();
 
-        return InkWell(
-          onTap: () {
-            final titleParam = Uri.encodeComponent(chat.displayName);
-            final photoParam =
-                chat.displayPhotoUrl != null && chat.displayPhotoUrl!.isNotEmpty
-                    ? '&photo=${Uri.encodeComponent(chat.displayPhotoUrl!)}'
-                    : '';
-            final userParam = !chat.isGroup && chat.otherUserId.isNotEmpty
-                ? '&userId=${Uri.encodeComponent(chat.otherUserId)}'
-                : '';
-            context.push(
-              '/chats/view/${chat.chatId}?type=${Uri.encodeComponent(chat.type)}&title=$titleParam$photoParam$userParam',
+    final filteredRelatives = _searchQuery.isEmpty
+        ? const <_GroupChatParticipant>[]
+        : _relatives.where((p) {
+            final hasChat = _chatPreviews
+                .any((c) => !c.isGroup && c.otherUserId == p.userId);
+            if (hasChat) return false;
+            return p.name.toLowerCase().contains(_searchQuery) ||
+                p.relationLabel.toLowerCase().contains(_searchQuery);
+          }).toList();
+
+    if (filteredChats.isEmpty &&
+        filteredRelatives.isEmpty &&
+        _searchQuery.isNotEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.search_off, size: 48, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text('Ничего не найдено', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(
+              'Попробуйте другой запрос или создайте новый чат.',
+              style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final showRelatives = filteredRelatives.isNotEmpty;
+    final totalCount = filteredChats.length +
+        (showRelatives ? filteredRelatives.length + 1 : 0);
+
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      itemCount: totalCount,
+      itemBuilder: (context, index) {
+        if (index < filteredChats.length) {
+          return _buildChatTile(theme, filteredChats[index], currentUserId);
+        }
+
+        if (showRelatives) {
+          final relativeIndex = index - filteredChats.length;
+          if (relativeIndex == 0) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                'Люди',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             );
-          },
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 26,
-                  backgroundImage: chat.displayPhotoUrl != null &&
-                          chat.displayPhotoUrl!.isNotEmpty
-                      ? NetworkImage(chat.displayPhotoUrl!)
-                      : null,
-                  backgroundColor: theme.colorScheme.primaryContainer,
-                  child: chat.displayPhotoUrl == null ||
-                          chat.displayPhotoUrl!.isEmpty
+          }
+          final participant = filteredRelatives[relativeIndex - 1];
+          return ListTile(
+            onTap: () => _openPrivateChat(participant),
+            leading: CircleAvatar(
+              radius: 24,
+              backgroundImage: (participant.photoUrl?.isNotEmpty ?? false)
+                  ? NetworkImage(participant.photoUrl!)
+                  : null,
+              child: (participant.photoUrl?.isEmpty ?? true)
+                  ? Text(participant.name.isNotEmpty
+                      ? participant.name[0].toUpperCase()
+                      : '?')
+                  : null,
+            ),
+            title: Text(participant.name,
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+            subtitle: Text(participant.relationLabel),
+            trailing: const Icon(Icons.chevron_right, size: 20),
+          );
+        }
+        return const SizedBox.shrink();
+      },
+    );
+  }
+
+  Future<void> _openPrivateChat(_GroupChatParticipant participant) async {
+    setState(() => _isLoading = true);
+    try {
+      final chatId = await _chatService.getOrCreateChat(participant.userId);
+      if (chatId != null && mounted) {
+        context.push(
+          '/chats/view/$chatId?type=direct&title=${Uri.encodeComponent(participant.name)}'
+          '${participant.photoUrl != null ? '&photo=${Uri.encodeComponent(participant.photoUrl!)}' : ''}'
+          '&userId=${participant.userId}',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось открыть чат.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Widget _buildChatTile(
+      ThemeData theme, ChatPreview chat, String currentUserId) {
+    final hasUnread = chat.unreadCount > 0;
+    final isLastFromMe = chat.lastMessageSenderId == currentUserId;
+    final messageTime = chat.lastMessageTime.toDate();
+    final timeLabel = _formatTimestamp(messageTime);
+
+    return InkWell(
+      onTap: () {
+        final titleParam = Uri.encodeComponent(chat.displayName);
+        final photoParam =
+            chat.displayPhotoUrl != null && chat.displayPhotoUrl!.isNotEmpty
+                ? '&photo=${Uri.encodeComponent(chat.displayPhotoUrl!)}'
+                : '';
+        final userParam = !chat.isGroup && chat.otherUserId.isNotEmpty
+            ? '&userId=${Uri.encodeComponent(chat.otherUserId)}'
+            : '';
+        context.push(
+          '/chats/view/${chat.chatId}?type=${Uri.encodeComponent(chat.type)}&title=$titleParam$photoParam$userParam',
+        );
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 26,
+              backgroundImage: chat.displayPhotoUrl != null &&
+                      chat.displayPhotoUrl!.isNotEmpty
+                  ? NetworkImage(chat.displayPhotoUrl!)
+                  : null,
+              backgroundColor: theme.colorScheme.primaryContainer,
+              child:
+                  chat.displayPhotoUrl == null || chat.displayPhotoUrl!.isEmpty
                       ? chat.isGroup
                           ? Icon(
                               chat.isBranch
@@ -393,129 +591,97 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
                                   ? chat.displayName[0].toUpperCase()
                                   : '?',
                               style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w600,
                                 color: theme.colorScheme.onPrimaryContainer,
+                                fontWeight: FontWeight.bold,
                               ),
                             )
                       : null,
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              chat.displayName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: hasUnread
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
-                              ),
-                            ),
+                      Expanded(
+                        child: Text(
+                          chat.displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight:
+                                hasUnread ? FontWeight.w800 : FontWeight.w600,
                           ),
-                          const SizedBox(width: 8),
-                          Text(
-                            timeLabel,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: hasUnread
-                                  ? theme.colorScheme.primary
-                                  : Colors.grey[500],
-                              fontWeight: hasUnread
-                                  ? FontWeight.w600
-                                  : FontWeight.normal,
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          if (chat.isGroup) ...[
-                            Icon(
-                              chat.isBranch
-                                  ? Icons.account_tree_outlined
-                                  : Icons.groups_2_outlined,
-                              size: 15,
-                              color: Colors.grey[500],
-                            ),
-                            const SizedBox(width: 4),
-                          ],
-                          if (isLastFromMe)
-                            Padding(
-                              padding: const EdgeInsets.only(right: 4),
-                              child: Icon(
-                                Icons.done_all,
-                                size: 16,
-                                color: Colors.grey[400],
-                              ),
-                            ),
-                          Expanded(
-                            child: Text(
-                              chat.lastMessage.isNotEmpty
-                                  ? chat.lastMessage
-                                  : 'Нет сообщений',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: hasUnread
-                                    ? Colors.black87
-                                    : Colors.grey[600],
-                                fontWeight: hasUnread
-                                    ? FontWeight.w600
-                                    : FontWeight.normal,
-                                fontStyle: chat.lastMessage.isEmpty
-                                    ? FontStyle.italic
-                                    : FontStyle.normal,
-                              ),
-                            ),
-                          ),
-                          if (hasUnread) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 7,
-                                vertical: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                color: theme.colorScheme.primary,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                chat.unreadCount > 99
-                                    ? '99+'
-                                    : chat.unreadCount.toString(),
-                                style: TextStyle(
-                                  color: theme.colorScheme.onPrimary,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
+                      Text(
+                        timeLabel,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: hasUnread
+                              ? theme.colorScheme.primary
+                              : Colors.grey[600],
+                          fontWeight:
+                              hasUnread ? FontWeight.w700 : FontWeight.normal,
+                        ),
                       ),
                     ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      if (isLastFromMe) ...[
+                        Icon(
+                          Icons.done_all,
+                          size: 14,
+                          color: Colors.grey[500],
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                      Expanded(
+                        child: Text(
+                          chat.lastMessage,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color:
+                                hasUnread ? Colors.black87 : Colors.grey[600],
+                            fontWeight:
+                                hasUnread ? FontWeight.w500 : FontWeight.normal,
+                          ),
+                        ),
+                      ),
+                      if (hasUnread)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            chat.unreadCount.toString(),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
-        );
-      },
+          ],
+        ),
+      ),
     );
   }
 }
 
-enum _ChatComposerMode { group, branch }
+enum _ChatComposerMode { direct, group, branch, branches }
 
 class _CreateChatDraft {
   const _CreateChatDraft({
@@ -523,6 +689,8 @@ class _CreateChatDraft {
     this.participantIds = const <String>[],
     this.branchRootPersonIds = const <String>[],
     this.branchRootNames = const <String>[],
+    this.directUserId,
+    this.directUserName,
     this.title,
   });
 
@@ -530,6 +698,8 @@ class _CreateChatDraft {
   final List<String> participantIds;
   final List<String> branchRootPersonIds;
   final List<String> branchRootNames;
+  final String? directUserId;
+  final String? directUserName;
   final String? title;
 }
 
@@ -586,7 +756,8 @@ class _CreateChatSheetState extends State<_CreateChatSheet> {
   final Set<String> _selectedUserIds = <String>{};
   final Set<String> _selectedBranchRootIds = <String>{};
 
-  _ChatComposerMode _mode = _ChatComposerMode.group;
+  _ChatComposerMode _mode = _ChatComposerMode.direct;
+  late final TabController _tabController;
 
   bool _isLoading = true;
   String? _errorMessage;
@@ -598,6 +769,12 @@ class _CreateChatSheetState extends State<_CreateChatSheet> {
     super.initState();
     _loadParticipants();
     _searchController.addListener(_handleSearchChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // DefaultTabController handles state, but we might want to listen to it
   }
 
   @override
@@ -815,19 +992,25 @@ class _CreateChatSheetState extends State<_CreateChatSheet> {
     return linkedUserIds;
   }
 
+  bool get _canSubmitDirect => _selectedUserIds.length == 1;
+
   bool get _canSubmitGroup => _selectedUserIds.length >= 2;
 
   bool get _canSubmitBranch =>
       _selectedBranchRootIds.isNotEmpty &&
       _selectedBranchParticipantIds().isNotEmpty;
 
+  bool get _canSubmitSingleBranch =>
+      _selectedBranchRootIds.length == 1 &&
+      _selectedBranchParticipantIds().isNotEmpty;
+
   String get _branchSelectionLabel {
     if (_selectedBranchRootIds.isEmpty) {
-      return 'Выберите хотя бы одну ветку';
+      return 'Выберите ветку';
     }
     final linkedCount = _selectedBranchParticipantIds().length;
     if (linkedCount <= 0) {
-      return 'В выбранных ветках пока некому писать';
+      return 'В ветке пока некому писать';
     }
     return linkedCount == 1 ? 'Открыть чат ветки' : 'Открыть чат веток';
   }
@@ -840,7 +1023,6 @@ class _CreateChatSheetState extends State<_CreateChatSheet> {
       if (search.isEmpty) {
         return true;
       }
-
       return participant.name.toLowerCase().contains(search) ||
           participant.relationLabel.toLowerCase().contains(search);
     }).toList();
@@ -848,151 +1030,277 @@ class _CreateChatSheetState extends State<_CreateChatSheet> {
       if (search.isEmpty) {
         return true;
       }
-
       return candidate.name.toLowerCase().contains(search) ||
           candidate.relationLabel.toLowerCase().contains(search);
     }).toList();
 
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 8,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-        ),
-        child: SizedBox(
-          height: 560,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Новый чат',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
+    return DefaultTabController(
+      length: 4,
+      initialIndex: _mode.index,
+      child: Builder(
+        builder: (context) {
+          final tabController = DefaultTabController.of(context);
+          tabController.addListener(() {
+            if (tabController.indexIsChanging) {
+              setState(() {
+                _mode = _ChatComposerMode.values[tabController.index];
+              });
+            }
+          });
+
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 8,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+              ),
+              child: SizedBox(
+                height: 620,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'Новый чат',
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.close),
+                          style: IconButton.styleFrom(
+                            backgroundColor: theme
+                                .colorScheme.surfaceContainerHighest
+                                .withValues(alpha: 0.5),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest
+                            .withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: TabBar(
+                        dividerColor: Colors.transparent,
+                        indicatorSize: TabBarIndicatorSize.tab,
+                        indicator: BoxDecoration(
+                          borderRadius: BorderRadius.circular(10),
+                          color: theme.colorScheme.primary,
+                        ),
+                        labelColor: theme.colorScheme.onPrimary,
+                        unselectedLabelColor:
+                            theme.colorScheme.onSurfaceVariant,
+                        labelStyle: const TextStyle(
+                            fontWeight: FontWeight.w600, fontSize: 13),
+                        tabs: const [
+                          Tab(text: 'Личный'),
+                          Tab(text: 'Группа'),
+                          Tab(text: 'Ветка'),
+                          Tab(text: 'Ветки'),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.search, size: 20),
+                        hintText: _mode == _ChatComposerMode.direct ||
+                                _mode == _ChatComposerMode.group
+                            ? 'Найти родственника'
+                            : 'Найти ветку по имени',
+                        filled: true,
+                        fillColor: theme.colorScheme.surfaceContainerHighest
+                            .withValues(alpha: 0.3),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                              color: theme.colorScheme.primary, width: 1.5),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 12),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    if (_mode != _ChatComposerMode.direct) ...[
+                      TextField(
+                        controller: _titleController,
+                        textCapitalization: TextCapitalization.sentences,
+                        decoration: InputDecoration(
+                          labelText: 'Название чата',
+                          hintText: _mode == _ChatComposerMode.group
+                              ? 'Например: Семья Ивановых'
+                              : 'Необязательно',
+                          prefixIcon: const Icon(Icons.title, size: 20),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    Expanded(
+                      child: _isLoading
+                          ? const Center(child: CircularProgressIndicator())
+                          : _errorMessage != null
+                              ? Center(
+                                  child: Text(
+                                    _errorMessage!,
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                        color: theme.colorScheme.error),
+                                  ),
+                                )
+                              : TabBarView(
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  children: [
+                                    _buildParticipantSelector(
+                                        filteredParticipants,
+                                        multi: false),
+                                    _buildParticipantSelector(
+                                        filteredParticipants,
+                                        multi: true),
+                                    _buildBranchSelector(filteredBranches,
+                                        multi: false),
+                                    _buildBranchSelector(filteredBranches,
+                                        multi: true),
+                                  ],
+                                ),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: FilledButton.icon(
+                        onPressed:
+                            _canSubmitCurrentMode ? _submitCurrentMode : null,
+                        style: FilledButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        icon: Icon(_submitIcon),
+                        label: Text(_submitLabel),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                _mode == _ChatComposerMode.group
-                    ? 'Соберите семейную группу из родственников текущего дерева.'
-                    : 'Выберите одну или несколько веток дерева и откройте общий чат для них.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: Colors.grey[600],
-                ),
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                children: [
-                  ChoiceChip(
-                    label: const Text('Группа'),
-                    selected: _mode == _ChatComposerMode.group,
-                    onSelected: (selected) {
-                      if (!selected) {
-                        return;
-                      }
-                      setState(() {
-                        _mode = _ChatComposerMode.group;
-                      });
-                    },
-                  ),
-                  ChoiceChip(
-                    label: const Text('Ветка семьи'),
-                    selected: _mode == _ChatComposerMode.branch,
-                    onSelected: (selected) {
-                      if (!selected) {
-                        return;
-                      }
-                      setState(() {
-                        _mode = _ChatComposerMode.branch;
-                      });
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _titleController,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: InputDecoration(
-                  labelText: 'Название чата',
-                  hintText: _mode == _ChatComposerMode.group
-                      ? 'Например, Семья Кузнецовых'
-                      : 'Например, Кузнецовы и Понькины',
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _searchController,
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.search),
-                  hintText: 'Найти по имени',
-                ),
-              ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: _isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : _errorMessage != null
-                        ? Center(
-                            child: Text(
-                              _errorMessage!,
-                              textAlign: TextAlign.center,
-                            ),
-                          )
-                        : _mode == _ChatComposerMode.group
-                            ? _buildGroupSelectionList(filteredParticipants)
-                            : _buildBranchSelectionList(filteredBranches),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _mode == _ChatComposerMode.group
-                      ? (_canSubmitGroup ? _submitGroupDraft : null)
-                      : (_canSubmitBranch ? _submitBranchDraft : null),
-                  icon: Icon(
-                    _mode == _ChatComposerMode.group
-                        ? Icons.groups_2_outlined
-                        : Icons.account_tree_outlined,
-                  ),
-                  label: Text(
-                    _mode == _ChatComposerMode.group
-                        ? (_canSubmitGroup
-                            ? 'Создать чат'
-                            : 'Выберите ещё участников')
-                        : _branchSelectionLabel,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
 
-  Widget _buildGroupSelectionList(List<_GroupChatParticipant> participants) {
+  bool get _canSubmitCurrentMode {
+    switch (_mode) {
+      case _ChatComposerMode.direct:
+        return _canSubmitDirect;
+      case _ChatComposerMode.group:
+        return _canSubmitGroup;
+      case _ChatComposerMode.branch:
+        return _canSubmitSingleBranch;
+      case _ChatComposerMode.branches:
+        return _canSubmitBranch;
+    }
+  }
+
+  void _submitCurrentMode() {
+    switch (_mode) {
+      case _ChatComposerMode.direct:
+        _submitDirectDraft();
+        break;
+      case _ChatComposerMode.group:
+        _submitGroupDraft();
+        break;
+      case _ChatComposerMode.branch:
+        _submitSingleBranchDraft();
+        break;
+      case _ChatComposerMode.branches:
+        _submitBranchDraft();
+        break;
+    }
+  }
+
+  IconData get _submitIcon {
+    switch (_mode) {
+      case _ChatComposerMode.direct:
+        return Icons.chat_bubble_outline;
+      case _ChatComposerMode.group:
+        return Icons.groups_2_outlined;
+      case _ChatComposerMode.branch:
+      case _ChatComposerMode.branches:
+        return Icons.account_tree_outlined;
+    }
+  }
+
+  String get _submitLabel {
+    switch (_mode) {
+      case _ChatComposerMode.direct:
+        return _canSubmitDirect ? 'Открыть чат' : 'Выберите собеседника';
+      case _ChatComposerMode.group:
+        return _canSubmitGroup ? 'Создать группу' : 'Выберите участников';
+      case _ChatComposerMode.branch:
+        return _canSubmitSingleBranch ? 'Открыть чат ветки' : 'Выберите ветку';
+      case _ChatComposerMode.branches:
+        return _canSubmitBranch ? 'Открыть чат веток' : 'Выберите ветки';
+    }
+  }
+
+  Widget _buildParticipantSelector(List<_GroupChatParticipant> participants,
+      {required bool multi}) {
     if (participants.isEmpty) {
-      return const Center(
-        child: Text(
-          'В этом дереве пока нет родственников с аккаунтом.',
-          textAlign: TextAlign.center,
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.person_search_outlined,
+                  size: 48, color: Colors.grey[400]),
+              const SizedBox(height: 12),
+              const Text(
+                'Родственники не найдены.\nУбедитесь, что они добавлены в дерево и имеют аккаунт.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey),
+              ),
+            ],
+          ),
         ),
       );
     }
 
-    return ListView.separated(
+    return ListView.builder(
       itemCount: participants.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 4),
       itemBuilder: (context, index) {
         final participant = participants[index];
         final isSelected = _selectedUserIds.contains(participant.userId);
-        return CheckboxListTile(
-          value: isSelected,
-          onChanged: (_) {
+        return ListTile(
+          onTap: () {
             setState(() {
+              if (!multi) {
+                _selectedUserIds
+                  ..clear()
+                  ..add(participant.userId);
+                // In direct mode, we can submit immediately on tap if we want,
+                // but let's keep the explicit button for consistency or single-selection feel.
+                return;
+              }
               if (isSelected) {
                 _selectedUserIds.remove(participant.userId);
               } else {
@@ -1000,47 +1308,83 @@ class _CreateChatSheetState extends State<_CreateChatSheet> {
               }
             });
           },
-          secondary: CircleAvatar(
+          leading: CircleAvatar(
+            radius: 20,
             backgroundImage:
                 participant.photoUrl != null && participant.photoUrl!.isNotEmpty
                     ? NetworkImage(participant.photoUrl!)
                     : null,
             child: participant.photoUrl == null || participant.photoUrl!.isEmpty
-                ? Text(
-                    participant.name.isNotEmpty ? participant.name[0] : '?',
-                  )
+                ? Text(participant.name.isNotEmpty
+                    ? participant.name[0].toUpperCase()
+                    : '?')
                 : null,
           ),
-          title: Text(participant.name),
+          title: Text(
+            participant.name,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
           subtitle: Text(participant.relationLabel),
-          controlAffinity: ListTileControlAffinity.trailing,
-          contentPadding: EdgeInsets.zero,
+          trailing: multi
+              ? Checkbox(
+                  value: isSelected,
+                  onChanged: (val) {
+                    setState(() {
+                      if (val == true) {
+                        _selectedUserIds.add(participant.userId);
+                      } else {
+                        _selectedUserIds.remove(participant.userId);
+                      }
+                    });
+                  },
+                )
+              : (isSelected
+                  ? Icon(Icons.check_circle,
+                      color: Theme.of(context).colorScheme.primary)
+                  : null),
         );
       },
     );
   }
 
-  Widget _buildBranchSelectionList(List<_BranchChatCandidate> candidates) {
+  Widget _buildBranchSelector(List<_BranchChatCandidate> candidates,
+      {required bool multi}) {
     if (candidates.isEmpty) {
-      return const Center(
-        child: Text(
-          'В этом дереве пока нет людей для чата ветки.',
-          textAlign: TextAlign.center,
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.account_tree_outlined,
+                  size: 48, color: Colors.grey[400]),
+              const SizedBox(height: 12),
+              const Text(
+                'Ветки не найдены.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey),
+              ),
+            ],
+          ),
         ),
       );
     }
 
-    return ListView.separated(
+    return ListView.builder(
       itemCount: candidates.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 4),
       itemBuilder: (context, index) {
         final candidate = candidates[index];
         final isSelected = _selectedBranchRootIds.contains(candidate.personId);
         final linkedCount = candidate.linkedParticipantCount;
-        return CheckboxListTile(
-          value: isSelected,
-          onChanged: (_) {
+        return ListTile(
+          onTap: () {
             setState(() {
+              if (!multi) {
+                _selectedBranchRootIds
+                  ..clear()
+                  ..add(candidate.personId);
+                return;
+              }
               if (isSelected) {
                 _selectedBranchRootIds.remove(candidate.personId);
               } else {
@@ -1048,23 +1392,44 @@ class _CreateChatSheetState extends State<_CreateChatSheet> {
               }
             });
           },
-          secondary: CircleAvatar(
+          leading: CircleAvatar(
+            radius: 20,
             backgroundImage:
                 candidate.photoUrl != null && candidate.photoUrl!.isNotEmpty
                     ? NetworkImage(candidate.photoUrl!)
                     : null,
             child: candidate.photoUrl == null || candidate.photoUrl!.isEmpty
-                ? Text(candidate.name.isNotEmpty ? candidate.name[0] : '?')
+                ? Text(candidate.name.isNotEmpty
+                    ? candidate.name[0].toUpperCase()
+                    : '?')
                 : null,
           ),
-          title: Text(candidate.name),
+          title: Text(
+            candidate.name,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
           subtitle: Text(
             linkedCount > 0
                 ? '${candidate.relationLabel} · $linkedCount ${_participantLabel(linkedCount)}'
-                : '${candidate.relationLabel} · Пока без участников с аккаунтом',
+                : '${candidate.relationLabel} · Нет участников',
           ),
-          controlAffinity: ListTileControlAffinity.trailing,
-          contentPadding: EdgeInsets.zero,
+          trailing: multi
+              ? Checkbox(
+                  value: isSelected,
+                  onChanged: (val) {
+                    setState(() {
+                      if (val == true) {
+                        _selectedBranchRootIds.add(candidate.personId);
+                      } else {
+                        _selectedBranchRootIds.remove(candidate.personId);
+                      }
+                    });
+                  },
+                )
+              : (isSelected
+                  ? Icon(Icons.check_circle,
+                      color: Theme.of(context).colorScheme.primary)
+                  : null),
         );
       },
     );
@@ -1082,11 +1447,38 @@ class _CreateChatSheetState extends State<_CreateChatSheet> {
     return 'участников';
   }
 
+  void _submitDirectDraft() {
+    final participant = _participants.firstWhere(
+      (entry) => _selectedUserIds.contains(entry.userId),
+    );
+    Navigator.of(context).pop(
+      _CreateChatDraft(
+        mode: _ChatComposerMode.direct,
+        directUserId: participant.userId,
+        directUserName: participant.name,
+      ),
+    );
+  }
+
   void _submitGroupDraft() {
     Navigator.of(context).pop(
       _CreateChatDraft(
         mode: _ChatComposerMode.group,
         participantIds: _selectedUserIds.toList(),
+        title: _titleController.text.trim(),
+      ),
+    );
+  }
+
+  void _submitSingleBranchDraft() {
+    final selectedCandidate = _branchCandidates.firstWhere(
+      (candidate) => _selectedBranchRootIds.contains(candidate.personId),
+    );
+    Navigator.of(context).pop(
+      _CreateChatDraft(
+        mode: _ChatComposerMode.branch,
+        branchRootPersonIds: [selectedCandidate.personId],
+        branchRootNames: [selectedCandidate.name],
         title: _titleController.text.trim(),
       ),
     );
