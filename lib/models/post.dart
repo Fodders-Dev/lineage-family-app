@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/date_parser.dart';
 import '../utils/url_utils.dart';
 
 enum TreeContentScopeType { wholeTree, branches }
@@ -45,8 +45,9 @@ class Post {
         likedBy = likedBy ?? [],
         anchorPersonIds = anchorPersonIds ?? [];
 
-  factory Post.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>? ?? {};
+  factory Post.fromFirestore(dynamic doc) {
+    final data =
+        (doc.data != null ? (doc.data() as Map<String, dynamic>?) : null) ?? {};
     final rawImageUrls = (data['imageUrls'] as List<dynamic>? ?? [])
         .map((e) => e.toString())
         .toList();
@@ -59,7 +60,7 @@ class Post {
       authorPhotoUrl: data['authorPhotoUrl'] as String?,
       content: data['content'] ?? '',
       imageUrls: rawImageUrls,
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      createdAt: parseDateTime(data['createdAt']) ?? DateTime.now(),
       likedBy: (data['likedBy'] as List<dynamic>? ?? [])
           .map((e) => e.toString())
           .toList(),
@@ -80,7 +81,7 @@ class Post {
       'authorPhotoUrl': authorPhotoUrl,
       'content': content,
       'imageUrls': imageUrls,
-      'createdAt': Timestamp.fromDate(createdAt),
+      'createdAt': createdAt.toIso8601String(),
       'likedBy': likedBy,
       'commentCount': commentCount,
       'isPublic': isPublic,

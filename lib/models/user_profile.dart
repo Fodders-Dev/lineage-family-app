@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/date_parser.dart';
 import 'package:hive/hive.dart';
 import '../models/family_person.dart';
 import '../utils/url_utils.dart';
@@ -76,8 +76,9 @@ class UserProfile extends HiveObject {
     this.fcmTokens,
   }) : _photoURL = UrlUtils.normalizeImageUrl(photoURL);
 
-  factory UserProfile.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>? ?? {};
+  factory UserProfile.fromFirestore(dynamic doc) {
+    final data =
+        (doc.data != null ? (doc.data() as Map<String, dynamic>?) : null) ?? {};
 
     // Конвертируем строковое представление пола в enum
     Gender? userGender;
@@ -110,18 +111,18 @@ class UserProfile extends HiveObject {
       isPhoneVerified: data['isPhoneVerified'] ?? false,
       gender: userGender,
       birthDate: data['birthDate'] != null
-          ? (data['birthDate'] as Timestamp).toDate()
+          ? parseDateTimeRequired(data['birthDate'])
           : null,
       country: data['country'] as String?,
       city: data['city'],
       createdAt: data['createdAt'] != null
-          ? (data['createdAt'] as Timestamp).toDate()
+          ? parseDateTimeRequired(data['createdAt'])
           : DateTime.now(),
       updatedAt: data['updatedAt'] != null
-          ? (data['updatedAt'] as Timestamp).toDate()
+          ? parseDateTimeRequired(data['updatedAt'])
           : null,
       lastLoginAt: data['lastLoginAt'] != null
-          ? (data['lastLoginAt'] as Timestamp).toDate()
+          ? parseDateTimeRequired(data['lastLoginAt'])
           : null,
       countryCode: data['countryCode'],
       creatorOfTreeIds: (data['creatorOfTreeIds'] as List<dynamic>? ?? [])
@@ -148,13 +149,12 @@ class UserProfile extends HiveObject {
       'phoneNumber': phoneNumber,
       'isPhoneVerified': isPhoneVerified,
       'gender': gender?.toString().split('.').last,
-      'birthDate': birthDate != null ? Timestamp.fromDate(birthDate!) : null,
+      'birthDate': birthDate?.toIso8601String(),
       'country': country,
       'city': city,
-      'createdAt': Timestamp.fromDate(createdAt),
-      'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
-      'lastLoginAt':
-          lastLoginAt != null ? Timestamp.fromDate(lastLoginAt!) : null,
+      'createdAt': createdAt.toIso8601String(),
+      'updatedAt': updatedAt?.toIso8601String(),
+      'lastLoginAt': lastLoginAt?.toIso8601String(),
       'countryCode': countryCode,
       if (creatorOfTreeIds != null) 'creatorOfTreeIds': creatorOfTreeIds,
       if (accessibleTreeIds != null) 'accessibleTreeIds': accessibleTreeIds,
@@ -296,17 +296,17 @@ class UserProfile extends HiveObject {
       lastName: map['lastName'] ?? '',
       middleName: map['middleName'],
       birthDate: map['birthDate'] != null
-          ? (map['birthDate'] as Timestamp).toDate()
+          ? parseDateTimeRequired(map['birthDate'])
           : null,
       gender: userGender,
       phoneNumber: map['phoneNumber'] ?? '',
       country: map['country'] as String?,
       city: map['city'],
       createdAt: map['createdAt'] != null
-          ? (map['createdAt'] as Timestamp).toDate()
+          ? parseDateTimeRequired(map['createdAt'])
           : DateTime.now(),
       updatedAt: map['updatedAt'] != null
-          ? (map['updatedAt'] as Timestamp).toDate()
+          ? parseDateTimeRequired(map['updatedAt'])
           : DateTime.now(),
       username: map['username'] ?? '',
       isPhoneVerified: map['isPhoneVerified'] ?? false,

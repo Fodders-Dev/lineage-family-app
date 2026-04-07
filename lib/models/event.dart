@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/date_parser.dart';
 
 enum EventType {
   birthday, // День рождения
@@ -51,14 +51,14 @@ class FamilyEvent {
     this.isPublic = false,
   });
 
-  factory FamilyEvent.fromFirestore(DocumentSnapshot doc) {
+  factory FamilyEvent.fromFirestore(dynamic doc) {
     final data = doc.data() as Map<String, dynamic>;
     return FamilyEvent(
       id: doc.id,
       title: data['title'] ?? '',
       description: data['description'],
       type: _stringToEventType(data['type'] ?? 'custom'),
-      date: (data['date'] as Timestamp).toDate(),
+      date: parseDateTimeRequired(data['date']),
       relatedPersonIds: data['relatedPersonIds'] != null
           ? List<String>.from(data['relatedPersonIds'])
           : [],
@@ -66,7 +66,7 @@ class FamilyEvent {
       recurrence: _stringToEventRecurrence(data['recurrence'] ?? 'none'),
       customRecurrenceRule: data['customRecurrenceRule'],
       creatorId: data['creatorId'],
-      createdAt: (data['createdAt'] as Timestamp).toDate(),
+      createdAt: parseDateTimeRequired(data['createdAt']),
       color: data['color'],
       isPublic: data['isPublic'] ?? false,
     );
@@ -77,13 +77,13 @@ class FamilyEvent {
       'title': title,
       'description': description,
       'type': _eventTypeToString(type),
-      'date': Timestamp.fromDate(date),
+      'date': date.toIso8601String(),
       'relatedPersonIds': relatedPersonIds,
       'familyTreeId': familyTreeId,
       'recurrence': _eventRecurrenceToString(recurrence),
       'customRecurrenceRule': customRecurrenceRule,
       'creatorId': creatorId,
-      'createdAt': Timestamp.fromDate(createdAt),
+      'createdAt': createdAt.toIso8601String(),
       'color': color,
       'isPublic': isPublic,
     };

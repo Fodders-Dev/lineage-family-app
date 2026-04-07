@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/date_parser.dart';
 import 'family_relation.dart';
 
 enum RequestStatus {
@@ -36,7 +36,7 @@ class RelationRequest {
     this.message,
   });
 
-  factory RelationRequest.fromFirestore(DocumentSnapshot doc) {
+  factory RelationRequest.fromFirestore(dynamic doc) {
     final data = doc.data() as Map<String, dynamic>;
     return RelationRequest(
       id: doc.id,
@@ -47,9 +47,9 @@ class RelationRequest {
         data['senderToRecipient'] ?? data['relationType'] ?? 'other',
       ),
       targetPersonId: data['targetPersonId'] ?? data['offlineRelativeId'],
-      createdAt: (data['createdAt'] as Timestamp).toDate(),
+      createdAt: parseDateTimeRequired(data['createdAt']),
       respondedAt: data['respondedAt'] != null
-          ? (data['respondedAt'] as Timestamp).toDate()
+          ? parseDateTimeRequired(data['respondedAt'])
           : null,
       status: _stringToRequestStatus(data['status'] ?? 'pending'),
       message: data['message'],
@@ -63,9 +63,8 @@ class RelationRequest {
       'recipientId': recipientId,
       'senderToRecipient': relationTypeToString(senderToRecipient),
       'targetPersonId': targetPersonId,
-      'createdAt': Timestamp.fromDate(createdAt),
-      'respondedAt':
-          respondedAt != null ? Timestamp.fromDate(respondedAt!) : null,
+      'createdAt': createdAt.toIso8601String(),
+      'respondedAt': respondedAt?.toIso8601String(),
       'status': requestStatusToString(status),
       'message': message,
     };

@@ -1,5 +1,5 @@
 import 'package:hive/hive.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/date_parser.dart';
 
 part 'family_tree.g.dart';
 
@@ -55,16 +55,17 @@ class FamilyTree extends HiveObject {
     return id;
   }
 
-  factory FamilyTree.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>? ?? {};
+  factory FamilyTree.fromFirestore(dynamic doc) {
+    final data =
+        (doc.data != null ? (doc.data() as Map<String, dynamic>?) : null) ?? {};
     return FamilyTree(
       id: doc.id,
       name: data['name'] ?? '',
       description: data['description'] ?? '',
       creatorId: data['creatorId'] ?? '',
       memberIds: List<String>.from(data['memberIds'] ?? []),
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      createdAt: parseDateTime(data['createdAt']) ?? DateTime.now(),
+      updatedAt: parseDateTime(data['updatedAt']) ?? DateTime.now(),
       isPrivate: data['isPrivate'] ?? false,
       members: List<String>.from(data['members'] ?? []),
       publicSlug: data['publicSlug']?.toString(),
@@ -95,20 +96,8 @@ class FamilyTree extends HiveObject {
       name: data['name'] ?? 'Семейное дерево',
       description: data['description'] ?? '',
       creatorId: data['creatorId'] ?? '',
-      createdAt: data['createdAt'] != null
-          ? (data['createdAt'] is Timestamp
-              ? (data['createdAt'] as Timestamp).toDate()
-              : (data['createdAt'] is String
-                  ? DateTime.tryParse(data['createdAt']) ?? DateTime.now()
-                  : DateTime.now()))
-          : DateTime.now(),
-      updatedAt: data['updatedAt'] != null
-          ? (data['updatedAt'] is Timestamp
-              ? (data['updatedAt'] as Timestamp).toDate()
-              : (data['updatedAt'] is String
-                  ? DateTime.tryParse(data['updatedAt']) ?? DateTime.now()
-                  : DateTime.now()))
-          : DateTime.now(),
+      createdAt: parseDateTimeRequired(data['createdAt']),
+      updatedAt: parseDateTimeRequired(data['updatedAt']),
       members: List<String>.from(data['members'] ?? []),
       isPrivate: data['isPrivate'] ?? true,
       memberIds: List<String>.from(data['memberIds'] ?? []),

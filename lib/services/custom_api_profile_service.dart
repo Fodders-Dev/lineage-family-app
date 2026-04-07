@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:async';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -722,7 +721,7 @@ class CustomApiProfileService implements ProfileServiceInterface {
       id: json['id']?.toString() ?? '',
       title: json['title']?.toString() ?? '',
       content: json['content']?.toString() ?? '',
-      createdAt: Timestamp.fromDate(createdAt),
+      createdAt: createdAt,
     );
   }
 }

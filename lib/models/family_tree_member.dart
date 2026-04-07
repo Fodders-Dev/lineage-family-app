@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/date_parser.dart';
 
 enum MemberRole {
   owner, // Владелец (создатель) дерева
@@ -29,17 +29,17 @@ class FamilyTreeMember {
     this.relationToTree,
   });
 
-  factory FamilyTreeMember.fromFirestore(DocumentSnapshot doc) {
+  factory FamilyTreeMember.fromFirestore(dynamic doc) {
     final data = doc.data() as Map<String, dynamic>;
     return FamilyTreeMember(
       id: doc.id,
       treeId: data['treeId'] ?? '',
       userId: data['userId'] ?? '',
       role: _stringToMemberRole(data['role'] ?? 'viewer'),
-      addedAt: (data['addedAt'] as Timestamp).toDate(),
+      addedAt: parseDateTimeRequired(data['addedAt']),
       addedBy: data['addedBy'],
       acceptedAt: data['acceptedAt'] != null
-          ? (data['acceptedAt'] as Timestamp).toDate()
+          ? parseDateTimeRequired(data['acceptedAt'])
           : null,
       relationToTree: data['relationToTree'],
     );
@@ -50,9 +50,9 @@ class FamilyTreeMember {
       'treeId': treeId,
       'userId': userId,
       'role': _memberRoleToString(role),
-      'addedAt': Timestamp.fromDate(addedAt),
+      'addedAt': addedAt.toIso8601String(),
       'addedBy': addedBy,
-      'acceptedAt': acceptedAt != null ? Timestamp.fromDate(acceptedAt!) : null,
+      'acceptedAt': acceptedAt?.toIso8601String(),
       'relationToTree': relationToTree,
     };
   }

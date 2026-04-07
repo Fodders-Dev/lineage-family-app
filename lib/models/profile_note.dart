@@ -1,10 +1,10 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/date_parser.dart';
 
 class ProfileNote {
-  final String id; // ID документа в Firestore
+  final String id;
   final String title;
   final String content;
-  final Timestamp createdAt; // Дата создания для сортировки
+  final DateTime createdAt;
 
   ProfileNote({
     required this.id,
@@ -13,37 +13,32 @@ class ProfileNote {
     required this.createdAt,
   });
 
-  // Фабричный конструктор для создания из Firestore документа
-  factory ProfileNote.fromFirestore(
-    DocumentSnapshot<Map<String, dynamic>> doc,
-  ) {
-    final data = doc.data()!;
+  factory ProfileNote.fromFirestore(dynamic doc) {
+    final data =
+        (doc.data != null ? (doc.data() as Map<String, dynamic>?) : null) ?? {};
     return ProfileNote(
-      id: doc.id,
+      id: doc.id ?? '',
       title: data['title'] ?? '',
       content: data['content'] ?? '',
-      createdAt: data['createdAt'] ??
-          Timestamp.now(), // Предоставим значение по умолчанию
+      createdAt: parseDateTimeRequired(data['createdAt']),
     );
   }
 
-  // Метод для преобразования в Map для Firestore
-  Map<String, dynamic> toFirestore() {
-    return {
-      'title': title,
-      'content': content,
-      // При создании используем FieldValue.serverTimestamp(),
-      // но здесь оставляем createdAt для возможности обновления (хотя обычно не обновляют)
-      'createdAt': createdAt,
-    };
+  factory ProfileNote.fromMap(Map<String, dynamic> map) {
+    return ProfileNote(
+      id: map['id'] ?? '',
+      title: map['title'] ?? '',
+      content: map['content'] ?? '',
+      createdAt: parseDateTimeRequired(map['createdAt']),
+    );
   }
 
-  // Добавим метод toMap для удобства при обновлении
   Map<String, dynamic> toMap() {
     return {
+      'id': id,
       'title': title,
       'content': content,
-      // createdAt не обновляем
+      'createdAt': createdAt.toIso8601String(),
     };
   }
 }

@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/date_parser.dart';
 import '../utils/url_utils.dart';
 
 class Comment {
@@ -26,7 +26,7 @@ class Comment {
     this.likedBy = const [],
   }) : _authorPhotoUrl = UrlUtils.normalizeImageUrl(authorPhotoUrl);
 
-  factory Comment.fromFirestore(DocumentSnapshot doc) {
+  factory Comment.fromFirestore(dynamic doc) {
     final data = doc.data() as Map<String, dynamic>;
     return Comment(
       id: doc.id,
@@ -35,7 +35,7 @@ class Comment {
       authorName: data['authorName'],
       authorPhotoUrl: data['authorPhotoUrl'],
       content: data['content'] ?? '',
-      createdAt: (data['createdAt'] as Timestamp).toDate(),
+      createdAt: parseDateTimeRequired(data['createdAt']),
       likeCount: data['likeCount'] ?? 0,
       likedBy:
           data['likedBy'] != null ? List<String>.from(data['likedBy']) : [],
@@ -49,7 +49,7 @@ class Comment {
       'authorName': authorName,
       'authorPhotoUrl': authorPhotoUrl,
       'content': content,
-      'createdAt': Timestamp.fromDate(createdAt),
+      'createdAt': createdAt.toIso8601String(),
       'likeCount': likeCount,
       'likedBy': likedBy,
     };

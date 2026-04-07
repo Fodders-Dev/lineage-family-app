@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/date_parser.dart';
 import 'post.dart';
 
 enum StoryType { text, image, video }
@@ -39,7 +39,7 @@ class Story {
     this.anchorPersonIds = const <String>[],
   });
 
-  factory Story.fromFirestore(DocumentSnapshot doc) {
+  factory Story.fromFirestore(dynamic doc) {
     final data = doc.data() as Map<String, dynamic>;
     return Story(
       id: doc.id,
@@ -50,8 +50,8 @@ class Story {
       text: data['text'],
       mediaUrl: data['mediaUrl'],
       thumbnailUrl: data['thumbnailUrl'],
-      createdAt: (data['createdAt'] as Timestamp).toDate(),
-      expiresAt: (data['expiresAt'] as Timestamp).toDate(),
+      createdAt: parseDateTimeRequired(data['createdAt']),
+      expiresAt: parseDateTimeRequired(data['expiresAt']),
       viewedBy:
           data['viewedBy'] != null ? List<String>.from(data['viewedBy']) : [],
       familyTreeId: data['familyTreeId'],
@@ -74,8 +74,8 @@ class Story {
       'text': text,
       'mediaUrl': mediaUrl,
       'thumbnailUrl': thumbnailUrl,
-      'createdAt': Timestamp.fromDate(createdAt),
-      'expiresAt': Timestamp.fromDate(expiresAt),
+      'createdAt': createdAt.toIso8601String(),
+      'expiresAt': expiresAt.toIso8601String(),
       'viewedBy': viewedBy,
       'familyTreeId': familyTreeId,
       'isPublic': isPublic,

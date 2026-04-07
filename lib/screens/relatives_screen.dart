@@ -594,7 +594,7 @@ class _RelativesScreenState extends State<RelativesScreen> {
 
           final String lastMessageText = chatPreview?.lastMessage ?? '';
           final DateTime? lastMessageTimestamp =
-              chatPreview?.lastMessageTime.toDate();
+              chatPreview?.lastMessageTime;
           final int unreadCount = chatPreview?.unreadCount ?? 0;
           final bool isLastMessageFromMe =
               chatPreview?.lastMessageSenderId == _currentUserId;

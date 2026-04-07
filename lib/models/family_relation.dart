@@ -1,6 +1,6 @@
 // ignore_for_file: constant_identifier_names
 import 'package:hive/hive.dart'; // Импорт Hive
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/date_parser.dart';
 import 'family_person.dart'; // Добавляем импорт для доступа к типу Gender
 
 part 'family_relation.g.dart'; // Директива для генерации кода
@@ -99,9 +99,10 @@ class FamilyRelation extends HiveObject {
     this.createdBy,
   });
 
-  factory FamilyRelation.fromFirestore(DocumentSnapshot doc) {
+  factory FamilyRelation.fromFirestore(dynamic doc) {
     final data =
-        doc.data() as Map<String, dynamic>? ?? {}; // Добавим проверку на null
+        (doc.data != null ? (doc.data() as Map<String, dynamic>?) : null) ??
+            {}; // Добавим проверку на null
     return FamilyRelation(
       id: doc.id,
       treeId: data['treeId'] ?? '',
@@ -110,8 +111,8 @@ class FamilyRelation extends HiveObject {
       relation1to2: _stringToRelationType(data['relation1to2']),
       relation2to1: _stringToRelationType(data['relation2to1']),
       isConfirmed: data['isConfirmed'] ?? true,
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
+      createdAt: parseDateTime(data['createdAt']) ?? DateTime.now(),
+      updatedAt: parseDateTime(data['updatedAt']),
       createdBy: data['createdBy'],
     );
   }
@@ -123,8 +124,8 @@ class FamilyRelation extends HiveObject {
       'person2Id': person2Id,
       'relation1to2': relationTypeToString(relation1to2),
       'relation2to1': relationTypeToString(relation2to1),
-      'createdAt': Timestamp.fromDate(createdAt),
-      'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
+      'createdAt': createdAt.toIso8601String(),
+      'updatedAt': updatedAt?.toIso8601String(),
       'createdBy': createdBy,
       'isConfirmed': isConfirmed,
     };

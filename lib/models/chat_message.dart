@@ -1,5 +1,6 @@
 import 'package:hive/hive.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:uuid/uuid.dart';
+import '../utils/date_parser.dart';
 
 import 'chat_attachment.dart';
 import '../utils/url_utils.dart';
@@ -68,17 +69,7 @@ class ChatMessage extends HiveObject {
   }
 
   factory ChatMessage.fromMap(Map<String, dynamic> map) {
-    DateTime parsedTimestamp;
-    final ts = map['timestamp'];
-    if (ts is DateTime) {
-      parsedTimestamp = ts;
-    } else if (ts is Timestamp) {
-      parsedTimestamp = ts.toDate();
-    } else if (ts is String) {
-      parsedTimestamp = DateTime.tryParse(ts) ?? DateTime.now();
-    } else {
-      parsedTimestamp = DateTime.now();
-    }
+    final parsedTimestamp = parseDateTimeRequired(map['timestamp']);
 
     return ChatMessage(
       id: map['id'] ?? '',
@@ -98,7 +89,7 @@ class ChatMessage extends HiveObject {
       'chatId': chatId,
       'senderId': senderId,
       'text': text,
-      'timestamp': Timestamp.fromDate(timestamp),
+      'timestamp': timestamp.toIso8601String(),
       'isRead': isRead,
       'attachments':
           attachments.map((attachment) => attachment.toMap()).toList(),
@@ -109,14 +100,15 @@ class ChatMessage extends HiveObject {
     };
   }
 
-  factory ChatMessage.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>? ?? {};
+  factory ChatMessage.fromFirestore(dynamic doc) {
+    final data =
+        (doc.data != null ? (doc.data() as Map<String, dynamic>?) : null) ?? {};
     return ChatMessage(
       id: doc.id,
       chatId: data['chatId'] ?? '',
       senderId: data['senderId'] ?? '',
       text: data['text'] ?? '',
-      timestamp: (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      timestamp: parseDateTime(data['timestamp']) ?? DateTime.now(),
       isRead: data['isRead'] ?? false,
       participants: (data['participants'] as List<dynamic>? ?? [])
           .map((e) => e.toString())
@@ -137,7 +129,7 @@ class ChatMessage extends HiveObject {
     String? senderName,
   }) {
     return ChatMessage(
-      id: FirebaseFirestore.instance.collection('messages').doc().id,
+      id: const Uuid().v4(),
       chatId: chatId,
       senderId: senderId,
       text: text,

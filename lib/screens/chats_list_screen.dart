@@ -555,7 +555,7 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
       ThemeData theme, ChatPreview chat, String currentUserId) {
     final hasUnread = chat.unreadCount > 0;
     final isLastFromMe = chat.lastMessageSenderId == currentUserId;
-    final messageTime = chat.lastMessageTime.toDate();
+    final messageTime = chat.lastMessageTime;
     final timeLabel = _formatTimestamp(messageTime);
 
     return InkWell(

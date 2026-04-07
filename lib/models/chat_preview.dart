@@ -1,4 +1,5 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/date_parser.dart';
+import '../utils/url_utils.dart';
 
 class ChatPreview {
   final String id;
@@ -12,7 +13,7 @@ class ChatPreview {
   final String otherUserName;
   final String? otherUserPhotoUrl;
   final String lastMessage;
-  final Timestamp lastMessageTime;
+  final DateTime lastMessageTime;
   final int unreadCount;
   final String lastMessageSenderId;
 
@@ -51,6 +52,9 @@ class ChatPreview {
 
   String? get displayPhotoUrl => isGroup ? photoUrl : otherUserPhotoUrl;
 
+  String? get normalizedOtherUserPhotoUrl =>
+      UrlUtils.normalizeImageUrl(otherUserPhotoUrl);
+
   factory ChatPreview.fromMap(Map<String, dynamic> map) {
     return ChatPreview(
       id: map['id'] ?? '',
@@ -64,7 +68,7 @@ class ChatPreview {
       otherUserName: map['otherUserName'] ?? 'Пользователь',
       otherUserPhotoUrl: map['otherUserPhotoUrl'],
       lastMessage: map['lastMessage'] ?? '',
-      lastMessageTime: map['lastMessageTime'] as Timestamp,
+      lastMessageTime: parseDateTimeRequired(map['lastMessageTime']),
       unreadCount: map['unreadCount'] ?? 0,
       lastMessageSenderId: map['lastMessageSenderId'] ?? '',
     );

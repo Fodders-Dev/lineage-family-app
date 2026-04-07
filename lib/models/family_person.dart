@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/date_parser.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import '../utils/url_utils.dart';
@@ -255,8 +255,9 @@ class FamilyPerson extends HiveObject {
     }
   }
 
-  factory FamilyPerson.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>? ?? {};
+  factory FamilyPerson.fromFirestore(dynamic doc) {
+    final data =
+        (doc.data != null ? (doc.data() as Map<String, dynamic>?) : null) ?? {};
 
     Gender personGender = Gender.unknown;
     if (data['gender'] != null) {
@@ -277,23 +278,15 @@ class FamilyPerson extends HiveObject {
       maidenName: data['maidenName'],
       photoUrl: data['photoUrl'],
       gender: personGender,
-      birthDate: data['birthDate'] is Timestamp
-          ? (data['birthDate'] as Timestamp).toDate()
-          : null,
+      birthDate: parseDateTime(data['birthDate']),
       birthPlace: data['birthPlace'],
-      deathDate: data['deathDate'] is Timestamp
-          ? (data['deathDate'] as Timestamp).toDate()
-          : null,
+      deathDate: parseDateTime(data['deathDate']),
       deathPlace: data['deathPlace'],
       bio: data['bio'],
       isAlive: data['isAlive'] ?? (data['deathDate'] == null),
       creatorId: data['creatorId'],
-      createdAt: data['createdAt'] is Timestamp
-          ? (data['createdAt'] as Timestamp).toDate()
-          : DateTime.now(),
-      updatedAt: data['updatedAt'] is Timestamp
-          ? (data['updatedAt'] as Timestamp).toDate()
-          : DateTime.now(),
+      createdAt: parseDateTimeRequired(data['createdAt']),
+      updatedAt: parseDateTimeRequired(data['updatedAt']),
       notes: data['notes'],
       relation: data['relation'],
       parentIds: List<String>.from(data['parentIds'] ?? []),
@@ -311,15 +304,15 @@ class FamilyPerson extends HiveObject {
       'maidenName': maidenName,
       'photoUrl': photoUrl,
       'gender': gender.toString().split('.').last,
-      'birthDate': birthDate != null ? Timestamp.fromDate(birthDate!) : null,
+      'birthDate': birthDate?.toIso8601String(),
       'birthPlace': birthPlace,
-      'deathDate': deathDate != null ? Timestamp.fromDate(deathDate!) : null,
+      'deathDate': deathDate?.toIso8601String(),
       'deathPlace': deathPlace,
       'bio': bio,
       'isAlive': isAlive,
       'creatorId': creatorId,
-      'createdAt': Timestamp.fromDate(createdAt),
-      'updatedAt': Timestamp.fromDate(updatedAt),
+      'createdAt': createdAt.toIso8601String(),
+      'updatedAt': updatedAt.toIso8601String(),
       'notes': notes,
     };
   }
@@ -450,10 +443,10 @@ class Career {
       company: data['company'],
       position: data['position'],
       startDate: data['startDate'] != null
-          ? (data['startDate'] as Timestamp).toDate()
+          ? parseDateTimeRequired(data['startDate'])
           : null,
       endDate: data['endDate'] != null
-          ? (data['endDate'] as Timestamp).toDate()
+          ? parseDateTimeRequired(data['endDate'])
           : null,
       isCurrent: data['isCurrent'] ?? false,
     );
@@ -463,8 +456,8 @@ class Career {
     return {
       'company': company,
       'position': position,
-      'startDate': startDate != null ? Timestamp.fromDate(startDate!) : null,
-      'endDate': endDate != null ? Timestamp.fromDate(endDate!) : null,
+      'startDate': startDate?.toIso8601String(),
+      'endDate': endDate?.toIso8601String(),
       'isCurrent': isCurrent,
     };
   }
@@ -489,7 +482,7 @@ class Event {
       title: data['title'] ?? '',
       description: data['description'],
       date: data['date'] != null
-          ? (data['date'] as Timestamp).toDate()
+          ? parseDateTimeRequired(data['date'])
           : DateTime.now(),
       location: data['location'],
     );
@@ -499,7 +492,7 @@ class Event {
     return {
       'title': title,
       'description': description,
-      'date': Timestamp.fromDate(date),
+      'date': date.toIso8601String(),
       'location': location,
     };
   }
