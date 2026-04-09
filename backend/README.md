@@ -26,6 +26,13 @@
 - `POST /v1/invitations/pending/process`
 - `POST /v1/media/upload`
 - `DELETE /v1/media`
+- `GET /v1/posts`
+- `POST /v1/posts`
+- `DELETE /v1/posts/:postId`
+- `POST /v1/posts/:postId/like`
+- `GET /v1/posts/:postId/comments`
+- `POST /v1/posts/:postId/comments`
+- `DELETE /v1/posts/:postId/comments/:commentId`
 - `POST /v1/trees`
 - `GET /v1/trees`
 - `DELETE /v1/trees/:treeId`
@@ -78,6 +85,7 @@ npm start
 - `LINEAGE_BACKEND_DATA_PATH` - путь к JSON-файлу dev-хранилища, по умолчанию `backend/data/dev-db.json`
 - `LINEAGE_BACKEND_CORS_ORIGIN` - CORS origin, по умолчанию `*`
 - `LINEAGE_BACKEND_MEDIA_ROOT` - папка для сохранения media-файлов, по умолчанию `backend/data/uploads`
+- `LINEAGE_PUBLIC_API_URL` - публичная база backend API для генерации media URL, например `https://api.rodnya-tree.ru`
 - `LINEAGE_PUBLIC_APP_URL` - публичный URL web-приложения, по умолчанию `https://rodnya-tree.ru`
 - `LINEAGE_WEB_PUSH_PUBLIC_KEY` - публичный VAPID key для browser push
 - `LINEAGE_WEB_PUSH_PRIVATE_KEY` - приватный VAPID key для browser push
@@ -106,7 +114,7 @@ flutter run `
 - Это dev bootstrap backend, а не финальный production backend.
 - Хранилище file-backed и подходит для локальной разработки, smoke-интеграции и первых ручных проверок.
 - `Google sign-in`, remote push и realtime/websocket здесь ещё не реализованы полноценно.
-- Media upload и profile notes реализованы в минимальном file-backed виде, без production-grade object storage и без realtime синхронизации.
+- Media upload, profile notes и posts/feed реализованы в минимальном file-backed виде, без production-grade object storage и без realtime синхронизации.
 - Tree API сейчас покрывает базовый MVP-срез: создание дерева, список деревьев, людей и прямые родственные связи.
 - Tree invitations тоже покрыты в минимальном виде: backend умеет создать pending invite, показать его на вкладке приглашений и принять или отклонить.
 - Relation requests и invite-link processing теперь тоже покрыты в минимальном виде для `customApi` dev-path.

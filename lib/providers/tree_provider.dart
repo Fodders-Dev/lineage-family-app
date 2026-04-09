@@ -26,14 +26,27 @@ class TreeProvider with ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       final loadedId = prefs.getString(_treeIdKey);
+      final familyTreeService = _familyTreeService;
+      List<FamilyTree>? backendTrees;
+
+      if (familyTreeService != null) {
+        try {
+          backendTrees = await familyTreeService.getUserTrees();
+        } catch (e) {
+          debugPrint('TreeProvider: Error loading trees from backend: $e');
+        }
+      }
 
       if (loadedId != null) {
         debugPrint(
           'TreeProvider: Found tree ID $loadedId in SharedPreferences. Verifying...',
         );
-        final FamilyTree? existingTree = await _localStorageService.getTree(
-          loadedId,
-        );
+        final FamilyTree? existingTree =
+            backendTrees?.cast<FamilyTree?>().firstWhere(
+                      (tree) => tree?.id == loadedId,
+                      orElse: () => null,
+                    ) ??
+                await _localStorageService.getTree(loadedId);
         if (existingTree != null) {
           _selectedTreeId = loadedId;
           _selectedTreeName = existingTree.name;
@@ -54,7 +67,7 @@ class TreeProvider with ChangeNotifier {
         debugPrint('TreeProvider: No tree selected in SharedPreferences.');
       }
 
-      await selectDefaultTreeIfNeeded();
+      await selectDefaultTreeIfNeeded(preloadedTrees: backendTrees);
     } catch (e) {
       debugPrint(
         'TreeProvider: Error loading initial tree from SharedPreferences: $e',
@@ -98,13 +111,14 @@ class TreeProvider with ChangeNotifier {
     await selectTree(null, null);
   }
 
-  Future<void> selectDefaultTreeIfNeeded() async {
+  Future<void> selectDefaultTreeIfNeeded(
+      {List<FamilyTree>? preloadedTrees}) async {
     if (_selectedTreeId == null) {
       debugPrint(
         'TreeProvider: No tree currently selected. Checking cache for defaults...',
       );
       try {
-        var availableTrees = await _localStorageService.getAllTrees();
+        var availableTrees = preloadedTrees ?? const <FamilyTree>[];
         final familyTreeService = _familyTreeService;
         if (availableTrees.isEmpty && familyTreeService != null) {
           try {
@@ -112,6 +126,9 @@ class TreeProvider with ChangeNotifier {
           } catch (e) {
             debugPrint('TreeProvider: Error loading trees from backend: $e');
           }
+        }
+        if (availableTrees.isEmpty) {
+          availableTrees = await _localStorageService.getAllTrees();
         }
 
         if (availableTrees.isNotEmpty) {

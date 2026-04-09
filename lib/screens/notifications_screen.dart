@@ -159,6 +159,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
+  bool _isWideLayout(BuildContext context) =>
+      MediaQuery.of(context).size.width >= 1180;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -212,7 +215,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       );
     }
 
-    return ListView.separated(
+    final listView = ListView.separated(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       itemCount: _notifications.length,
@@ -224,6 +227,61 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           onTap: _isMutating ? null : () => _openNotification(item),
         );
       },
+    );
+
+    if (!_isWideLayout(context)) {
+      return listView;
+    }
+
+    final theme = Theme.of(context);
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1420),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(flex: 3, child: listView),
+              const SizedBox(width: 16),
+              SizedBox(
+                width: 320,
+                child: Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface,
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: theme.colorScheme.outlineVariant.withValues(
+                        alpha: 0.45,
+                      ),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Центр активности',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Здесь собираются новые сообщения, приглашения в дерево и важные обновления семьи. На desktop проще быстро просматривать очередь уведомлений и сразу переходить в нужный раздел.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

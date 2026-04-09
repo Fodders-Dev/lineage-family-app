@@ -30,6 +30,8 @@ function createConfig() {
     mediaRootPath:
       process.env.LINEAGE_BACKEND_MEDIA_ROOT ||
       path.join(__dirname, "..", "data", "uploads"),
+    publicApiUrl:
+      process.env.LINEAGE_PUBLIC_API_URL || "",
     publicAppUrl:
       process.env.LINEAGE_PUBLIC_APP_URL || "https://rodnya-tree.ru",
     webPushPublicKey,

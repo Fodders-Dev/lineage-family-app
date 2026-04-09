@@ -1,22 +1,21 @@
 // ignore_for_file: library_private_types_in_public_api
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import '../services/post_service.dart';
-import '../models/post.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/tree_provider.dart';
 import '../services/event_service.dart';
 import '../models/app_event.dart';
-import '../models/family_person.dart';
+
 import '../widgets/event_card.dart';
 import 'package:get_it/get_it.dart';
 import '../backend/interfaces/family_tree_service_interface.dart';
 import '../backend/models/tree_invitation.dart';
-import '../widgets/post_card.dart';
 import '../backend/interfaces/auth_service_interface.dart';
-import '../services/sync_service.dart';
-import '../services/browser_notification_bridge.dart';
+import '../backend/interfaces/post_service_interface.dart';
+import '../models/post.dart';
+import '../widgets/post_card.dart';
+import '../widgets/post_card_shimmer.dart';
+import '../widgets/empty_state_widget.dart';
 import '../services/custom_api_notification_service.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -30,17 +29,16 @@ class _HomeScreenState extends State<HomeScreen> {
   final AuthServiceInterface _authService = GetIt.I<AuthServiceInterface>();
   final FamilyTreeServiceInterface _familyTreeService =
       GetIt.I<FamilyTreeServiceInterface>();
+  final PostServiceInterface _postService = GetIt.I<PostServiceInterface>();
   late final EventService _eventService;
-  PostService? _postService;
-  late final bool _supportsLegacyPostFeed;
+
   List<AppEvent> _upcomingEvents = [];
-  List<FamilyPerson> _branchPeople = [];
+  List<Post> _posts = [];
   bool _isLoadingEvents = true;
-  bool _isLoadingBranchPeople = false;
+  bool _isLoadingPosts = false;
+  bool _postsUnavailable = false;
   String? _currentTreeId;
   TreeProvider? _treeProviderInstance;
-  String? _selectedFeedBranchPersonId;
-  bool _isEnablingBrowserNotifications = false;
 
   CustomApiNotificationService? get _customNotificationService =>
       GetIt.I.isRegistered<CustomApiNotificationService>()
@@ -50,11 +48,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _supportsLegacyPostFeed = GetIt.I.isRegistered<SyncService>();
     _eventService = EventService();
-    if (_supportsLegacyPostFeed) {
-      _postService = PostService();
-    }
+
     final notificationService = _customNotificationService;
     if (notificationService != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -68,11 +63,11 @@ class _HomeScreenState extends State<HomeScreen> {
       _currentTreeId = _treeProviderInstance!.selectedTreeId;
       if (_currentTreeId != null) {
         _loadEvents(_currentTreeId!);
-        _loadBranchPeople(_currentTreeId!);
+        _loadPosts(_currentTreeId!);
       } else {
         setState(() {
           _isLoadingEvents = false;
-          _branchPeople = [];
+          _isLoadingPosts = false;
         });
       }
     });
@@ -88,19 +83,16 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     final newTreeId = _treeProviderInstance?.selectedTreeId;
     if (_currentTreeId != newTreeId) {
-      debugPrint(
-        'HomeScreen: Обнаружено изменение дерева с $_currentTreeId на $newTreeId',
-      );
       _currentTreeId = newTreeId;
       if (_currentTreeId != null) {
         _loadEvents(_currentTreeId!);
-        _loadBranchPeople(_currentTreeId!);
+        _loadPosts(_currentTreeId!);
       } else {
         setState(() {
           _isLoadingEvents = false;
+          _isLoadingPosts = false;
           _upcomingEvents = [];
-          _branchPeople = [];
-          _selectedFeedBranchPersonId = null;
+          _posts = [];
         });
       }
     }
@@ -130,40 +122,29 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _loadBranchPeople(String treeId) async {
-    if (!_supportsLegacyPostFeed || !mounted) {
-      return;
-    }
-
+  Future<void> _loadPosts(String treeId) async {
+    if (!mounted) return;
     setState(() {
-      _isLoadingBranchPeople = true;
-      _branchPeople = [];
-      _selectedFeedBranchPersonId = null;
+      _isLoadingPosts = true;
+      _postsUnavailable = false;
     });
-
     try {
-      final people = await _familyTreeService.getRelatives(treeId);
-      if (!mounted) {
-        return;
+      final posts = await _postService.getPosts(treeId: treeId);
+      if (mounted) {
+        setState(() {
+          _posts = posts;
+          _isLoadingPosts = false;
+        });
       }
-      final sortedPeople = List<FamilyPerson>.from(people)
-        ..sort(
-          (left, right) => left.displayName.toLowerCase().compareTo(
-                right.displayName.toLowerCase(),
-              ),
-        );
-      setState(() {
-        _branchPeople = sortedPeople;
-        _isLoadingBranchPeople = false;
-      });
-    } catch (_) {
-      if (!mounted) {
-        return;
+    } catch (e) {
+      debugPrint('Ошибка загрузки постов: $e');
+      if (mounted) {
+        setState(() {
+          _postsUnavailable = true;
+          _posts = [];
+          _isLoadingPosts = false;
+        });
       }
-      setState(() {
-        _isLoadingBranchPeople = false;
-        _branchPeople = [];
-      });
     }
   }
 
@@ -179,7 +160,7 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           _buildNotificationsAction(),
           IconButton(
-            icon: Icon(Icons.account_tree_outlined),
+            icon: const Icon(Icons.account_tree_outlined),
             tooltip: 'Выбрать дерево',
             onPressed: () => context.go('/tree?selector=1'),
           ),
@@ -189,8 +170,10 @@ class _HomeScreenState extends State<HomeScreen> {
         onRefresh: () async {
           await _customNotificationService?.refreshUnreadNotificationsCount();
           if (_currentTreeId != null) {
-            await _loadEvents(_currentTreeId!);
-            await _loadBranchPeople(_currentTreeId!);
+            await Future.wait([
+              _loadEvents(_currentTreeId!),
+              _loadPosts(_currentTreeId!),
+            ]);
           }
         },
         child: Center(
@@ -224,7 +207,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       : null,
                               backgroundColor: Theme.of(context).primaryColor,
                               child: _authService.currentUserPhotoUrl == null
-                                  ? Icon(
+                                  ? const Icon(
                                       Icons.person,
                                       size: 30,
                                       color: Colors.white,
@@ -259,20 +242,43 @@ class _HomeScreenState extends State<HomeScreen> {
                         child:
                             _buildPendingInvitationsBanner(pendingInvitations),
                       ),
-                    if (_shouldShowBrowserNotificationPrompt)
-                      SliverToBoxAdapter(
-                        child: _buildBrowserNotificationsPrompt(),
-                      ),
                     if (_currentTreeId == null) ...[
                       SliverToBoxAdapter(child: _buildNoTreeSelectedHero()),
                       SliverToBoxAdapter(
                         child: _buildNoTreeSelectedNextSteps(),
                       ),
                     ] else ...[
-                      if (_supportsLegacyPostFeed)
-                        SliverToBoxAdapter(child: _buildStoriesSection()),
-                      SliverToBoxAdapter(child: _buildUpcomingEventsSection()),
-                      ..._buildPostSlivers(),
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
+                          child: _isWideHomeLayout(context)
+                              ? Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    SizedBox(
+                                      width: 360,
+                                      child: Column(
+                                        children: [
+                                          _buildUpcomingEventsSection(),
+                                          const SizedBox(height: 16),
+                                          _buildQuickActionsCard(),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(child: _buildFeedContent()),
+                                  ],
+                                )
+                              : Column(
+                                  children: [
+                                    _buildUpcomingEventsSection(),
+                                    const SizedBox(height: 16),
+                                    _buildFeedContent(),
+                                  ],
+                                ),
+                        ),
+                      ),
+                      const SliverToBoxAdapter(child: SizedBox(height: 80)),
                     ],
                   ],
                 );
@@ -281,17 +287,18 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ),
-      floatingActionButton: _supportsLegacyPostFeed
-          ? _currentTreeId == null
-              ? null
-              : FloatingActionButton(
-                  onPressed: () {
-                    context.push('/post/create');
-                  },
-                  tooltip: 'Создать пост',
-                  child: const Icon(Icons.add_photo_alternate_outlined),
-                )
-          : null,
+      floatingActionButton: _currentTreeId == null
+          ? null
+          : FloatingActionButton(
+              onPressed: () async {
+                final result = await context.push('/post/create');
+                if (result == true && _currentTreeId != null) {
+                  _loadPosts(_currentTreeId!);
+                }
+              },
+              tooltip: 'Разместить публикацию',
+              child: const Icon(Icons.add_comment_outlined),
+            ),
     );
   }
 
@@ -324,6 +331,172 @@ class _HomeScreenState extends State<HomeScreen> {
           onPressed: () => context.push('/notifications'),
         );
       },
+    );
+  }
+
+  bool _isWideHomeLayout(BuildContext context) =>
+      MediaQuery.of(context).size.width >= 1180;
+
+  Widget _buildDesktopSideCard({
+    required Widget child,
+    EdgeInsetsGeometry padding = const EdgeInsets.all(18),
+  }) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: padding,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+        ),
+      ),
+      child: child,
+    );
+  }
+
+  Widget _buildFeedContent() {
+    if (_isLoadingPosts && _posts.isEmpty) {
+      return Column(
+        children: List.generate(3, (_) => const PostCardShimmer()),
+      );
+    }
+
+    if (_posts.isEmpty) {
+      return EmptyStateWidget(
+        icon: Icons.post_add_outlined,
+        title: _postsUnavailable
+            ? 'Публикации временно недоступны'
+            : 'Здесь пока пусто',
+        message: _postsUnavailable
+            ? 'Backend ленты пока не отвечает для этого дерева. Основные разделы работают, а публикации нужно восстановить отдельно.'
+            : 'Будьте первым, кто поделится историей или новостью в этом семейном дереве!',
+        actionLabel: _postsUnavailable ? 'Обновить' : 'Создать публикацию',
+        onAction: () async {
+          if (_postsUnavailable) {
+            if (_currentTreeId != null) {
+              _loadPosts(_currentTreeId!);
+            }
+            return;
+          }
+          final result = await context.push('/post/create');
+          if (result == true && _currentTreeId != null) {
+            _loadPosts(_currentTreeId!);
+          }
+        },
+      );
+    }
+
+    return Column(
+      children: _posts
+          .map(
+            (post) => PostCard(
+              post: post,
+              onDeleted: () {
+                if (_currentTreeId != null) {
+                  _loadPosts(_currentTreeId!);
+                }
+              },
+            ),
+          )
+          .toList(),
+    );
+  }
+
+  Widget _buildQuickActionsCard() {
+    final theme = Theme.of(context);
+    return _buildDesktopSideCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Быстрые действия',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 14),
+          _buildQuickActionTile(
+            icon: Icons.post_add_outlined,
+            title: 'Новая публикация',
+            subtitle: 'Добавить новость, историю или фотографии семьи.',
+            onTap: () => context.push('/post/create'),
+          ),
+          const SizedBox(height: 10),
+          _buildQuickActionTile(
+            icon: Icons.people_outline,
+            title: 'Раздел родных',
+            subtitle: 'Перейти к родственникам и пригласить новых людей.',
+            onTap: () => context.go('/relatives'),
+          ),
+          const SizedBox(height: 10),
+          _buildQuickActionTile(
+            icon: Icons.account_tree_outlined,
+            title: 'Сменить дерево',
+            subtitle: 'Быстро переключиться на другое активное дерево.',
+            onTap: () => context.go('/tree?selector=1'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickActionTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Ink(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest.withValues(
+            alpha: 0.45,
+          ),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: theme.colorScheme.primary),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -384,17 +557,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 color: Colors.white.withValues(alpha: 0.92),
                 height: 1.45,
               ),
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: const [
-                _HomePill(label: 'События семьи'),
-                _HomePill(label: 'Родственники'),
-                _HomePill(label: 'Личные связи'),
-                _HomePill(label: 'Публичный web-вход'),
-              ],
             ),
             const SizedBox(height: 18),
             Wrap(
@@ -506,139 +668,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  bool get _shouldShowBrowserNotificationPrompt {
-    final notificationService = _customNotificationService;
-    if (notificationService == null) {
-      return false;
-    }
-
-    if (!notificationService.notificationsEnabled) {
-      return true;
-    }
-
-    if (!kIsWeb) {
-      return false;
-    }
-
-    final permissionStatus = notificationService.browserPermissionStatus;
-    if (permissionStatus == BrowserNotificationPermissionStatus.unsupported) {
-      return false;
-    }
-
-    return permissionStatus != BrowserNotificationPermissionStatus.granted;
-  }
-
-  Widget _buildBrowserNotificationsPrompt() {
-    final notificationService = _customNotificationService;
-    if (notificationService == null) {
-      return const SizedBox.shrink();
-    }
-
-    final permissionStatus = notificationService.browserPermissionStatus;
-    final theme = Theme.of(context);
-    final title =
-        kIsWeb && permissionStatus == BrowserNotificationPermissionStatus.denied
-            ? 'Уведомления в браузере отключены'
-            : 'Включите уведомления о семье';
-    final description = kIsWeb &&
-            permissionStatus == BrowserNotificationPermissionStatus.denied
-        ? 'Без разрешения браузера можно пропустить новое сообщение или приглашение в дерево.'
-        : 'Родня сможет сразу показать новые сообщения, приглашения в дерево и важные семейные события.';
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.secondaryContainer,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.notifications_active_outlined,
-                  color: theme.colorScheme.onSecondaryContainer,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                      color: theme.colorScheme.onSecondaryContainer,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              description,
-              style: TextStyle(
-                color: theme.colorScheme.onSecondaryContainer,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 14),
-            FilledButton.icon(
-              onPressed: _isEnablingBrowserNotifications
-                  ? null
-                  : _enableBrowserNotifications,
-              icon: _isEnablingBrowserNotifications
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.notifications_outlined),
-              label: const Text('Включить уведомления'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _enableBrowserNotifications() async {
-    final notificationService = _customNotificationService;
-    if (notificationService == null) {
-      return;
-    }
-
-    setState(() {
-      _isEnablingBrowserNotifications = true;
-    });
-
-    try {
-      final enabled = await notificationService.setNotificationsEnabled(
-        true,
-        promptForBrowserPermission: true,
-      );
-      if (!mounted) {
-        return;
-      }
-
-      final message = enabled
-          ? 'Уведомления включены. Родня сможет показать новые сообщения и приглашения.'
-          : 'Браузер не дал разрешение на уведомления. Это можно изменить позже в настройках браузера.';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
-      setState(() {});
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isEnablingBrowserNotifications = false;
-        });
-      }
-    }
-  }
-
   Widget _buildNoTreeSelectedNextSteps() {
     final theme = Theme.of(context);
 
@@ -728,408 +757,43 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildStoriesSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 16, top: 16, right: 16),
-          child: Text(
-            'Семейные истории',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-        ),
-        SizedBox(height: 8),
-        Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(
-                  Icons.auto_stories_outlined,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Личные истории скоро появятся',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Пока пользуйтесь деревом, карточками родных и личными сообщениями. Когда семейные истории будут готовы, они появятся здесь.',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        Divider(),
-      ],
-    );
-  }
-
   Widget _buildUpcomingEventsSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Text(
-            'Ближайшие события',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-        ),
-        _buildEventsSection(),
-        Divider(),
-      ],
-    );
-  }
-
-  Widget _buildEventsSection() {
-    if (_isLoadingEvents) {
-      return const SizedBox(
-        height: 120,
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
-    if (_upcomingEvents.isEmpty && _currentTreeId != null) {
-      return Container(
-        height: 120,
-        alignment: Alignment.center,
-        child: Text(
-          'Нет предстоящих событий',
-          style: TextStyle(color: Colors.grey),
-        ),
-      );
-    }
-    if (_upcomingEvents.isEmpty && _currentTreeId == null) {
-      return Container(
-        height: 120,
-        alignment: Alignment.center,
-        child: Text(
-          'Выберите дерево для просмотра событий',
-          style: TextStyle(color: Colors.grey),
-        ),
-      );
-    }
-
-    return SizedBox(
-      height: 120,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 10.0),
-        itemCount: _upcomingEvents.length,
-        itemBuilder: (context, index) {
-          final event = _upcomingEvents[index];
-          return EventCard(event: event);
-        },
-      ),
-    );
-  }
-
-  List<Widget> _buildPostSlivers() {
-    if (_supportsLegacyPostFeed) {
-      return [
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Лента новостей',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                IconButton(
-                  icon: Icon(Icons.add_circle_outline),
-                  onPressed: _currentTreeId == null
-                      ? null
-                      : () async {
-                          final result = await context.push('/post/create');
-                          if (!mounted) {
-                            return;
-                          }
-                          if (result == true) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                  content: Text('Публикация создана успешно')),
-                            );
-                          }
-                        },
-                ),
-              ],
-            ),
-          ),
-        ),
-        if (_currentTreeId != null)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: _buildFeedFilterCard(),
-            ),
-          ),
-        _buildPostsFeed(),
-      ];
-    }
-
-    return [
-      SliverToBoxAdapter(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Главное по семье',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Отсюда удобно переходить в дерево, к родственникам и в личные сообщения.',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 14),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: () => context.go('/tree'),
-                      icon: const Icon(Icons.account_tree_outlined),
-                      label: const Text('Открыть дерево'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () => context.go('/relatives'),
-                      icon: const Icon(Icons.people_alt_outlined),
-                      label: const Text('Родные'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () => context.go('/chats'),
-                      icon: const Icon(Icons.chat_bubble_outline),
-                      label: const Text('Сообщения'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    ];
-  }
-
-  Widget _buildPostsFeed() {
-    final postService = _postService;
-    if (postService == null) {
-      return const SliverToBoxAdapter(child: SizedBox.shrink());
-    }
-
-    if (_currentTreeId == null) {
-      return const SliverToBoxAdapter(
-        child: Padding(
-          padding: EdgeInsets.symmetric(vertical: 50.0),
-          child: Center(
-            child: Text(
-              'Выберите дерево, чтобы увидеть ленту',
-              style: TextStyle(color: Colors.grey),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return StreamBuilder<List<Post>>(
-      stream: postService.getPostsStream(_currentTreeId!),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const SliverToBoxAdapter(
-            child: Center(
-              child: Padding(
-                padding: EdgeInsets.all(50.0),
-                child: CircularProgressIndicator(),
-              ),
-            ),
-          );
-        }
-        if (snapshot.hasError) {
-          debugPrint('Ошибка в StreamBuilder постов: ${snapshot.error}');
-          return SliverToBoxAdapter(
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Text(
-                  'Ошибка загрузки ленты: ${snapshot.error}',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.red),
-                ),
-              ),
-            ),
-          );
-        }
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return const SliverToBoxAdapter(
-            child: Center(
-              child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 50.0),
-                child: Text(
-                  'В этом дереве пока нет постов.',
-                  style: TextStyle(color: Colors.grey),
-                ),
-              ),
-            ),
-          );
-        }
-
-        final posts = _applyBranchFilter(snapshot.data!);
-        if (posts.isEmpty) {
-          return const SliverToBoxAdapter(
-            child: Center(
-              child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 50.0),
-                child: Text(
-                  'Для выбранной ветки публикаций пока нет.',
-                  style: TextStyle(color: Colors.grey),
-                ),
-              ),
-            ),
-          );
-        }
-        return SliverList(
-          delegate: SliverChildBuilderDelegate((context, index) {
-            return PostCard(post: posts[index]);
-          }, childCount: posts.length),
-        );
-      },
-    );
-  }
-
-  List<Post> _applyBranchFilter(List<Post> posts) {
-    final selectedBranchPersonId = _selectedFeedBranchPersonId;
-    if (selectedBranchPersonId == null || selectedBranchPersonId.isEmpty) {
-      return posts;
-    }
-
-    return posts.where((post) {
-      if (post.scopeType == TreeContentScopeType.wholeTree) {
-        return true;
-      }
-      return post.anchorPersonIds.contains(selectedBranchPersonId);
-    }).toList();
-  }
-
-  Widget _buildFeedFilterCard() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16),
-      ),
+    return _buildDesktopSideCard(
+      padding: const EdgeInsets.fromLTRB(0, 10, 0, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Фильтр ленты',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              'Ближайшие события',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
           ),
           const SizedBox(height: 6),
-          Text(
-            'Можно оставить всю ленту дерева или смотреть публикации по выбранной ветке.',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 12),
-          if (_isLoadingBranchPeople)
-            const Center(child: CircularProgressIndicator())
-          else if (_branchPeople.isEmpty)
-            Text(
-              'В дереве пока нет веток для отдельной фильтрации.',
-              style: Theme.of(context).textTheme.bodyMedium,
+          if (_isLoadingEvents)
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_upcomingEvents.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Text('Нет ближайших событий'),
             )
           else
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                ChoiceChip(
-                  label: const Text('Все ветки'),
-                  selected: _selectedFeedBranchPersonId == null,
-                  onSelected: (_) {
-                    setState(() {
-                      _selectedFeedBranchPersonId = null;
-                    });
-                  },
-                ),
-                ..._branchPeople.map(
-                  (person) => ChoiceChip(
-                    label: Text(person.displayName),
-                    selected: _selectedFeedBranchPersonId == person.id,
-                    onSelected: (_) {
-                      setState(() {
-                        _selectedFeedBranchPersonId =
-                            _selectedFeedBranchPersonId == person.id
-                                ? null
-                                : person.id;
-                      });
-                    },
-                  ),
-                ),
-              ],
+            SizedBox(
+              height: 160,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: _upcomingEvents.length,
+                itemBuilder: (context, index) {
+                  return EventCard(event: _upcomingEvents[index]);
+                },
+              ),
             ),
         ],
-      ),
-    );
-  }
-}
-
-class _HomePill extends StatelessWidget {
-  const _HomePill({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white24),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
       ),
     );
   }

@@ -171,7 +171,7 @@ class ChatMessage extends HiveObject {
         .map(
           (url) => ChatAttachment(
             type: ChatAttachmentType.image,
-            url: url,
+            url: UrlUtils.normalizeImageUrl(url) ?? url,
           ),
         )
         .toList();

@@ -7,31 +7,49 @@ import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../backend/interfaces/auth_service_interface.dart';
-import '../models/comment.dart';
+import '../backend/interfaces/post_service_interface.dart';
 import '../models/post.dart';
-import '../services/post_service.dart';
+import 'comment_sheet.dart';
 
 class PostCard extends StatefulWidget {
-  const PostCard({super.key, required this.post});
+  const PostCard({super.key, required this.post, this.onDeleted});
 
   final Post post;
+  final VoidCallback? onDeleted;
 
   @override
   State<PostCard> createState() => _PostCardState();
 }
 
-class _PostCardState extends State<PostCard> {
-  final PostService _postService = PostService();
+class _PostCardState extends State<PostCard>
+    with SingleTickerProviderStateMixin {
   final String? _currentUserId = GetIt.I<AuthServiceInterface>().currentUserId;
+  final PostServiceInterface _postService = GetIt.I<PostServiceInterface>();
 
   late bool _isLikedByCurrentUser;
   late int _likeCount;
   late int _commentCount;
 
+  late AnimationController _likeAnimationController;
+  late Animation<double> _likeScaleAnimation;
+
   @override
   void initState() {
     super.initState();
     _syncLocalState();
+    _likeAnimationController = AnimationController(
+        duration: const Duration(milliseconds: 200), vsync: this);
+    _likeScaleAnimation = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.3), weight: 50),
+      TweenSequenceItem(tween: Tween(begin: 1.3, end: 1.0), weight: 50),
+    ]).animate(CurvedAnimation(
+        parent: _likeAnimationController, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() {
+    _likeAnimationController.dispose();
+    super.dispose();
   }
 
   @override
@@ -53,43 +71,31 @@ class _PostCardState extends State<PostCard> {
   }
 
   Future<void> _toggleLike() async {
-    if (_currentUserId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Войдите, чтобы поставить лайк')),
-      );
-      return;
-    }
+    if (_currentUserId == null) return;
 
+    final wasLiked = _isLikedByCurrentUser;
     setState(() {
-      if (_isLikedByCurrentUser) {
-        _likeCount--;
-      } else {
-        _likeCount++;
-      }
-      _isLikedByCurrentUser = !_isLikedByCurrentUser;
+      _isLikedByCurrentUser = !wasLiked;
+      _likeCount += wasLiked ? -1 : 1;
     });
+
+    if (!wasLiked) {
+      _likeAnimationController.forward(from: 0);
+    }
 
     try {
       await _postService.toggleLike(widget.post.id);
     } catch (e) {
+      // Revert on error
       setState(() {
-        if (_isLikedByCurrentUser) {
-          _likeCount--;
-        } else {
-          _likeCount++;
-        }
-        _isLikedByCurrentUser = !_isLikedByCurrentUser;
+        _isLikedByCurrentUser = wasLiked;
+        _likeCount = wasLiked ? _likeCount + 1 : _likeCount - 1;
       });
-      if (!mounted) {
-        return;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка при лайке: $e')),
+        );
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Ошибка: не удалось ${!_isLikedByCurrentUser ? "поставить" : "убрать"} лайк',
-          ),
-        ),
-      );
     }
   }
 
@@ -127,24 +133,58 @@ class _PostCardState extends State<PostCard> {
   }
 
   Future<void> _showCommentsSheet() async {
-    await showModalBottomSheet<void>(
+    final result = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      useSafeArea: true,
-      builder: (context) {
-        return _PostCommentsSheet(
-          post: widget.post,
-          onCommentAdded: () {
-            if (!mounted) {
-              return;
-            }
-            setState(() {
-              _commentCount++;
-            });
-          },
-        );
-      },
+      backgroundColor: Colors.transparent,
+      builder: (context) => CommentSheet(post: widget.post),
     );
+
+    if (result == true) {
+      // If comments were added/deleted, we might want to refresh counts
+      // For now, we assume the parent feed will refresh or we just keep local count if possible
+    }
+  }
+
+  Future<void> _deletePost() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Удалить публикацию?'),
+        content: const Text('Это действие нельзя будет отменить.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Удалить'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await _postService.deletePost(widget.post.id);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Публикация удалена')),
+          );
+          if (widget.onDeleted != null) {
+            widget.onDeleted!();
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Ошибка при удалении: $e')),
+          );
+        }
+      }
+    }
   }
 
   @override
@@ -235,6 +275,27 @@ class _PostCardState extends State<PostCard> {
               ),
             ),
           ),
+          if (_currentUserId == widget.post.authorId)
+            PopupMenuButton<String>(
+              icon: Icon(Icons.more_vert, color: Colors.grey.shade600),
+              onSelected: (value) {
+                if (value == 'delete') {
+                  _deletePost();
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                      SizedBox(width: 8),
+                      Text('Удалить', style: TextStyle(color: Colors.red)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
     );
@@ -307,12 +368,15 @@ class _PostCardState extends State<PostCard> {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               minimumSize: const Size(0, 30),
             ),
-            icon: Icon(
-              _isLikedByCurrentUser ? Icons.favorite : Icons.favorite_border,
-              color: _isLikedByCurrentUser
-                  ? Colors.redAccent
-                  : Colors.grey.shade600,
-              size: 20,
+            icon: ScaleTransition(
+              scale: _likeScaleAnimation,
+              child: Icon(
+                _isLikedByCurrentUser ? Icons.favorite : Icons.favorite_border,
+                color: _isLikedByCurrentUser
+                    ? Colors.redAccent
+                    : Colors.grey.shade600,
+                size: 20,
+              ),
             ),
             label: Text(
               _likeCount.toString(),
@@ -352,239 +416,6 @@ class _PostCardState extends State<PostCard> {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _PostCommentsSheet extends StatefulWidget {
-  const _PostCommentsSheet({
-    required this.post,
-    required this.onCommentAdded,
-  });
-
-  final Post post;
-  final VoidCallback onCommentAdded;
-
-  @override
-  State<_PostCommentsSheet> createState() => _PostCommentsSheetState();
-}
-
-class _PostCommentsSheetState extends State<_PostCommentsSheet> {
-  final PostService _postService = PostService();
-  final AuthServiceInterface _authService = GetIt.I<AuthServiceInterface>();
-  final TextEditingController _commentController = TextEditingController();
-  bool _isSending = false;
-
-  @override
-  void dispose() {
-    _commentController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submitComment() async {
-    final content = _commentController.text.trim();
-    if (content.isEmpty) {
-      return;
-    }
-    if (_authService.currentUserId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Войдите, чтобы оставить комментарий')),
-      );
-      return;
-    }
-
-    setState(() {
-      _isSending = true;
-    });
-
-    try {
-      await _postService.addComment(postId: widget.post.id, content: content);
-      _commentController.clear();
-      widget.onCommentAdded();
-    } catch (e) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Не удалось отправить комментарий: $e')),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSending = false;
-        });
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
-      ),
-      child: SizedBox(
-        height: MediaQuery.of(context).size.height * 0.75,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-              child: Row(
-                children: [
-                  Text(
-                    'Комментарии',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleLarge
-                        ?.copyWith(fontWeight: FontWeight.w700),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: StreamBuilder<List<Comment>>(
-                stream: _postService.getCommentsStream(widget.post.id),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting &&
-                      !snapshot.hasData) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (snapshot.hasError) {
-                    return Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Text(
-                          'Не удалось загрузить комментарии.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey.shade700),
-                        ),
-                      ),
-                    );
-                  }
-
-                  final comments = snapshot.data ?? const <Comment>[];
-                  if (comments.isEmpty) {
-                    return Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Text(
-                          'Комментариев пока нет. Начните обсуждение первым.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey.shade700),
-                        ),
-                      ),
-                    );
-                  }
-
-                  return ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                    itemCount: comments.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
-                    itemBuilder: (context, index) {
-                      final comment = comments[index];
-                      return _CommentTile(comment: comment);
-                    },
-                  );
-                },
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                border: Border(
-                  top: BorderSide(color: Theme.of(context).dividerColor),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _commentController,
-                      minLines: 1,
-                      maxLines: 4,
-                      decoration: const InputDecoration(
-                        hintText: 'Напишите комментарий',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  FilledButton(
-                    onPressed: _isSending ? null : _submitComment,
-                    child: _isSending
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.send),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CommentTile extends StatelessWidget {
-  const _CommentTile({required this.comment});
-
-  final Comment comment;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        CircleAvatar(
-          radius: 18,
-          backgroundImage: comment.authorPhotoUrl != null &&
-                  comment.authorPhotoUrl!.isNotEmpty
-              ? CachedNetworkImageProvider(comment.authorPhotoUrl!)
-              : null,
-          child:
-              comment.authorPhotoUrl == null || comment.authorPhotoUrl!.isEmpty
-                  ? const Icon(Icons.person, size: 18)
-                  : null,
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  comment.authorName?.trim().isNotEmpty == true
-                      ? comment.authorName!
-                      : 'Пользователь',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 4),
-                Text(comment.content),
-                const SizedBox(height: 6),
-                Text(
-                  DateFormat('d MMM в HH:mm', 'ru').format(comment.createdAt),
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

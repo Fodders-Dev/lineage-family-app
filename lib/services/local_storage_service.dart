@@ -111,12 +111,13 @@ class LocalStorageService {
 
   // --- NEW: Сохранение списка деревьев ---
   Future<void> saveTrees(List<FamilyTree> trees) async {
-    if (trees.isEmpty) return;
     try {
       final box = Hive.box<FamilyTree>(_boxTrees);
-      // Используем putAll для эффективного сохранения списка
+      await box.clear();
       final Map<String, FamilyTree> treesMap = {for (var t in trees) t.id: t};
-      await box.putAll(treesMap);
+      if (treesMap.isNotEmpty) {
+        await box.putAll(treesMap);
+      }
       debugPrint('LocalStorage: Saved ${trees.length} trees to cache.');
     } catch (e) {
       debugPrint('LocalStorage: Error saving trees: $e');

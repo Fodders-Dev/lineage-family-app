@@ -10,6 +10,12 @@ import 'package:get_it/get_it.dart';
 import '../backend/interfaces/auth_service_interface.dart';
 import '../backend/interfaces/family_tree_service_interface.dart';
 import '../backend/interfaces/profile_service_interface.dart';
+import '../backend/interfaces/post_service_interface.dart';
+import '../models/post.dart';
+import '../widgets/post_card.dart';
+import '../widgets/post_card_shimmer.dart';
+import '../widgets/empty_state_widget.dart';
+import '../services/custom_api_post_service.dart';
 
 // Примерный виджет для отображения статистики (можно вынести в отдельный файл)
 class _ProfileStatItem extends StatelessWidget {
@@ -30,6 +36,32 @@ class _ProfileStatItem extends StatelessWidget {
         SizedBox(height: 4),
         Text(label, style: TextStyle(color: Colors.grey)),
       ],
+    );
+  }
+}
+
+class _ProfileActionButton extends StatelessWidget {
+  const _ProfileActionButton({
+    required this.label,
+    required this.onPressed,
+    this.filled = false,
+  });
+
+  final String label;
+  final VoidCallback onPressed;
+  final bool filled;
+
+  @override
+  Widget build(BuildContext context) {
+    if (filled) {
+      return FilledButton(
+        onPressed: onPressed,
+        child: Text(label),
+      );
+    }
+    return OutlinedButton(
+      onPressed: onPressed,
+      child: Text(label),
     );
   }
 }
@@ -107,12 +139,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
       GetIt.I<FamilyTreeServiceInterface>();
   final ProfileServiceInterface _profileService =
       GetIt.I<ProfileServiceInterface>();
+  final PostServiceInterface _postService = GetIt.I<PostServiceInterface>();
   UserProfile? _userProfile;
   String? _currentUserId; // Храним ID текущего пользователя
   int _treeCount = 0;
   int _relativeCount = 0;
+  int _postCount = 0;
+  List<Post> _userPosts = [];
   bool _isLoading = true;
   String _errorMessage = '';
+  bool _postsUnavailable = false;
+
+  bool _isWideLayout(BuildContext context) =>
+      MediaQuery.of(context).size.width >= 1100;
 
   String get _appBarTitle {
     final profile = _userProfile;
@@ -145,6 +184,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() {
       _isLoading = true;
       _errorMessage = '';
+      _postsUnavailable = false;
     });
 
     try {
@@ -167,6 +207,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
         currentUserId: userId,
         trees: trees,
       );
+
+      try {
+        _userPosts = await _postService.getPosts(authorId: userId);
+        _postCount = _userPosts.length;
+      } on CustomApiPostException catch (error) {
+        if (error.statusCode == 404) {
+          _userPosts = [];
+          _postCount = 0;
+          _postsUnavailable = true;
+        } else {
+          rethrow;
+        }
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -420,113 +473,309 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           SliverToBoxAdapter(
                             child: Padding(
                               padding: const EdgeInsets.all(16.0),
-                              child: Column(
-                                children: [
-                                  CircleAvatar(
-                                    radius: 50,
-                                    backgroundImage: _userProfile!.photoURL !=
-                                            null
-                                        ? NetworkImage(_userProfile!.photoURL!)
-                                        : null,
-                                    child: _userProfile!.photoURL == null
-                                        ? Icon(Icons.person, size: 50)
-                                        : null,
-                                  ),
-                                  SizedBox(height: 16),
-                                  Text(
-                                    _getSafeDisplayName(_userProfile!),
-                                    style: TextStyle(
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.bold,
+                              child: ConstrainedBox(
+                                constraints:
+                                    const BoxConstraints(maxWidth: 1180),
+                                child: Container(
+                                  padding: const EdgeInsets.all(24),
+                                  decoration: BoxDecoration(
+                                    color:
+                                        Theme.of(context).colorScheme.surface,
+                                    borderRadius: BorderRadius.circular(28),
+                                    border: Border.all(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .outlineVariant
+                                          .withValues(alpha: 0.45),
                                     ),
                                   ),
-                                  SizedBox(height: 4),
-                                  if ((_userProfile!.city != null &&
-                                          _userProfile!.city!.isNotEmpty) ||
-                                      (_userProfile!.country != null &&
-                                          _userProfile!.country!.isNotEmpty))
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.location_on,
-                                          size: 16,
-                                          color: Colors.grey,
-                                        ),
-                                        SizedBox(width: 4),
-                                        Text(
-                                          '${_userProfile!.city ?? ''}${(_userProfile!.city != null && _userProfile!.city!.isNotEmpty && _userProfile!.country != null && _userProfile!.country!.isNotEmpty) ? ', ' : ''}${_userProfile!.country ?? ''}',
-                                          style: TextStyle(color: Colors.grey),
-                                        ),
-                                      ],
-                                    ),
-                                  SizedBox(height: 16),
-                                  // Статистика
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceEvenly,
-                                    children: [
-                                      _ProfileStatItem(
-                                          label: 'Постов', value: '0'),
-                                      _ProfileStatItem(
-                                        label: 'Родственники',
-                                        value: _relativeCount.toString(),
-                                      ),
-                                      _ProfileStatItem(
-                                        label: 'Деревья',
-                                        value: _treeCount.toString(),
-                                      ),
-                                    ],
-                                  ),
-                                  SizedBox(height: 24),
-                                  // Кнопки
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: OutlinedButton(
-                                          onPressed: () {
-                                            // Получаем ID выбранного дерева из провайдера
-                                            final currentSelectedTreeId =
-                                                treeProvider.selectedTreeId;
-
-                                            if (currentSelectedTreeId == null) {
-                                              // Показываем сообщение, если дерево не выбрано
-                                              ScaffoldMessenger.of(
-                                                context,
-                                              ).showSnackBar(
-                                                SnackBar(
-                                                  content: Text(
-                                                    'Сначала выберите активное дерево на вкладке "Дерево" или "Родные"',
+                                  child: _isWideLayout(context)
+                                      ? Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Expanded(
+                                              flex: 2,
+                                              child: Column(
+                                                children: [
+                                                  CircleAvatar(
+                                                    radius: 52,
+                                                    backgroundImage:
+                                                        _userProfile!
+                                                                    .photoURL !=
+                                                                null
+                                                            ? NetworkImage(
+                                                                _userProfile!
+                                                                    .photoURL!,
+                                                              )
+                                                            : null,
+                                                    child: _userProfile!
+                                                                .photoURL ==
+                                                            null
+                                                        ? Icon(
+                                                            Icons.person,
+                                                            size: 52,
+                                                          )
+                                                        : null,
                                                   ),
-                                                  action: SnackBarAction(
-                                                    label: 'Выбрать',
-                                                    onPressed: () => context.go(
-                                                      '/tree',
-                                                    ), // Предлагаем перейти к выбору
+                                                  const SizedBox(height: 16),
+                                                  Text(
+                                                    _getSafeDisplayName(
+                                                      _userProfile!,
+                                                    ),
+                                                    textAlign: TextAlign.center,
+                                                    style: const TextStyle(
+                                                      fontSize: 24,
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            const SizedBox(width: 24),
+                                            Expanded(
+                                              flex: 5,
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  if ((_userProfile!.city !=
+                                                              null &&
+                                                          _userProfile!.city!
+                                                              .isNotEmpty) ||
+                                                      (_userProfile!.country !=
+                                                              null &&
+                                                          _userProfile!.country!
+                                                              .isNotEmpty))
+                                                    Row(
+                                                      children: [
+                                                        Icon(
+                                                          Icons.location_on,
+                                                          size: 16,
+                                                          color: Colors.grey,
+                                                        ),
+                                                        const SizedBox(
+                                                            width: 4),
+                                                        Text(
+                                                          '${_userProfile!.city ?? ''}${(_userProfile!.city != null && _userProfile!.city!.isNotEmpty && _userProfile!.country != null && _userProfile!.country!.isNotEmpty) ? ', ' : ''}${_userProfile!.country ?? ''}',
+                                                          style:
+                                                              const TextStyle(
+                                                            color: Colors.grey,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  const SizedBox(height: 20),
+                                                  Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .spaceBetween,
+                                                    children: [
+                                                      _ProfileStatItem(
+                                                        label: 'Постов',
+                                                        value: _postCount
+                                                            .toString(),
+                                                      ),
+                                                      _ProfileStatItem(
+                                                        label: 'Родственники',
+                                                        value: _relativeCount
+                                                            .toString(),
+                                                      ),
+                                                      _ProfileStatItem(
+                                                        label: 'Деревья',
+                                                        value: _treeCount
+                                                            .toString(),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  const SizedBox(height: 24),
+                                                  Row(
+                                                    children: [
+                                                      Expanded(
+                                                        child:
+                                                            _ProfileActionButton(
+                                                          label: 'Ваши профили',
+                                                          onPressed: () {
+                                                            final currentSelectedTreeId =
+                                                                treeProvider
+                                                                    .selectedTreeId;
+                                                            if (currentSelectedTreeId ==
+                                                                null) {
+                                                              ScaffoldMessenger
+                                                                  .of(
+                                                                context,
+                                                              ).showSnackBar(
+                                                                SnackBar(
+                                                                  content:
+                                                                      const Text(
+                                                                    'Сначала выберите активное дерево на вкладке "Дерево" или "Родные"',
+                                                                  ),
+                                                                  action:
+                                                                      SnackBarAction(
+                                                                    label:
+                                                                        'Выбрать',
+                                                                    onPressed: () =>
+                                                                        context
+                                                                            .go(
+                                                                      '/tree',
+                                                                    ),
+                                                                  ),
+                                                                ),
+                                                              );
+                                                            } else {
+                                                              context.push(
+                                                                '/profile/offline_profiles',
+                                                              );
+                                                            }
+                                                          },
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 16),
+                                                      Expanded(
+                                                        child:
+                                                            _ProfileActionButton(
+                                                          label:
+                                                              'Редактировать',
+                                                          filled: true,
+                                                          onPressed: () =>
+                                                              context.push(
+                                                            '/profile/edit',
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      : Column(
+                                          children: [
+                                            CircleAvatar(
+                                              radius: 50,
+                                              backgroundImage:
+                                                  _userProfile!.photoURL != null
+                                                      ? NetworkImage(
+                                                          _userProfile!
+                                                              .photoURL!,
+                                                        )
+                                                      : null,
+                                              child:
+                                                  _userProfile!.photoURL == null
+                                                      ? Icon(
+                                                          Icons.person,
+                                                          size: 50,
+                                                        )
+                                                      : null,
+                                            ),
+                                            const SizedBox(height: 16),
+                                            Text(
+                                              _getSafeDisplayName(
+                                                  _userProfile!),
+                                              style: const TextStyle(
+                                                fontSize: 22,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            if ((_userProfile!.city != null &&
+                                                    _userProfile!
+                                                        .city!.isNotEmpty) ||
+                                                (_userProfile!.country !=
+                                                        null &&
+                                                    _userProfile!
+                                                        .country!.isNotEmpty))
+                                              Row(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment.center,
+                                                children: [
+                                                  Icon(
+                                                    Icons.location_on,
+                                                    size: 16,
+                                                    color: Colors.grey,
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    '${_userProfile!.city ?? ''}${(_userProfile!.city != null && _userProfile!.city!.isNotEmpty && _userProfile!.country != null && _userProfile!.country!.isNotEmpty) ? ', ' : ''}${_userProfile!.country ?? ''}',
+                                                    style: const TextStyle(
+                                                      color: Colors.grey,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            const SizedBox(height: 16),
+                                            Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.spaceEvenly,
+                                              children: [
+                                                _ProfileStatItem(
+                                                  label: 'Постов',
+                                                  value: _postCount.toString(),
+                                                ),
+                                                _ProfileStatItem(
+                                                  label: 'Родственники',
+                                                  value:
+                                                      _relativeCount.toString(),
+                                                ),
+                                                _ProfileStatItem(
+                                                  label: 'Деревья',
+                                                  value: _treeCount.toString(),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 24),
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: _ProfileActionButton(
+                                                    label: 'Ваши профили',
+                                                    onPressed: () {
+                                                      final currentSelectedTreeId =
+                                                          treeProvider
+                                                              .selectedTreeId;
+                                                      if (currentSelectedTreeId ==
+                                                          null) {
+                                                        ScaffoldMessenger.of(
+                                                          context,
+                                                        ).showSnackBar(
+                                                          SnackBar(
+                                                            content: const Text(
+                                                              'Сначала выберите активное дерево на вкладке "Дерево" или "Родные"',
+                                                            ),
+                                                            action:
+                                                                SnackBarAction(
+                                                              label: 'Выбрать',
+                                                              onPressed: () =>
+                                                                  context.go(
+                                                                '/tree',
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        );
+                                                      } else {
+                                                        context.push(
+                                                          '/profile/offline_profiles',
+                                                        );
+                                                      }
+                                                    },
                                                   ),
                                                 ),
-                                              );
-                                            } else {
-                                              // Переходим на новый экран
-                                              context.push(
-                                                  '/profile/offline_profiles');
-                                            }
-                                          },
-                                          child: Text('Ваши профили'),
+                                                const SizedBox(width: 16),
+                                                Expanded(
+                                                  child: _ProfileActionButton(
+                                                    label: 'Редактировать',
+                                                    filled: true,
+                                                    onPressed: () => context
+                                                        .push('/profile/edit'),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
                                         ),
-                                      ),
-                                      SizedBox(width: 16),
-                                      Expanded(
-                                        child: ElevatedButton(
-                                          onPressed: () =>
-                                              context.push('/profile/edit'),
-                                          child: Text('Редактировать'),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
+                                ),
                               ),
                             ),
                           ),
@@ -673,6 +922,67 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             },
                           ),
                           // --- КОНЕЦ: Секция для заметок ---
+
+                          // --- НАЧАЛО: Секция для постов пользователя ---
+                          SliverPadding(
+                            padding: const EdgeInsets.fromLTRB(
+                                16.0, 24.0, 16.0, 8.0),
+                            sliver: SliverToBoxAdapter(
+                              child: Text(
+                                'Ваши публикации',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                          if (_isLoading && _userPosts.isEmpty)
+                            SliverList(
+                              delegate: SliverChildBuilderDelegate(
+                                (context, index) => const PostCardShimmer(),
+                                childCount: 2,
+                              ),
+                            )
+                          else if (_userPosts.isEmpty)
+                            SliverToBoxAdapter(
+                              child: EmptyStateWidget(
+                                icon: Icons.post_add_outlined,
+                                title: _postsUnavailable
+                                    ? 'Публикации временно недоступны'
+                                    : 'Публикаций пока нет',
+                                message: _postsUnavailable
+                                    ? 'Лента профиля появится, когда backend публикаций будет доступен для этого аккаунта.'
+                                    : 'Ваши истории и фотографии появятся здесь.',
+                                actionLabel:
+                                    _postsUnavailable ? 'Обновить' : 'Создать',
+                                onAction: () async {
+                                  if (_postsUnavailable) {
+                                    _loadUserData();
+                                    return;
+                                  }
+                                  final result =
+                                      await context.push('/post/create');
+                                  if (result == true) {
+                                    _loadUserData();
+                                  }
+                                },
+                              ),
+                            )
+                          else
+                            SliverList(
+                              delegate: SliverChildBuilderDelegate(
+                                (context, index) {
+                                  return PostCard(
+                                    post: _userPosts[index],
+                                    onDeleted: () => _loadUserData(),
+                                  );
+                                },
+                                childCount: _userPosts.length,
+                              ),
+                            ),
+                          const SliverToBoxAdapter(child: SizedBox(height: 40)),
+                          // --- КОНЕЦ: Секция для постов пользователя ---
                         ],
                       ),
                     ),

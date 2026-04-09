@@ -258,6 +258,146 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
     return 'Ветки: $previewNames$suffix';
   }
 
+  bool _isWideLayout(BuildContext context) =>
+      MediaQuery.of(context).size.width >= 1180;
+
+  Widget _buildDesktopShell({
+    required ThemeData theme,
+    required String currentUserId,
+  }) {
+    final listPanel = Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+        ),
+      ),
+      child: Column(
+        children: [
+          _buildSearchBar(theme),
+          Expanded(
+            child: _chatPreviews.isEmpty && _searchQuery.isEmpty
+                ? _buildEmptyState(theme)
+                : _buildChatList(theme, currentUserId),
+          ),
+        ],
+      ),
+    );
+
+    if (!_isWideLayout(context)) {
+      return listPanel;
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          flex: 3,
+          child: SizedBox(height: double.infinity, child: listPanel),
+        ),
+        const SizedBox(width: 16),
+        SizedBox(
+          width: 320,
+          child: Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Навигация по чатам',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'На большом экране удобнее держать поиск, список диалогов и быстрые переходы в одной зоне.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                _buildDesktopHint(
+                  theme,
+                  icon: Icons.search,
+                  title: 'Поиск',
+                  subtitle: 'Ищите и чаты, и родственников из одного поля.',
+                ),
+                const SizedBox(height: 12),
+                _buildDesktopHint(
+                  theme,
+                  icon: Icons.group_add_outlined,
+                  title: 'Новый чат',
+                  subtitle: 'Создавайте личные, групповые и веточные чаты.',
+                ),
+                const SizedBox(height: 12),
+                _buildDesktopHint(
+                  theme,
+                  icon: Icons.mark_chat_read_outlined,
+                  title: 'Непрочитанное',
+                  subtitle: 'Свежие сообщения остаются заметными в списке.',
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDesktopHint(
+    ThemeData theme, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primary.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Icon(icon, color: theme.colorScheme.primary, size: 20),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  height: 1.35,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -285,15 +425,12 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
               : Center(
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 1400),
-                    child: Column(
-                      children: [
-                        _buildSearchBar(theme),
-                        Expanded(
-                          child: _chatPreviews.isEmpty && _searchQuery.isEmpty
-                              ? _buildEmptyState(theme)
-                              : _buildChatList(theme, currentUserId),
-                        ),
-                      ],
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                      child: _buildDesktopShell(
+                        theme: theme,
+                        currentUserId: currentUserId,
+                      ),
                     ),
                   ),
                 ),

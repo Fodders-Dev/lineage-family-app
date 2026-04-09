@@ -1,3 +1,5 @@
+import '../utils/url_utils.dart';
+
 enum ChatAttachmentType {
   image,
   video,
@@ -75,14 +77,14 @@ class ChatAttachment {
   factory ChatAttachment.fromMap(Map<String, dynamic> map) {
     return ChatAttachment(
       type: ChatAttachmentType.fromRaw(map['type']?.toString()),
-      url: map['url']?.toString() ?? '',
+      url: UrlUtils.normalizeImageUrl(map['url']?.toString()) ?? '',
       mimeType: map['mimeType']?.toString(),
       fileName: map['fileName']?.toString(),
       sizeBytes: _asInt(map['sizeBytes']),
       durationMs: _asInt(map['durationMs']),
       width: _asInt(map['width']),
       height: _asInt(map['height']),
-      thumbnailUrl: map['thumbnailUrl']?.toString(),
+      thumbnailUrl: UrlUtils.normalizeImageUrl(map['thumbnailUrl']?.toString()),
     );
   }
 

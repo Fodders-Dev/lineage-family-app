@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import 'package:path/path.dart' as path;
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
@@ -168,7 +169,9 @@ class _ChatScreenState extends State<ChatScreen> {
         _isBootstrapping = false;
       });
 
-      unawaited(_loadChatDetails());
+      if (widget.isGroup) {
+        unawaited(_loadChatDetails());
+      }
       await _markChatAsRead();
     } catch (error) {
       if (!mounted) {
@@ -323,6 +326,45 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  Future<void> _pickGenericFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        type: FileType.any,
+      );
+
+      if (result == null || result.files.isEmpty || !mounted) {
+        return;
+      }
+
+      final pickedFiles = result.files
+          .where((f) => f.path != null)
+          .map((f) => XFile(f.path!, name: f.name, bytes: f.bytes))
+          .toList();
+
+      if (pickedFiles.isEmpty) return;
+
+      setState(() {
+        final remaining = _maxAttachments - _selectedAttachments.length;
+        if (pickedFiles.length > remaining) {
+          _selectedAttachments.addAll(pickedFiles.take(remaining));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Можно добавить не более 6 файлов.')),
+          );
+        } else {
+          _selectedAttachments.addAll(pickedFiles);
+        }
+      });
+    } catch (e) {
+      debugPrint('Error picking file: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось выбрать файл.')),
+        );
+      }
+    }
+  }
+
   Future<void> _openAttachmentPicker() async {
     final choice = await showModalBottomSheet<_AttachmentPickerChoice>(
       context: context,
@@ -348,6 +390,14 @@ class _ChatScreenState extends State<ChatScreen> {
                 _AttachmentPickerChoice.video,
               ),
             ),
+            ListTile(
+              leading: const Icon(Icons.insert_drive_file_outlined),
+              title: const Text('Файл'),
+              subtitle: const Text('Документы, архивы и другие файлы'),
+              onTap: () => Navigator.of(context).pop(
+                _AttachmentPickerChoice.file,
+              ),
+            ),
           ],
         ),
       ),
@@ -362,7 +412,12 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
-    await _pickVideoAttachment();
+    if (choice == _AttachmentPickerChoice.video) {
+      await _pickVideoAttachment();
+      return;
+    }
+
+    await _pickGenericFile();
   }
 
   Future<void> _startRecording() async {
@@ -690,11 +745,21 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
       ),
-      body: Column(
-        children: [
-          Expanded(child: _buildMessagesBody()),
-          if (_isRecording) _buildRecordingArea() else _buildMessageInputArea(),
-        ],
+      body: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: _isWideLayout(context) ? 1100 : double.infinity,
+          ),
+          child: Column(
+            children: [
+              Expanded(child: _buildMessagesBody()),
+              if (_isRecording)
+                _buildRecordingArea()
+              else
+                _buildMessageInputArea(),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1113,6 +1178,9 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     return 'Участник';
   }
+
+  bool _isWideLayout(BuildContext context) =>
+      MediaQuery.of(context).size.width >= 1180;
 }
 
 class _ChatInfoSheet extends StatefulWidget {
@@ -1665,7 +1733,7 @@ class _AddParticipantsSheetState extends State<_AddParticipantsSheet> {
   }
 }
 
-enum _AttachmentPickerChoice { images, video }
+enum _AttachmentPickerChoice { images, video, file }
 
 class _ChatBubble extends StatelessWidget {
   const _ChatBubble({

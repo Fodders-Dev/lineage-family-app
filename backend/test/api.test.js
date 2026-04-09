@@ -739,6 +739,187 @@ test("tree delete removes owned trees and lets members leave invited trees", asy
   }
 });
 
+test("post endpoints cover feed, likes and comments", async () => {
+  const ctx = await startTestServer();
+
+  try {
+    const aliceResponse = await fetch(`${ctx.baseUrl}/v1/auth/register`, {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({
+        email: "posts-alice@lineage.app",
+        password: "secret123",
+        displayName: "Alice Posts",
+      }),
+    });
+    assert.equal(aliceResponse.status, 201);
+    const alice = await aliceResponse.json();
+
+    const bobResponse = await fetch(`${ctx.baseUrl}/v1/auth/register`, {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({
+        email: "posts-bob@lineage.app",
+        password: "secret123",
+        displayName: "Bob Posts",
+      }),
+    });
+    assert.equal(bobResponse.status, 201);
+    const bob = await bobResponse.json();
+
+    const treeResponse = await fetch(`${ctx.baseUrl}/v1/trees`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${alice.accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "Семья Постовых",
+        description: "Тестовое дерево для ленты",
+      }),
+    });
+    assert.equal(treeResponse.status, 201);
+    const treePayload = await treeResponse.json();
+    const treeId = treePayload.tree.id;
+
+    const inviteResponse = await fetch(
+      `${ctx.baseUrl}/v1/trees/${treeId}/invitations`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${alice.accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          recipientUserId: bob.user.id,
+          relationToTree: "Родственник",
+        }),
+      },
+    );
+    assert.equal(inviteResponse.status, 201);
+    const invitationPayload = await inviteResponse.json();
+
+    const acceptInviteResponse = await fetch(
+      `${ctx.baseUrl}/v1/tree-invitations/${invitationPayload.invitation.invitationId}/respond`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${bob.accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({accept: true}),
+      },
+    );
+    assert.equal(acceptInviteResponse.status, 200);
+
+    const createPostResponse = await fetch(`${ctx.baseUrl}/v1/posts`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${alice.accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        treeId,
+        content: "Первая новость семьи",
+        imageUrls: ["https://cdn.example.test/family-photo.jpg"],
+        scopeType: "wholeTree",
+      }),
+    });
+    assert.equal(createPostResponse.status, 201);
+    const createdPost = await createPostResponse.json();
+    assert.equal(createdPost.treeId, treeId);
+    assert.equal(createdPost.commentCount, 0);
+    assert.deepEqual(createdPost.likedBy, []);
+
+    const treeFeedResponse = await fetch(`${ctx.baseUrl}/v1/posts?treeId=${treeId}`, {
+      headers: {authorization: `Bearer ${bob.accessToken}`},
+    });
+    assert.equal(treeFeedResponse.status, 200);
+    const treeFeed = await treeFeedResponse.json();
+    assert.equal(treeFeed.length, 1);
+    assert.equal(treeFeed[0].authorId, alice.user.id);
+
+    const likeResponse = await fetch(
+      `${ctx.baseUrl}/v1/posts/${createdPost.id}/like`,
+      {
+        method: "POST",
+        headers: {authorization: `Bearer ${bob.accessToken}`},
+      },
+    );
+    assert.equal(likeResponse.status, 200);
+    const likedPost = await likeResponse.json();
+    assert.deepEqual(likedPost.likedBy, [bob.user.id]);
+
+    const addCommentResponse = await fetch(
+      `${ctx.baseUrl}/v1/posts/${createdPost.id}/comments`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${bob.accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({content: "Поздравляю!"}),
+      },
+    );
+    assert.equal(addCommentResponse.status, 201);
+    const createdComment = await addCommentResponse.json();
+    assert.equal(createdComment.postId, createdPost.id);
+    assert.equal(createdComment.authorId, bob.user.id);
+
+    const commentsResponse = await fetch(
+      `${ctx.baseUrl}/v1/posts/${createdPost.id}/comments`,
+      {
+        headers: {authorization: `Bearer ${alice.accessToken}`},
+      },
+    );
+    assert.equal(commentsResponse.status, 200);
+    const comments = await commentsResponse.json();
+    assert.equal(comments.length, 1);
+    assert.equal(comments[0].content, "Поздравляю!");
+
+    const authorFeedResponse = await fetch(
+      `${ctx.baseUrl}/v1/posts?authorId=${alice.user.id}`,
+      {
+        headers: {authorization: `Bearer ${bob.accessToken}`},
+      },
+    );
+    assert.equal(authorFeedResponse.status, 200);
+    const authorFeed = await authorFeedResponse.json();
+    assert.equal(authorFeed.length, 1);
+    assert.equal(authorFeed[0].commentCount, 1);
+
+    const deleteCommentResponse = await fetch(
+      `${ctx.baseUrl}/v1/posts/${createdPost.id}/comments/${createdComment.id}`,
+      {
+        method: "DELETE",
+        headers: {authorization: `Bearer ${alice.accessToken}`},
+      },
+    );
+    assert.equal(deleteCommentResponse.status, 204);
+
+    const deletePostResponse = await fetch(
+      `${ctx.baseUrl}/v1/posts/${createdPost.id}`,
+      {
+        method: "DELETE",
+        headers: {authorization: `Bearer ${alice.accessToken}`},
+      },
+    );
+    assert.equal(deletePostResponse.status, 204);
+
+    const feedAfterDeleteResponse = await fetch(
+      `${ctx.baseUrl}/v1/posts?treeId=${treeId}`,
+      {
+        headers: {authorization: `Bearer ${alice.accessToken}`},
+      },
+    );
+    assert.equal(feedAfterDeleteResponse.status, 200);
+    const feedAfterDelete = await feedAfterDeleteResponse.json();
+    assert.equal(feedAfterDelete.length, 0);
+  } finally {
+    await stopTestServer(ctx);
+  }
+});
+
 test("chat endpoints cover preview list, history, send and mark as read", async () => {
   const ctx = await startTestServer();
 

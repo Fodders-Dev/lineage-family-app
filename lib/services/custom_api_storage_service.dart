@@ -3,11 +3,12 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import '../backend/backend_runtime_config.dart';
 import '../backend/interfaces/storage_service_interface.dart';
+import '../utils/url_utils.dart';
 import 'custom_api_auth_service.dart';
 
 class CustomApiStorageService implements StorageServiceInterface {
@@ -98,7 +99,7 @@ class CustomApiStorageService implements StorageServiceInterface {
       },
     );
 
-    return response['url']?.toString();
+    return UrlUtils.normalizeImageUrl(response['url']?.toString());
   }
 
   Future<Map<String, dynamic>> _requestJson({
@@ -153,12 +154,11 @@ class CustomApiStorageService implements StorageServiceInterface {
       RegExp(r'/$'),
       '',
     );
-    // Force HTTPS for web to prevent Mixed Content blocking on POST/DELETE
-    // Also explicitly check for rodnya-tree.ru to be safe
-    if (base.startsWith('http://') || base.contains('rodnya-tree.ru')) {
-      if (!base.startsWith('https://')) {
-        base = 'https://${base.replaceFirst(RegExp(r'^http://'), '')}';
-      }
+    final shouldForceHttps = base.startsWith('http://api.rodnya-tree.ru') ||
+        base.startsWith('http://rodnya-tree.ru') ||
+        base.startsWith('http://api.fodder-development.ru');
+    if (shouldForceHttps) {
+      base = 'https://${base.replaceFirst(RegExp(r'^http://'), '')}';
     }
     return Uri.parse('$base$path');
   }
@@ -181,27 +181,9 @@ class CustomApiStorageService implements StorageServiceInterface {
     required String fallback,
     String? mimeType,
   }) {
-    final normalizedName = rawName.toLowerCase().trim();
-    if (normalizedName.endsWith('.png')) {
-      return '.png';
-    }
-    if (normalizedName.endsWith('.jpeg')) {
-      return '.jpeg';
-    }
-    if (normalizedName.endsWith('.jpg')) {
-      return '.jpg';
-    }
-    if (normalizedName.endsWith('.webp')) {
-      return '.webp';
-    }
-    if (normalizedName.endsWith('.mp4')) {
-      return '.mp4';
-    }
-    if (normalizedName.endsWith('.mov')) {
-      return '.mov';
-    }
-    if (normalizedName.endsWith('.webm')) {
-      return '.webm';
+    final ext = p.extension(rawName).toLowerCase().trim();
+    if (ext.isNotEmpty) {
+      return ext;
     }
 
     switch (mimeType) {
@@ -210,7 +192,6 @@ class CustomApiStorageService implements StorageServiceInterface {
       case 'image/webp':
         return '.webp';
       case 'image/jpeg':
-        return '.jpeg';
       case 'image/jpg':
         return '.jpg';
       case 'video/mp4':
@@ -219,12 +200,18 @@ class CustomApiStorageService implements StorageServiceInterface {
         return '.mov';
       case 'video/webm':
         return '.webm';
+      case 'application/pdf':
+        return '.pdf';
+      case 'application/msword':
+        return '.doc';
+      case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+        return '.docx';
     }
     return fallback;
   }
 
   String _contentTypeForExtension(String extension) {
-    switch (extension) {
+    switch (extension.toLowerCase()) {
       case '.png':
         return 'image/png';
       case '.webp':
@@ -238,6 +225,18 @@ class CustomApiStorageService implements StorageServiceInterface {
         return 'video/quicktime';
       case '.webm':
         return 'video/webm';
+      case '.pdf':
+        return 'application/pdf';
+      case '.doc':
+        return 'application/msword';
+      case '.docx':
+        return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      case '.xls':
+        return 'application/vnd.ms-excel';
+      case '.xlsx':
+        return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      case '.zip':
+        return 'application/zip';
       default:
         return 'application/octet-stream';
     }

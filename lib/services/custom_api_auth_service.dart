@@ -413,11 +413,11 @@ class CustomApiAuthService implements AuthServiceInterface {
       RegExp(r'/$'),
       '',
     );
-    // Force HTTPS for web to prevent Mixed Content blocking
-    if (base.startsWith('http://') || base.contains('rodnya-tree.ru')) {
-      if (!base.startsWith('https://')) {
-        base = 'https://${base.replaceFirst(RegExp(r'^http://'), '')}';
-      }
+    final shouldForceHttps = base.startsWith('http://api.rodnya-tree.ru') ||
+        base.startsWith('http://rodnya-tree.ru') ||
+        base.startsWith('http://api.fodder-development.ru');
+    if (shouldForceHttps) {
+      base = 'https://${base.replaceFirst(RegExp(r'^http://'), '')}';
     }
     return Uri.parse('$base$path');
   }

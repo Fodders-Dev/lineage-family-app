@@ -13,6 +13,8 @@ const EMPTY_DB = {
   relationRequests: [],
   treeInvitations: [],
   notifications: [],
+  posts: [],
+  comments: [],
   pushDevices: [],
   pushDeliveries: [],
 };
@@ -43,6 +45,62 @@ function createNotificationRecord({userId, type, title, body, data = {}}) {
     data: data && typeof data === "object" ? structuredClone(data) : {},
     createdAt: timestamp,
     readAt: null,
+  };
+}
+
+function createPostRecord({
+  treeId,
+  authorId,
+  authorName,
+  authorPhotoUrl = null,
+  content,
+  imageUrls = [],
+  isPublic = false,
+  scopeType = "wholeTree",
+  anchorPersonIds = [],
+}) {
+  const timestamp = nowIso();
+  return {
+    id: crypto.randomUUID(),
+    treeId,
+    authorId,
+    authorName: String(authorName || "Аноним").trim() || "Аноним",
+    authorPhotoUrl: normalizeNullableString(authorPhotoUrl),
+    content: String(content || "").trim(),
+    imageUrls: Array.from(
+      new Set(
+        (Array.isArray(imageUrls) ? imageUrls : [])
+          .map((value) => String(value || "").trim())
+          .filter(Boolean),
+      ),
+    ),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    likedBy: [],
+    isPublic: isPublic === true,
+    scopeType: scopeType === "branches" ? "branches" : "wholeTree",
+    anchorPersonIds: normalizeParticipantIds(anchorPersonIds),
+  };
+}
+
+function createCommentRecord({
+  postId,
+  authorId,
+  authorName,
+  authorPhotoUrl = null,
+  content,
+}) {
+  const timestamp = nowIso();
+  return {
+    id: crypto.randomUUID(),
+    postId,
+    authorId,
+    authorName: String(authorName || "Аноним").trim() || "Аноним",
+    authorPhotoUrl: normalizeNullableString(authorPhotoUrl),
+    content: String(content || "").trim(),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    likedBy: [],
   };
 }
 
@@ -520,6 +578,8 @@ class FileStore {
         ? parsed.treeInvitations
         : [],
       notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
+      posts: Array.isArray(parsed.posts) ? parsed.posts : [],
+      comments: Array.isArray(parsed.comments) ? parsed.comments : [],
       pushDevices: Array.isArray(parsed.pushDevices) ? parsed.pushDevices : [],
       pushDeliveries: Array.isArray(parsed.pushDeliveries)
         ? parsed.pushDeliveries
@@ -839,6 +899,13 @@ class FileStore {
       );
       db.treeInvitations = db.treeInvitations.filter(
         (entry) => entry.treeId !== treeId,
+      );
+      const removedPostIds = db.posts
+        .filter((entry) => entry.treeId === treeId)
+        .map((entry) => entry.id);
+      db.posts = db.posts.filter((entry) => entry.treeId !== treeId);
+      db.comments = db.comments.filter(
+        (entry) => !removedPostIds.includes(entry.postId),
       );
       db.notifications = db.notifications.filter(
         (entry) => entry.data?.treeId !== treeId,
@@ -1742,6 +1809,173 @@ class FileStore {
       await this._write(db);
     }
     return structuredClone(notification);
+  }
+
+  async listPosts({treeId = null, authorId = null, scope = null} = {}) {
+    const db = await this._read();
+    return db.posts
+      .filter((entry) => {
+        if (treeId && entry.treeId !== treeId) {
+          return false;
+        }
+        if (authorId && entry.authorId !== authorId) {
+          return false;
+        }
+        if (scope === "branches" && entry.scopeType !== "branches") {
+          return false;
+        }
+        return true;
+      })
+      .sort((left, right) =>
+        String(right.createdAt || "").localeCompare(String(left.createdAt || "")),
+      )
+      .map((entry) => structuredClone(entry));
+  }
+
+  async findPost(postId) {
+    const db = await this._read();
+    const post = db.posts.find((entry) => entry.id === postId);
+    return post ? structuredClone(post) : null;
+  }
+
+  async createPost({
+    treeId,
+    authorId,
+    authorName,
+    authorPhotoUrl = null,
+    content,
+    imageUrls = [],
+    isPublic = false,
+    scopeType = "wholeTree",
+    anchorPersonIds = [],
+  }) {
+    const db = await this._read();
+    const tree = db.trees.find((entry) => entry.id === treeId);
+    const user = db.users.find((entry) => entry.id === authorId);
+    if (!tree || !user) {
+      return null;
+    }
+
+    const post = createPostRecord({
+      treeId,
+      authorId,
+      authorName,
+      authorPhotoUrl,
+      content,
+      imageUrls,
+      isPublic,
+      scopeType,
+      anchorPersonIds,
+    });
+    if (!post.content && post.imageUrls.length === 0) {
+      return false;
+    }
+
+    db.posts.push(post);
+    await this._write(db);
+    return structuredClone(post);
+  }
+
+  async deletePost(postId, actorUserId) {
+    const db = await this._read();
+    const postIndex = db.posts.findIndex((entry) => entry.id === postId);
+    if (postIndex < 0) {
+      return null;
+    }
+
+    const post = db.posts[postIndex];
+    if (post.authorId !== actorUserId) {
+      return false;
+    }
+
+    db.posts.splice(postIndex, 1);
+    db.comments = db.comments.filter((entry) => entry.postId !== postId);
+    await this._write(db);
+    return structuredClone(post);
+  }
+
+  async togglePostLike(postId, userId) {
+    const db = await this._read();
+    const post = db.posts.find((entry) => entry.id === postId);
+    if (!post) {
+      return null;
+    }
+
+    post.likedBy = Array.isArray(post.likedBy) ? post.likedBy : [];
+    if (post.likedBy.includes(userId)) {
+      post.likedBy = post.likedBy.filter((entry) => entry !== userId);
+    } else {
+      post.likedBy.push(userId);
+    }
+    post.updatedAt = nowIso();
+    await this._write(db);
+    return structuredClone(post);
+  }
+
+  async listPostComments(postId) {
+    const db = await this._read();
+    return db.comments
+      .filter((entry) => entry.postId === postId)
+      .sort((left, right) =>
+        String(left.createdAt || "").localeCompare(String(right.createdAt || "")),
+      )
+      .map((entry) => structuredClone(entry));
+  }
+
+  async addPostComment({
+    postId,
+    authorId,
+    authorName,
+    authorPhotoUrl = null,
+    content,
+  }) {
+    const db = await this._read();
+    const post = db.posts.find((entry) => entry.id === postId);
+    const user = db.users.find((entry) => entry.id === authorId);
+    if (!post || !user) {
+      return null;
+    }
+
+    const comment = createCommentRecord({
+      postId,
+      authorId,
+      authorName,
+      authorPhotoUrl,
+      content,
+    });
+    if (!comment.content) {
+      return false;
+    }
+
+    db.comments.push(comment);
+    await this._write(db);
+    return structuredClone(comment);
+  }
+
+  async deletePostComment({postId, commentId, actorUserId}) {
+    const db = await this._read();
+    const commentIndex = db.comments.findIndex((entry) => {
+      return entry.id === commentId && entry.postId === postId;
+    });
+    if (commentIndex < 0) {
+      return null;
+    }
+
+    const comment = db.comments[commentIndex];
+    const post = db.posts.find((entry) => entry.id === postId);
+    if (!post) {
+      return null;
+    }
+
+    const canDelete =
+      comment.authorId === actorUserId || post.authorId === actorUserId;
+    if (!canDelete) {
+      return false;
+    }
+
+    db.comments.splice(commentIndex, 1);
+    await this._write(db);
+    return structuredClone(comment);
   }
 
   _findStoredChat(db, chatId) {
