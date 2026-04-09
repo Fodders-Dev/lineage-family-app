@@ -7,17 +7,15 @@ Scope:
 
 ## Critical blockers
 
-### 1. Home feed is still broken on production API
+### 1. Home feed backend gap is closed on production
 - Route: `/#/`
-- Current repo state: local custom backend now implements `/v1/posts`, likes and comments, and the web home feed renders correctly against that backend.
-- Production gap: `GET https://api.rodnya-tree.ru/v1/posts?treeId=...` still returns `404 Route not found` until the backend deployment is updated.
-- MVP impact: family social feed is implementation-ready in repo, but not yet restored on production web.
+- Current production state after the 2026-04-10 deployment: `GET https://api.rodnya-tree.ru/v1/posts?treeId=...` returns `200`, and the backend feed contract is now available on the live API.
+- MVP impact: the backend blocker is removed; remaining feed quality work is now mostly frontend UX and content-state handling.
 
-### 2. Profile posts are fixed in repo but not yet deployed
+### 2. Profile posts backend gap is closed on production
 - Route: `/#/profile`
-- Current state after client and backend work: profile no longer collapses, and authored posts work against the local custom backend.
-- Production gap: `GET https://api.rodnya-tree.ru/v1/posts?authorId=...` still returns `404 Route not found` until deployment catches up.
-- MVP impact: profile feed is ready in code, but still unavailable on production web.
+- Current production state after the 2026-04-10 deployment: `GET https://api.rodnya-tree.ru/v1/posts?authorId=...` returns `200`.
+- MVP impact: authored posts are available in the live API; frontend presentation is now the main remaining concern.
 
 ### 3. Direct chat details endpoint mismatch
 - Route reached from `/#/chats`
@@ -25,20 +23,20 @@ Scope:
 - Backend note: the production API still appears inconsistent for some `GET /v1/chats/:chatId` requests.
 - MVP impact: direct chat is more stable on web, but backend contract still needs cleanup for full parity.
 
-### 4. Chat media uses unsafe media URLs on web
+### 4. Chat media now emits canonical HTTPS upload URLs
 - Route: chat view
 - Root cause: upload responses can return `http://api.rodnya-tree.ru/media/...`, and browsers fail on the redirect chain before reaching the working HTTPS media response.
-- Confirmed behavior: direct `https://api.rodnya-tree.ru/media/...` responds with `Access-Control-Allow-Origin: *`, while the initial `http://...` redirect does not.
-- Current state after client fix: existing chat attachments now normalize to HTTPS on read, so legacy photos render again in web chat; new uploads are normalized to HTTPS before the message is sent.
-- Backend follow-up: deploy the backend patch so `/v1/media/upload` emits HTTPS media URLs directly behind the proxy.
-- MVP impact: media rendering is recoverable on web, but production backend deployment is still required for a full fix.
+- Current production state after the 2026-04-10 deployment: `/v1/media/upload` now responds with `https://api.rodnya-tree.ru/media/...` directly.
+- Remaining note: old stored `http://...` URLs can still exist in historical data, but the web client already normalizes them on read.
+- MVP impact: new media messages are no longer blocked by the old redirect/CORS chain.
 
 ## High-priority UX issues
 
 ### 5. Desktop layouts are materially improved, but tree view still sets the quality ceiling
 - Routes: `/#/`, `/#/relatives`, `/#/chats`, `/#/profile`, `/#/notifications`, chat view
 - Repo state: home now uses a denser desktop split, chats list has a structured desktop shell, profile header is card-based, relatives and notifications gained side panels, and chat view no longer stretches edge-to-edge on wide screens.
-- Remaining issue: the overall desktop baseline is acceptable for MVP, but tree view still feels the least polished flagship screen.
+- Current repo state after the 2026-04-10 pass: tree view now uses a split desktop composition with a dedicated side control panel and bordered canvas area.
+- Remaining issue: the overall desktop baseline is acceptable for MVP, but tree view still deserves one more visual pass if the goal is premium polish rather than MVP readiness.
 - MVP impact: web is now substantially more desktop-usable, with tree view remaining the clearest presentation gap.
 
 ### 6. Tree view uses desktop width poorly
@@ -46,22 +44,22 @@ Scope:
 - Symptom: tree is rendered in a very large canvas with substantial dead space and weak centering behavior.
 - MVP impact: the flagship feature looks less polished than the underlying data quality deserves.
 
-### 7. Notifications content quality is still too raw for MVP
+### 7. Notifications content quality is improved, but grouping can go further
 - Route: `/#/notifications`
-- Symptom: message notification list shows raw body fragments and repetitive entries without grouping.
-- MVP impact: activity center looks noisy and hard to scan.
+- Current repo state after the 2026-04-10 pass: repeated same-day notifications now collapse visually, preview text is normalized, and the desktop side panel shows a type summary.
+- MVP impact: the screen is far more scannable for MVP, though a richer timeline or server-side grouping would still be a later polish step.
 
 ## Medium-priority issues
 
-### 8. Create-post flow still lacks confidence cues
+### 8. Create-post flow now has better confidence cues
 - Route: `/#/post/create`
-- Symptom: screen now works against the local custom backend, but it still does not explain media limits, branch visibility consequences, or publish retry behavior clearly.
-- MVP impact: content creation is functional, yet the UX still feels closer to an internal tool than a polished consumer MVP.
+- Current repo state after the 2026-04-10 pass: the screen now explains image limits, branch visibility, publication mode, and retry expectations, and uses a more desktop-friendly two-column layout.
+- MVP impact: content creation is meaningfully closer to MVP-ready.
 
-### 9. Production deployment gap remains the main MVP blocker
-- Scope: production custom API
-- Symptom: repo state is ahead of production for posts and canonical media URLs.
-- MVP impact: the codebase is materially closer to MVP than the live environment; deployment is now the bottleneck.
+### 9. Remaining MVP work is now mostly quality and operational hardening
+- Scope: live web + API
+- Symptom: the main deployment blockers are resolved, but the product still needs deeper route-by-route QA, stronger failure UX, and more operational monitoring.
+- MVP impact: the app is substantially closer to a usable MVP than to a prototype, but it still needs disciplined smoke coverage before calling it finished.
 
 ## Positive observations
 - Auth flow itself works on web with the current custom API session logic.
@@ -70,6 +68,7 @@ Scope:
 - Notifications list loads real items and now sits inside a more desktop-appropriate shell.
 - Web build is recoverable and now compiles with `flutter build web --no-wasm-dry-run`.
 - Desktop layouts for home, chats, profile, relatives, notifications, and chat view are all denser than the initial audit baseline.
+- Production deployment was updated on 2026-04-10 for both `api.rodnya-tree.ru` and `rodnya-tree.ru`.
 
 ## Technical notes
 - Web build had a compile blocker in `lib/screens/chat_screen.dart`: missing `ChatPreview` import.
@@ -79,8 +78,7 @@ Scope:
 - Additional local custom-backend smoke passed on 2026-04-09: login, home feed, create-post, profile posts and empty notifications render correctly from the web build.
 
 ## Next repair order
-1. Deploy backend changes for `/v1/posts` and HTTPS media URLs to production API.
-2. Deploy backend changes for `/v1/posts` and canonical HTTPS media URLs to production API.
-3. Polish notifications grouping and preview formatting.
-4. Tighten tree view desktop composition and centering behavior.
-5. Clean up the production `GET /v1/chats/:chatId` contract so group/branch/direct behave consistently.
+1. Run a fresh end-to-end browser smoke on the live site for login, feed, profile, create-post, chats, notifications, and tree view.
+2. Verify photo send/receive in real browser UI after the media URL deployment.
+3. Polish tree view visuals beyond MVP baseline if a more premium desktop feel is required.
+4. Add more operational safeguards: deploy notes, rollback recipe, and basic health/error monitoring around the custom backend.

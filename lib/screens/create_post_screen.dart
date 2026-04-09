@@ -7,10 +7,10 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../backend/interfaces/family_tree_service_interface.dart';
+import '../backend/interfaces/post_service_interface.dart';
 import '../models/family_person.dart';
 import '../models/post.dart';
 import '../providers/tree_provider.dart';
-import '../services/post_service.dart';
 
 class CreatePostScreen extends StatefulWidget {
   const CreatePostScreen({super.key});
@@ -21,10 +21,10 @@ class CreatePostScreen extends StatefulWidget {
 
 class _CreatePostScreenState extends State<CreatePostScreen> {
   final _contentController = TextEditingController();
-  final PostService _postService = PostService();
   final ImagePicker _picker = ImagePicker();
   final FamilyTreeServiceInterface _familyTreeService =
       GetIt.I<FamilyTreeServiceInterface>();
+  final PostServiceInterface _postService = GetIt.I<PostServiceInterface>();
 
   bool _isPublic = false;
   bool _isLoading = false;
@@ -122,64 +122,38 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     final content = _contentController.text.trim();
     if (content.isEmpty && _selectedImages.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Напишите что-нибудь или добавьте фото.')),
-      );
-      return;
-    }
-
-    if (_currentTreeId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Ошибка: не удалось определить дерево для публикации.'),
-        ),
+            content: Text('Пожалуйста, введите текст или добавьте фото.')),
       );
       return;
     }
 
-    if (_scopeType == TreeContentScopeType.branches &&
-        _selectedBranchPersonIds.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Выберите хотя бы одну ветку для этой публикации.'),
-        ),
-      );
-      return;
-    }
+    if (_currentTreeId == null) return;
 
-    setState(() {
-      _isLoading = true;
-    });
+    setState(() => _isLoading = true);
 
     try {
       await _postService.createPost(
         treeId: _currentTreeId!,
         content: content,
-        images: _selectedImages.isNotEmpty ? _selectedImages : null,
+        images: _selectedImages,
         isPublic: _isPublic,
         scopeType: _scopeType,
-        anchorPersonIds: _scopeType == TreeContentScopeType.branches
-            ? _selectedBranchPersonIds.toList()
-            : const <String>[],
+        anchorPersonIds: _selectedBranchPersonIds.toList(),
       );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Пост успешно опубликован.')),
+          const SnackBar(content: Text('Запись успешно опубликована!')),
         );
-        context.pop(true);
+        context.pop(true); // Return true to signal refresh
       }
     } catch (e) {
-      debugPrint('Ошибка создания поста: $e');
       if (mounted) {
+        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка публикации: ${e.toString()}')),
+          SnackBar(content: Text('Ошибка при публикации: $e')),
         );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
       }
     }
   }
@@ -192,6 +166,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isWideLayout = MediaQuery.of(context).size.width >= 1080;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Новая публикация'),
@@ -220,55 +196,102 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           if (_currentTreeId == null)
             _buildMissingTreeState()
           else
-            SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _buildScopeCard(),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _contentController,
-                    decoration: const InputDecoration(
-                      hintText: 'Что у вас нового?',
-                      border: OutlineInputBorder(),
-                    ),
-                    maxLines: 8,
-                    minLines: 3,
-                  ),
-                  const SizedBox(height: 16),
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.photo_library_outlined),
-                    label: const Text('Добавить фото'),
-                    onPressed: _pickImages,
-                  ),
-                  if (_selectedImages.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    _buildImagePreviews(),
-                  ],
-                  const SizedBox(height: 24),
-                ],
-              ),
-            ),
-          if (_isLoading)
-            Positioned.fill(
-              child: Container(
-                color: Colors.black.withValues(alpha: 0.45),
-                child: const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 16),
-                      Text(
-                        'Публикация...',
-                        style: TextStyle(color: Colors.white, fontSize: 16),
-                      ),
-                    ],
-                  ),
+            Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1380),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: isWideLayout
+                      ? Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: _buildEditorCard(),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              flex: 2,
+                              child: Column(
+                                children: [
+                                  _buildScopeCard(),
+                                  const SizedBox(height: 16),
+                                  _buildPublishingHintsCard(),
+                                ],
+                              ),
+                            ),
+                          ],
+                        )
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _buildScopeCard(),
+                            const SizedBox(height: 16),
+                            _buildEditorCard(),
+                            const SizedBox(height: 16),
+                            _buildPublishingHintsCard(),
+                          ],
+                        ),
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEditorCard() {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Содержание публикации',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Короткий семейный апдейт, объявление или фотоотчет. Публикация появится в ленте выбранного дерева.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _contentController,
+            decoration: const InputDecoration(
+              hintText: 'Что у вас нового?',
+              border: OutlineInputBorder(),
+            ),
+            maxLines: 10,
+            minLines: 5,
+          ),
+          const SizedBox(height: 16),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.photo_library_outlined),
+            label: Text(
+              _selectedImages.isEmpty
+                  ? 'Добавить фото'
+                  : 'Добавить ещё фото (${_selectedImages.length}/5)',
+            ),
+            onPressed: _pickImages,
+          ),
+          if (_selectedImages.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _buildImagePreviews(),
+          ],
         ],
       ),
     );
@@ -323,11 +346,15 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   }
 
   Widget _buildScopeCard() {
+    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16),
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -368,7 +395,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
             contentPadding: EdgeInsets.zero,
             title: const Text('Публичная публикация'),
             subtitle: const Text(
-              'В legacy-ленте пост будет помечен как публичный, если дерево допускает внешний просмотр.',
+              'Пост будет доступен для просмотра всем родственникам в дереве.',
             ),
             value: _isPublic,
             onChanged: (value) {
@@ -417,6 +444,79 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 }).toList(),
               ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPublishingHintsCard() {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Перед публикацией',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _buildHintRow(
+            icon: Icons.photo_library_outlined,
+            text: 'Можно добавить до 5 изображений в одну публикацию.',
+          ),
+          _buildHintRow(
+            icon: Icons.alt_route,
+            text:
+                'Режим «Отдельные ветки» ограничивает видимость выбранными семейными линиями.',
+          ),
+          _buildHintRow(
+            icon: Icons.public,
+            text: _isPublic
+                ? 'Сейчас публикация помечена как публичная внутри дерева.'
+                : 'Сейчас публикация останется внутренней для выбранного дерева.',
+          ),
+          _buildHintRow(
+            icon: Icons.cloud_done_outlined,
+            text:
+                'Если сеть пропадет во время отправки, публикацию можно сразу повторить без перезапуска экрана.',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHintRow({
+    required IconData icon,
+    required String text,
+  }) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: theme.colorScheme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                height: 1.4,
+              ),
+            ),
+          ),
         ],
       ),
     );

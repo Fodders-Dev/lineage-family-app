@@ -14,7 +14,7 @@ import '../models/user_profile.dart';
 import '../backend/interfaces/auth_service_interface.dart';
 import '../backend/interfaces/chat_service_interface.dart';
 import '../backend/interfaces/family_tree_service_interface.dart';
-import '../services/crashlytics_service.dart';
+
 import '../services/public_tree_link_service.dart';
 import '../utils/user_facing_error.dart';
 
@@ -58,7 +58,6 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
       GetIt.I<FamilyTreeServiceInterface>();
   final AuthServiceInterface _authService = GetIt.I<AuthServiceInterface>();
   final ChatServiceInterface _chatService = GetIt.I<ChatServiceInterface>();
-  final CrashlyticsService _crashlyticsService = CrashlyticsService();
 
   // Map<String, dynamic> _graphData = {'nodes': [], 'edges': []}; // Больше не нужно
   bool _isLoading = true;
@@ -251,7 +250,6 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
           _errorMessage = 'Не удалось загрузить данные дерева.';
         });
       }
-      _crashlyticsService.logError(e, s, reason: 'TreeViewLoadError');
     }
   }
 
@@ -352,6 +350,7 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isCompact = constraints.maxWidth < 600;
+        final isWideDesktop = constraints.maxWidth >= 1180;
 
         if (_isLoading) {
           return _buildTreeState(
@@ -388,54 +387,103 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
           );
         }
 
+        final overviewCard = isCompact
+            ? _buildOverviewCard(
+                selectedTreeId,
+                selectedTreeName,
+                compact: true,
+              )
+            : _buildOverviewCard(
+                selectedTreeId,
+                selectedTreeName,
+                compact: false,
+              );
+
+        final treeCanvas = _buildTreeCanvas();
+
+        if (isWideDesktop) {
+          return Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1520),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(
+                      width: 372,
+                      child: SingleChildScrollView(child: overviewCard),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(child: treeCanvas),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+
         return Column(
           children: [
             Padding(
               padding: EdgeInsets.fromLTRB(16, isCompact ? 10 : 16, 16, 12),
-              child: isCompact
-                  ? _buildOverviewCard(
-                      selectedTreeId,
-                      selectedTreeName,
-                      compact: true,
-                    )
-                  : _buildOverviewCard(
-                      selectedTreeId,
-                      selectedTreeName,
-                      compact: false,
-                    ),
+              child: overviewCard,
             ),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                child: InteractiveFamilyTree(
-                  peopleData: _relativesData,
-                  relations: _relationsData,
-                  currentUserId: _authService.currentUserId,
-                  branchRootPersonId: _branchRootPersonId,
-                  onBranchFocusCleared: _resetBranchFocus,
-                  onPersonTap: (person) {
-                    debugPrint(
-                        'Нажатие на узел: ${person.name} (${person.id})');
-                    context.push('/relative/details/${person.id}');
-                  },
-                  onBranchFocusRequested: _focusBranch,
-                  isEditMode: _isEditMode,
-                  selectedEditPersonId: _selectedEditPersonId,
-                  onEditPersonSelected: (person) {
-                    setState(() {
-                      _selectedEditPersonId = person.id;
-                      _selectedEditPersonName = person.name;
-                    });
-                  },
-                  onAddRelativeTapWithType: _handleAddRelativeFromTree,
-                  currentUserIsInTree: _currentUserIsInTree,
-                  onAddSelfTapWithType: _handleAddSelfFromTree,
-                ),
+                child: treeCanvas,
               ),
             ),
           ],
         );
       },
+    );
+  }
+
+  Widget _buildTreeCanvas() {
+    final theme = Theme.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: theme.colorScheme.shadow.withValues(alpha: 0.06),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: InteractiveFamilyTree(
+          peopleData: _relativesData,
+          relations: _relationsData,
+          currentUserId: _authService.currentUserId,
+          branchRootPersonId: _branchRootPersonId,
+          onBranchFocusCleared: _resetBranchFocus,
+          onPersonTap: (person) {
+            debugPrint('Нажатие на узел: ${person.name} (${person.id})');
+            context.push('/relative/details/${person.id}');
+          },
+          onBranchFocusRequested: _focusBranch,
+          isEditMode: _isEditMode,
+          selectedEditPersonId: _selectedEditPersonId,
+          onEditPersonSelected: (person) {
+            setState(() {
+              _selectedEditPersonId = person.id;
+              _selectedEditPersonName = person.name;
+            });
+          },
+          onAddRelativeTapWithType: _handleAddRelativeFromTree,
+          currentUserIsInTree: _currentUserIsInTree,
+          onAddSelfTapWithType: _handleAddSelfFromTree,
+        ),
+      ),
     );
   }
 
@@ -1008,11 +1056,7 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
           ),
         );
       }
-      _crashlyticsService.logError(
-        e,
-        s,
-        reason: 'handleAddSelfFromTreeFailed',
-      );
+      debugPrint('Error in handleAddSelfFromTree: $e\n$s');
     }
   }
 

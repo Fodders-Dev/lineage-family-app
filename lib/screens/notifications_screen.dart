@@ -5,6 +5,40 @@ import 'package:intl/intl.dart';
 import '../models/app_notification_item.dart';
 import '../services/custom_api_notification_service.dart';
 
+IconData _notificationIconForType(String type) {
+  switch (type) {
+    case 'chat':
+    case 'chat_message':
+      return Icons.chat_bubble_outline;
+    case 'tree_invitation':
+      return Icons.account_tree_outlined;
+    case 'birthday':
+      return Icons.cake_outlined;
+    case 'relation_request':
+      return Icons.people_outline;
+    default:
+      return Icons.notifications_none;
+  }
+}
+
+String _notificationLabelForType(String type) {
+  switch (type) {
+    case 'chat':
+    case 'chat_message':
+      return 'Новое сообщение';
+    case 'tree_invitation':
+      return 'Приглашение в дерево';
+    case 'tree_update':
+      return 'Обновление дерева';
+    case 'birthday':
+      return 'Семейное событие';
+    case 'relation_request':
+      return 'Запрос связи';
+    default:
+      return 'Уведомление';
+  }
+}
+
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({
     super.key,
@@ -162,6 +196,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   bool _isWideLayout(BuildContext context) =>
       MediaQuery.of(context).size.width >= 1180;
 
+  Map<String, int> _buildTypeSummary() {
+    final summary = <String, int>{};
+    for (final item in _notifications) {
+      summary.update(item.type, (count) => count + 1, ifAbsent: () => 1);
+    }
+    return summary;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -215,15 +257,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       );
     }
 
+    final groupedNotifications = _buildGroupedNotifications(_notifications);
+    final typeSummary = _buildTypeSummary();
+
     final listView = ListView.separated(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-      itemCount: _notifications.length,
+      itemCount: groupedNotifications.length,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
-        final item = _notifications[index];
+        final group = groupedNotifications[index];
+        final item = group.first;
         return _NotificationCard(
           item: item,
+          groupedCount: group.length,
           onTap: _isMutating ? null : () => _openNotification(item),
         );
       },
@@ -274,6 +321,34 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           height: 1.4,
                         ),
                       ),
+                      const SizedBox(height: 16),
+                      ...typeSummary.entries.map(
+                        (entry) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Row(
+                            children: [
+                              Icon(
+                                _notificationIconForType(entry.key),
+                                size: 18,
+                                color: theme.colorScheme.primary,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  _notificationLabelForType(entry.key),
+                                  style: theme.textTheme.bodyMedium,
+                                ),
+                              ),
+                              Text(
+                                '${entry.value}',
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -284,15 +359,55 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       ),
     );
   }
+
+  List<List<AppNotificationItem>> _buildGroupedNotifications(
+    List<AppNotificationItem> notifications,
+  ) {
+    final grouped = <List<AppNotificationItem>>[];
+
+    for (final item in notifications) {
+      if (grouped.isEmpty) {
+        grouped.add(<AppNotificationItem>[item]);
+        continue;
+      }
+
+      final previousGroup = grouped.last;
+      final previousItem = previousGroup.first;
+      final sameType = previousItem.type == item.type;
+      final sameTitle = previousItem.title == item.title;
+      final closeInTime = _isSameDay(previousItem.createdAt, item.createdAt);
+      final sameChat = previousItem.data['chatId'] == item.data['chatId'];
+
+      if (sameType && sameTitle && closeInTime && (sameChat || sameType)) {
+        previousGroup.add(item);
+      } else {
+        grouped.add(<AppNotificationItem>[item]);
+      }
+    }
+
+    return grouped;
+  }
+
+  bool _isSameDay(DateTime? left, DateTime? right) {
+    if (left == null || right == null) {
+      return false;
+    }
+
+    return left.year == right.year &&
+        left.month == right.month &&
+        left.day == right.day;
+  }
 }
 
 class _NotificationCard extends StatelessWidget {
   const _NotificationCard({
     required this.item,
+    required this.groupedCount,
     required this.onTap,
   });
 
   final AppNotificationItem item;
+  final int groupedCount;
   final VoidCallback? onTap;
 
   @override
@@ -319,7 +434,7 @@ class _NotificationCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Icon(
-                  _iconForType(item.type),
+                  _notificationIconForType(item.type),
                   color: theme.colorScheme.primary,
                 ),
               ),
@@ -329,7 +444,7 @@ class _NotificationCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _labelForType(item.type),
+                      _notificationLabelForType(item.type),
                       style: theme.textTheme.labelLarge?.copyWith(
                         color: theme.colorScheme.primary,
                         fontWeight: FontWeight.w700,
@@ -337,7 +452,9 @@ class _NotificationCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      item.title,
+                      groupedCount > 1
+                          ? '${item.title} · ещё ${groupedCount - 1}'
+                          : item.title,
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
@@ -345,7 +462,7 @@ class _NotificationCard extends StatelessWidget {
                     if (item.body.isNotEmpty) ...[
                       const SizedBox(height: 6),
                       Text(
-                        item.body,
+                        _formatBody(item.body),
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                           height: 1.35,
@@ -376,40 +493,6 @@ class _NotificationCard extends StatelessWidget {
     );
   }
 
-  static IconData _iconForType(String type) {
-    switch (type) {
-      case 'chat':
-      case 'chat_message':
-        return Icons.chat_bubble_outline;
-      case 'tree_invitation':
-        return Icons.account_tree_outlined;
-      case 'birthday':
-        return Icons.cake_outlined;
-      case 'relation_request':
-        return Icons.people_outline;
-      default:
-        return Icons.notifications_none;
-    }
-  }
-
-  static String _labelForType(String type) {
-    switch (type) {
-      case 'chat':
-      case 'chat_message':
-        return 'Новое сообщение';
-      case 'tree_invitation':
-        return 'Приглашение в дерево';
-      case 'tree_update':
-        return 'Обновление дерева';
-      case 'birthday':
-        return 'Семейное событие';
-      case 'relation_request':
-        return 'Запрос связи';
-      default:
-        return 'Уведомление';
-    }
-  }
-
   static String? _formatTimeLabel(DateTime? createdAt) {
     if (createdAt == null) {
       return null;
@@ -425,6 +508,17 @@ class _NotificationCard extends StatelessWidget {
       final minute = localTime.minute.toString().padLeft(2, '0');
       return '$day.$month $hour:$minute';
     }
+  }
+
+  String _formatBody(String rawBody) {
+    final normalized = rawBody.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normalized.isEmpty) {
+      return '';
+    }
+    if (normalized.length <= 140) {
+      return normalized;
+    }
+    return '${normalized.substring(0, 137).trimRight()}...';
   }
 }
 
