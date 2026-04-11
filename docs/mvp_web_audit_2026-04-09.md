@@ -70,10 +70,14 @@ Scope:
 - Desktop layouts for home, chats, profile, relatives, notifications, and chat view are all denser than the initial audit baseline.
 - Production deployment was updated on 2026-04-10 for both `api.rodnya-tree.ru` and `rodnya-tree.ru`.
 - Additional live production smoke passed on 2026-04-10: home feed renders a new post, profile shows authored posts, notifications grouping is visible after a fresh bundle load, tree view uses the new split desktop layout, and direct chat renders photo messages correctly.
+- Deployment hardening moved forward on 2026-04-11: the repo now contains a shared web release activator, a Windows manual deploy helper, and a tar-based GitHub workflow path instead of raw in-place rsync.
+- Production web deploys can now expose a plain `last_build_id.txt` marker for external verification without SSH.
 
 ## Residual notes
 - Browser sessions can temporarily keep an older Flutter web bundle in memory; in testing, adding a cache-busting query or reloading the app was enough to see the latest production UI.
 - Web console is clean from runtime errors in the verified flows, but Flutter still emits a `Noto fonts` warning for some missing glyphs. This is not blocking MVP behavior, but it should be cleaned up in a later typography pass.
+- Validation note from 2026-04-11:
+  local browser smoke should use `flutter build web`, not only `flutter build web --no-wasm-dry-run`. In this repo the `--no-wasm-dry-run` output can be sufficient for compile validation while still leaving a locally served `build/web` without final `AssetManifest`, `FontManifest`, and web icon files, which creates false 404s and `google_fonts` runtime noise on `/login`.
 
 ## Technical notes
 - Web build had a compile blocker in `lib/screens/chat_screen.dart`: missing `ChatPreview` import.

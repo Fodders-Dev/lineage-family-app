@@ -23,6 +23,9 @@ jobs:
       - name: Build web
         run: flutter build web --release --dart-define=LINEAGE_RUNTIME_PRESET=prod_custom_api --dart-define=LINEAGE_ENABLE_LEGACY_DYNAMIC_LINKS=false
 
+      - name: Create release archive
+        run: tar -czf rodnya-site.tgz -C build/web .
+
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
@@ -30,14 +33,24 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Ensure deploy directory exists
+      - name: Upload release archive
+        env:
+          REMOTE_ARCHIVE: /tmp/rodnya-site-${{ github.sha }}.tgz
         run: |
-          ssh -i ~/.ssh/id_ed25519 "${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_HOST }}" \
-            "mkdir -p '${{ secrets.DEPLOY_PATH }}'"
+          scp -i ~/.ssh/id_ed25519 rodnya-site.tgz \
+            "${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_HOST }}:${REMOTE_ARCHIVE}"
 
-      - name: Upload web build
+      - name: Activate release on server
+        env:
+          REMOTE_ARCHIVE: /tmp/rodnya-site-${{ github.sha }}.tgz
         run: |
-          rsync -rz --delete --omit-dir-times --no-perms --no-owner --no-group \
-            -e "ssh -i ~/.ssh/id_ed25519" \
-            build/web/ \
-            "${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_HOST }}:${{ secrets.DEPLOY_PATH }}/"
+          DEPLOY_LABEL="deploy ${GITHUB_SHA::7} / github-actions / $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          ssh -i ~/.ssh/id_ed25519 "${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_HOST }}" \
+            bash -s -- "${REMOTE_ARCHIVE}" "${{ secrets.DEPLOY_PATH }}" "${DEPLOY_LABEL}" <<'EOF'
+          set -euo pipefail
+          archive="$1"
+          target="$2"
+          label="$3"
+          BUILD_LABEL="$label" sudo /usr/local/bin/rodnya-activate-web-release "$archive" "$target"
+          rm -f "$archive"
+          EOF
