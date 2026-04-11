@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:image_picker/image_picker.dart';
@@ -199,11 +199,13 @@ class _FakeChatService implements ChatServiceInterface {
   final Completer<void> sendCompleter = Completer<void>();
   final StreamController<List<ChatMessage>> _messagesController =
       StreamController<List<ChatMessage>>.broadcast();
+  final List<_SentChatRequest> sentRequests = <_SentChatRequest>[];
   ChatReplyReference? lastReplyTo;
   List<ChatAttachment> lastForwardedAttachments = const <ChatAttachment>[];
   String? lastEditedMessageId;
   String? lastEditedText;
   String? lastDeletedMessageId;
+  final List<String> deletedMessageIds = <String>[];
   String? lastClientMessageId;
   int? lastExpiresInSeconds;
   ChatDetails details = const ChatDetails(
@@ -263,6 +265,17 @@ class _FakeChatService implements ChatServiceInterface {
     lastForwardedAttachments = forwardedAttachments;
     lastClientMessageId = clientMessageId;
     lastExpiresInSeconds = expiresInSeconds;
+    sentRequests.add(
+      _SentChatRequest(
+        chatId: chatId,
+        text: text,
+        attachments: attachments,
+        forwardedAttachments: forwardedAttachments,
+        replyTo: replyTo,
+        clientMessageId: clientMessageId,
+        expiresInSeconds: expiresInSeconds,
+      ),
+    );
     onProgress?.call(
       const ChatSendProgress(
         stage: ChatSendProgressStage.sending,
@@ -351,11 +364,32 @@ class _FakeChatService implements ChatServiceInterface {
     required String messageId,
   }) async {
     lastDeletedMessageId = messageId;
+    deletedMessageIds.add(messageId);
   }
 
   void emitMessages(List<ChatMessage> messages) {
     _messagesController.add(messages);
   }
+}
+
+class _SentChatRequest {
+  const _SentChatRequest({
+    required this.chatId,
+    required this.text,
+    required this.attachments,
+    required this.forwardedAttachments,
+    required this.replyTo,
+    required this.clientMessageId,
+    required this.expiresInSeconds,
+  });
+
+  final String chatId;
+  final String text;
+  final List<XFile> attachments;
+  final List<ChatAttachment> forwardedAttachments;
+  final ChatReplyReference? replyTo;
+  final String? clientMessageId;
+  final int? expiresInSeconds;
 }
 
 void main() {
@@ -1223,6 +1257,252 @@ void main() {
     await pumpChat();
 
     expect(find.text('👍 1'), findsOneWidget);
+  });
+
+  testWidgets('ChatScreen copies selected messages as transcript',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    String? clipboardText;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        clipboardText =
+            (call.arguments as Map<Object?, Object?>)['text'] as String?;
+        return null;
+      }
+      if (call.method == 'Clipboard.getData') {
+        return <String, dynamic>{'text': clipboardText};
+      }
+      return null;
+    });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    final chatService = _FakeChatService();
+    getIt.registerSingleton<ChatServiceInterface>(chatService);
+
+    await tester.pumpWidget(
+      buildChatApp(
+        ChatScreen(
+          chatId: 'chat-1',
+          title: 'Тестовый чат',
+          draftStore: _MemoryChatDraftStore(),
+        ),
+      ),
+    );
+
+    chatService.emitMessages([
+      ChatMessage(
+        id: 'm-copy-1',
+        chatId: 'chat-1',
+        senderId: 'other-user',
+        text: 'сдэк еще не пришел ?',
+        timestamp: DateTime(2026, 4, 8, 9, 19),
+        isRead: false,
+        participants: const ['user-1', 'other-user'],
+        senderName: 'Анастасия<3',
+      ),
+      ChatMessage(
+        id: 'm-copy-2',
+        chatId: 'chat-1',
+        senderId: 'other-user',
+        text: 'Катя',
+        timestamp: DateTime(2026, 4, 8, 9, 20),
+        isRead: false,
+        participants: const ['user-1', 'other-user'],
+        senderName: 'Анастасия<3',
+      ),
+    ]);
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('сдэк еще не пришел ?'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Выбрать'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Выбрано: 1'), findsOneWidget);
+
+    await tester.tap(find.text('Катя'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Выбрано: 2'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Скопировать выбранное'));
+    await tester.pumpAndSettle();
+
+    expect(
+      clipboardText,
+      '[08.04.2026 9:19] Анастасия<3: сдэк еще не пришел ?\n'
+      '[08.04.2026 9:20] Анастасия<3: Катя',
+    );
+  });
+
+  testWidgets('ChatScreen opens attachment viewer for remote file',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final chatService = _FakeChatService();
+    getIt.registerSingleton<ChatServiceInterface>(chatService);
+
+    await tester.pumpWidget(
+      buildChatApp(
+        ChatScreen(
+          chatId: 'chat-1',
+          title: 'Тестовый чат',
+          draftStore: _MemoryChatDraftStore(),
+        ),
+      ),
+    );
+
+    chatService.emitMessages([
+      ChatMessage(
+        id: 'm-file-1',
+        chatId: 'chat-1',
+        senderId: 'other-user',
+        text: '',
+        timestamp: DateTime(2026, 4, 8, 9, 19),
+        isRead: false,
+        participants: const ['user-1', 'other-user'],
+        senderName: 'Анастасия<3',
+        attachments: const [
+          ChatAttachment(
+            type: ChatAttachmentType.file,
+            url: 'https://example.com/contract.pdf',
+            fileName: 'contract.pdf',
+          ),
+        ],
+      ),
+    ]);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('contract.pdf'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('contract.pdf'), findsAtLeastNWidgets(1));
+    expect(find.byIcon(Icons.open_in_new), findsOneWidget);
+    expect(find.byIcon(Icons.file_download_outlined), findsOneWidget);
+  });
+
+  testWidgets('ChatScreen forwards selected messages as a batch',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final chatService = _FakeChatService();
+    chatService.sendCompleter.complete();
+    getIt.registerSingleton<ChatServiceInterface>(chatService);
+
+    await tester.pumpWidget(
+      buildChatApp(
+        ChatScreen(
+          chatId: 'chat-1',
+          title: 'Тестовый чат',
+          draftStore: _MemoryChatDraftStore(),
+        ),
+      ),
+    );
+
+    chatService.emitMessages([
+      ChatMessage(
+        id: 'm-forward-1',
+        chatId: 'chat-1',
+        senderId: 'other-user',
+        text: 'Первое выбранное сообщение',
+        timestamp: DateTime(2026, 4, 8, 9, 19),
+        isRead: false,
+        participants: const ['user-1', 'other-user'],
+        senderName: 'Анастасия<3',
+      ),
+      ChatMessage(
+        id: 'm-forward-2',
+        chatId: 'chat-1',
+        senderId: 'other-user',
+        text: 'Второе выбранное сообщение',
+        timestamp: DateTime(2026, 4, 8, 9, 20),
+        isRead: false,
+        participants: const ['user-1', 'other-user'],
+        senderName: 'Анастасия<3',
+      ),
+    ]);
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('Первое выбранное сообщение'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Выбрать'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Второе выбранное сообщение'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Переслать выбранное'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Пересылаете 2 сообщений'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pumpAndSettle();
+
+    expect(chatService.sentRequests, hasLength(2));
+    expect(
+      chatService.sentRequests.map((request) => request.text),
+      ['Первое выбранное сообщение', 'Второе выбранное сообщение'],
+    );
+    expect(find.text('Пересылаете 2 сообщений'), findsNothing);
+  });
+
+  testWidgets('ChatScreen deletes selected own messages', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final chatService = _FakeChatService();
+    getIt.registerSingleton<ChatServiceInterface>(chatService);
+
+    await tester.pumpWidget(
+      buildChatApp(
+        ChatScreen(
+          chatId: 'chat-1',
+          title: 'Тестовый чат',
+          draftStore: _MemoryChatDraftStore(),
+        ),
+      ),
+    );
+
+    chatService.emitMessages([
+      ChatMessage(
+        id: 'm-delete-1',
+        chatId: 'chat-1',
+        senderId: 'user-1',
+        text: 'Моё первое сообщение',
+        timestamp: DateTime(2026, 4, 8, 9, 19),
+        isRead: true,
+        participants: const ['user-1', 'other-user'],
+        senderName: 'Tema Kuznetsov',
+      ),
+      ChatMessage(
+        id: 'm-delete-2',
+        chatId: 'chat-1',
+        senderId: 'user-1',
+        text: 'Моё второе сообщение',
+        timestamp: DateTime(2026, 4, 8, 9, 20),
+        isRead: true,
+        participants: const ['user-1', 'other-user'],
+        senderName: 'Tema Kuznetsov',
+      ),
+    ]);
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('Моё первое сообщение'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Выбрать'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Моё второе сообщение'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Удалить выбранное'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Удалить'));
+    await tester.pumpAndSettle();
+
+    expect(chatService.deletedMessageIds, ['m-delete-1', 'm-delete-2']);
   });
 
   testWidgets(

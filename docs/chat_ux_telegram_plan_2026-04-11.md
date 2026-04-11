@@ -36,6 +36,13 @@
 - [x] Presence, typing, seen-state улучшения
 - [x] Более сильный offline/retry/dedup layer
 
+## Wave 5
+- Статус: in progress
+- [x] Desktop/web context menu без пересечения с системным browser menu
+- [x] Multi-select сообщений с batch copy/forward/delete
+- [x] Attachment viewer и download/open flow для remote вложений
+- [ ] Галерея media и richer video/image navigation как отдельный polish-pass
+
 ## Family-first differentiators
 - [ ] Быстрый переход из дерева в релевантный чат ветки
 - [ ] Smart entry points: обсудить человека, ветку, событие
@@ -78,6 +85,9 @@
 - [x] Offline/retry/dedup layer: `clientMessageId` в transport, backend idempotency по `chatId + senderId + clientMessageId` и более точное схлопывание optimistic bubbles
 - [x] Polling pass: chat overview вынесен на более редкий shared interval, notifications и pending invitations больше не стучатся так часто, как до realtime/TTL/dedup wave
 - [x] Desktop context menu для сообщений: right click и anchored mini-popover поверх bubble с быстрыми реакциями и action list вместо bottom sheet на desktop/web
+- [x] Browser context menu suppression на chat screen: системное web-меню отключается, чтобы не перекрывать custom popover
+- [x] Multi-select: выделение нескольких сообщений, app bar batch actions и transcript-copy в Telegram-like формате `[dd.MM.yyyy H:mm] Имя: текст`
+- [x] Attachment viewer/download pass: tap по remote вложению открывает fullscreen viewer с `open externally` и `download/open` actions вместо тупика "отправили, но не посмотреть"
 
 ## Notes
 - Telegram reference:
