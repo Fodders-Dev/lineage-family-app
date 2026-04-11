@@ -3,7 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:lineage/backend/interfaces/auth_service_interface.dart';
 import 'package:lineage/backend/interfaces/family_tree_service_interface.dart';
+import 'package:lineage/backend/interfaces/post_service_interface.dart';
 import 'package:lineage/backend/interfaces/profile_service_interface.dart';
+import 'package:lineage/models/post.dart';
 import 'package:lineage/models/family_person.dart';
 import 'package:lineage/models/family_relation.dart';
 import 'package:lineage/models/family_tree.dart';
@@ -152,6 +154,19 @@ class _FakeLocalStorageService implements LocalStorageService {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class _FakePostService implements PostServiceInterface {
+  @override
+  Future<List<Post>> getPosts({
+    String? treeId,
+    String? authorId,
+    bool onlyBranches = false,
+  }) async =>
+      const <Post>[];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
   final getIt = GetIt.instance;
 
@@ -164,6 +179,7 @@ void main() {
     );
     getIt.registerSingleton<ProfileServiceInterface>(_FakeProfileService());
     getIt.registerSingleton<LocalStorageService>(_FakeLocalStorageService());
+    getIt.registerSingleton<PostServiceInterface>(_FakePostService());
   });
 
   tearDown(() async {

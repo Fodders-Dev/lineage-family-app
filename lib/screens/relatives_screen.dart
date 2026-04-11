@@ -6,6 +6,7 @@ import 'package:get_it/get_it.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../models/family_tree.dart';
 import '../models/family_person.dart';
 import '../models/family_relation.dart';
 import '../models/chat_preview.dart';
@@ -23,6 +24,23 @@ class _ContactStatus {
 
   final String label;
   final Color color;
+}
+
+String _countLabel(
+  int count, {
+  required String one,
+  required String few,
+  required String many,
+}) {
+  final mod10 = count % 10;
+  final mod100 = count % 100;
+  if (mod10 == 1 && mod100 != 11) {
+    return '$count $one';
+  }
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return '$count $few';
+  }
+  return '$count $many';
 }
 
 class RelativesScreen extends StatefulWidget {
@@ -163,8 +181,6 @@ class _RelativesScreenState extends State<RelativesScreen> {
   Future<void> _setupDataListeners(String treeId, String currentUserId) async {
     _cancelSubscriptions();
 
-    debugPrint('RelativesScreen: Настройка слушателей для дерева $treeId');
-
     final completerRelatives = Completer<void>();
     final completerRelations = Completer<void>();
     final completerChats = Completer<void>();
@@ -184,7 +200,6 @@ class _RelativesScreenState extends State<RelativesScreen> {
             _allRelatives = relatives;
             _currentUserPersonId = currentUserPersonId;
             _errorMessage = '';
-            debugPrint('Получено родственников: ${relatives.length}');
           });
           if (!completerRelatives.isCompleted) completerRelatives.complete();
         }
@@ -199,7 +214,6 @@ class _RelativesScreenState extends State<RelativesScreen> {
           );
         }
       },
-      onDone: () => debugPrint('Stream родственников завершен'),
       cancelOnError: false,
     );
 
@@ -208,7 +222,6 @@ class _RelativesScreenState extends State<RelativesScreen> {
         if (mounted) {
           setState(() {
             _relations = relations;
-            debugPrint('Получено связей: ${relations.length}');
           });
           if (!completerRelations.isCompleted) completerRelations.complete();
         }
@@ -224,7 +237,6 @@ class _RelativesScreenState extends State<RelativesScreen> {
           );
         }
       },
-      onDone: () => debugPrint('Stream связей завершен'),
       cancelOnError: false,
     );
 
@@ -233,7 +245,6 @@ class _RelativesScreenState extends State<RelativesScreen> {
         if (mounted) {
           setState(() {
             _chatPreviews = chatPreviews;
-            debugPrint('Получено превью чатов: ${chatPreviews.length}');
           });
           if (!completerChats.isCompleted) completerChats.complete();
         }
@@ -249,7 +260,6 @@ class _RelativesScreenState extends State<RelativesScreen> {
           );
         }
       },
-      onDone: () => debugPrint('Stream чатов завершен'),
       cancelOnError: false,
     );
 
@@ -263,7 +273,6 @@ class _RelativesScreenState extends State<RelativesScreen> {
         setState(() {
           _isLoading = false;
         });
-        debugPrint('Все данные загружены (Future.wait успешно завершен).');
       }
     } catch (e, stackTrace) {
       debugPrint('Ошибка или таймаут при ожидании данных: $e');
@@ -293,16 +302,31 @@ class _RelativesScreenState extends State<RelativesScreen> {
   bool _isWideLayout(BuildContext context) =>
       MediaQuery.of(context).size.width >= 1180;
 
+  bool _isFriendsTree(TreeProvider provider) =>
+      provider.selectedTreeKind == TreeKind.friends;
+
+  String _graphAddLabel(TreeProvider provider) =>
+      _isFriendsTree(provider) ? 'Добавить человека' : 'Добавить родственника';
+
+  String _graphFindLabel(TreeProvider provider) =>
+      _isFriendsTree(provider) ? 'Найти человека' : 'Найти родственника';
+
   @override
   Widget build(BuildContext context) {
     final treeProvider = Provider.of<TreeProvider>(context);
     final selectedTreeId = treeProvider.selectedTreeId;
-    final selectedTreeName = treeProvider.selectedTreeName ?? 'Родственники';
+    final selectedTreeName = treeProvider.selectedTreeName ??
+        (_isFriendsTree(treeProvider) ? 'Круг друзей' : 'Родственники');
+    final isFriendsTree = _isFriendsTree(treeProvider);
 
     // --- ФИЛЬТРАЦИЯ СПИСКОВ ---
     final String currentUserId = _authService.currentUserId ?? '';
     final List<FamilyPerson> visibleRelatives =
         _allRelatives.where((p) => p.userId != currentUserId).toList();
+    final chatReadyCount =
+        visibleRelatives.where((person) => _canStartChat(person)).length;
+    final inviteReadyCount =
+        visibleRelatives.where((person) => _canInviteRelative(person)).length;
     // -------------------------
 
     return Scaffold(
@@ -321,7 +345,9 @@ class _RelativesScreenState extends State<RelativesScreen> {
               label: Text(_pendingRequestsCount.toString()),
               child: IconButton(
                 icon: Icon(Icons.notifications_none),
-                tooltip: 'Запросы на родство ($_pendingRequestsCount)',
+                tooltip: isFriendsTree
+                    ? 'Запросы на связи ($_pendingRequestsCount)'
+                    : 'Запросы на родство ($_pendingRequestsCount)',
                 onPressed: selectedTreeId == null
                     ? null
                     : () {
@@ -344,7 +370,10 @@ class _RelativesScreenState extends State<RelativesScreen> {
                 context.push('/relatives/find/$selectedTreeId');
               } else if (value == 'tree_view') {
                 final nameParam = Uri.encodeComponent(
-                  treeProvider.selectedTreeName ?? 'Семейное дерево',
+                  treeProvider.selectedTreeName ??
+                      (_isFriendsTree(treeProvider)
+                          ? 'Дерево друзей'
+                          : 'Семейное дерево'),
                 );
                 context.push('/tree/view/$selectedTreeId?name=$nameParam');
               } else if (value == 'create_tree') {
@@ -361,7 +390,7 @@ class _RelativesScreenState extends State<RelativesScreen> {
                 enabled: selectedTreeId != null,
                 child: ListTile(
                   leading: Icon(Icons.person_add),
-                  title: Text('Добавить родственника'),
+                  title: Text(_graphAddLabel(treeProvider)),
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
@@ -369,7 +398,11 @@ class _RelativesScreenState extends State<RelativesScreen> {
                 value: 'create_tree',
                 child: ListTile(
                   leading: Icon(Icons.add_circle_outline),
-                  title: Text('Создать новое дерево'),
+                  title: Text(
+                    isFriendsTree
+                        ? 'Создать новый круг'
+                        : 'Создать новое дерево',
+                  ),
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
@@ -389,7 +422,9 @@ class _RelativesScreenState extends State<RelativesScreen> {
                   child: ListTile(
                     leading: Icon(Icons.notifications),
                     title: Text(
-                      'Запросы на родство ($_pendingRequestsCount)',
+                      isFriendsTree
+                          ? 'Запросы на связи ($_pendingRequestsCount)'
+                          : 'Запросы на родство ($_pendingRequestsCount)',
                     ),
                     contentPadding: EdgeInsets.zero,
                   ),
@@ -399,7 +434,7 @@ class _RelativesScreenState extends State<RelativesScreen> {
                 enabled: selectedTreeId != null,
                 child: ListTile(
                   leading: Icon(Icons.search),
-                  title: Text('Найти родственника'),
+                  title: Text(_graphFindLabel(treeProvider)),
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
@@ -424,11 +459,55 @@ class _RelativesScreenState extends State<RelativesScreen> {
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                           child: _isWideLayout(context)
-                              ? Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                              ? Column(
                                   children: [
+                                    _buildGraphContextBanner(
+                                      treeName: selectedTreeName,
+                                      isFriendsTree: isFriendsTree,
+                                      relativesCount: visibleRelatives.length,
+                                    ),
+                                    const SizedBox(height: 16),
                                     Expanded(
-                                      flex: 3,
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Expanded(
+                                            flex: 3,
+                                            child: _buildRelativesList(
+                                              key: ValueKey(
+                                                'relatives_$selectedTreeId',
+                                              ),
+                                              relativesForTab: visibleRelatives,
+                                              isOnlineTab: false,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 16),
+                                          SizedBox(
+                                            width: 320,
+                                            child: _buildRelativesSidePanel(
+                                              relativesCount:
+                                                  visibleRelatives.length,
+                                              chatReadyCount: chatReadyCount,
+                                              inviteReadyCount:
+                                                  inviteReadyCount,
+                                              treeName: selectedTreeName,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : Column(
+                                  children: [
+                                    _buildGraphContextBanner(
+                                      treeName: selectedTreeName,
+                                      isFriendsTree: isFriendsTree,
+                                      relativesCount: visibleRelatives.length,
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Expanded(
                                       child: _buildRelativesList(
                                         key: ValueKey(
                                           'relatives_$selectedTreeId',
@@ -437,19 +516,7 @@ class _RelativesScreenState extends State<RelativesScreen> {
                                         isOnlineTab: false,
                                       ),
                                     ),
-                                    const SizedBox(width: 16),
-                                    SizedBox(
-                                      width: 320,
-                                      child: _buildRelativesSidePanel(
-                                        visibleRelatives.length,
-                                      ),
-                                    ),
                                   ],
-                                )
-                              : _buildRelativesList(
-                                  key: ValueKey('relatives_$selectedTreeId'),
-                                  relativesForTab: visibleRelatives,
-                                  isOnlineTab: false,
                                 ),
                         ),
                       ),
@@ -461,13 +528,14 @@ class _RelativesScreenState extends State<RelativesScreen> {
               onPressed: () {
                 context.push('/relatives/add/$selectedTreeId');
               },
-              tooltip: 'Добавить родственника',
+              tooltip: _graphAddLabel(treeProvider),
               child: Icon(Icons.add),
             ),
     );
   }
 
   Widget _buildNoTreeSelected() {
+    final theme = Theme.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24.0),
@@ -477,20 +545,31 @@ class _RelativesScreenState extends State<RelativesScreen> {
             Icon(Icons.info_outline, size: 60, color: Colors.grey),
             SizedBox(height: 16),
             Text(
-              'Дерево не выбрано',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              'Граф не выбран',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
             SizedBox(height: 8),
             Text(
-              'Нажмите на иконку дерева вверху, чтобы выбрать или создать новое',
+              'Нажмите на иконку дерева вверху, чтобы выбрать семейное дерево или круг друзей',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey[600]),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                height: 1.4,
+              ),
             ),
             SizedBox(height: 20),
-            ElevatedButton.icon(
+            FilledButton.icon(
               icon: Icon(Icons.account_tree_outlined),
-              label: Text('Выбрать/Создать дерево'),
+              label: Text('Выбрать граф'),
               onPressed: () => context.go('/tree?selector=1'),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.add_circle_outline),
+              label: const Text('Открыть мои графы'),
+              onPressed: () => context.go('/trees'),
             ),
           ],
         ),
@@ -498,8 +577,15 @@ class _RelativesScreenState extends State<RelativesScreen> {
     );
   }
 
-  Widget _buildRelativesSidePanel(int relativesCount) {
+  Widget _buildRelativesSidePanel({
+    required int relativesCount,
+    required int chatReadyCount,
+    required int inviteReadyCount,
+    required String treeName,
+  }) {
     final theme = Theme.of(context);
+    final treeProvider = Provider.of<TreeProvider>(context, listen: false);
+    final isFriendsTree = _isFriendsTree(treeProvider);
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -513,31 +599,281 @@ class _RelativesScreenState extends State<RelativesScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Сводка по дереву',
+            isFriendsTree ? 'Сводка по кругу' : 'Сводка по дереву',
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  isFriendsTree
+                      ? Icons.diversity_3_outlined
+                      : Icons.account_tree_outlined,
+                  size: 16,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    treeName,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
           Text(
-            'Всего родственников: $relativesCount',
+            isFriendsTree
+                ? 'Всего людей в круге: $relativesCount'
+                : 'Всего родственников: $relativesCount',
             style: theme.textTheme.bodyLarge?.copyWith(
               fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _buildSideStatChip(
+                icon: Icons.people_outline,
+                label:
+                    '$relativesCount ${isFriendsTree ? 'в круге' : 'в дереве'}',
+              ),
+              _buildSideStatChip(
+                icon: Icons.chat_bubble_outline,
+                label: _countLabel(
+                  _chatPreviews.length,
+                  one: 'чат',
+                  few: 'чата',
+                  many: 'чатов',
+                ),
+              ),
+              _buildSideStatChip(
+                icon: Icons.notifications_none,
+                label: _pendingRequestsCount > 0
+                    ? _countLabel(
+                        _pendingRequestsCount,
+                        one: 'запрос',
+                        few: 'запроса',
+                        many: 'запросов',
+                      )
+                    : 'Без запросов',
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
           Text(
-            'На desktop удобнее держать список людей отдельно, а действия по дереву и запросам на родство в боковой колонке.',
+            isFriendsTree
+                ? 'На desktop удобнее держать людей из круга отдельно, а действия по связям и приглашениям в боковой колонке.'
+                : 'На desktop удобнее держать список родственников отдельно, а действия по дереву и запросам на родство в боковой колонке.',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
               height: 1.4,
             ),
           ),
           const SizedBox(height: 16),
+          Text(
+            'Быстрые действия',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 10),
+          FilledButton.icon(
+            onPressed: _currentTreeId == null
+                ? null
+                : () => context.push('/relatives/add/${_currentTreeId!}'),
+            icon: const Icon(Icons.person_add_alt_1_outlined),
+            label: Text(_graphAddLabel(treeProvider)),
+          ),
+          const SizedBox(height: 10),
           FilledButton.icon(
             onPressed: () => context.go('/tree'),
             icon: const Icon(Icons.account_tree_outlined),
             label: const Text('Открыть дерево'),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: _currentTreeId == null
+                ? null
+                : () => context.push('/relatives/find/${_currentTreeId!}'),
+            icon: const Icon(Icons.search),
+            label: Text(_graphFindLabel(treeProvider)),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Состояние контактов',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 10),
+          _buildStatusLine(
+            color: Colors.green.shade700,
+            label: isFriendsTree
+                ? 'Можно начать чат с ${_countLabel(chatReadyCount, one: 'человеком', few: 'людьми', many: 'людьми')}'
+                : 'Можно написать ${_countLabel(chatReadyCount, one: 'родственнику', few: 'родственникам', many: 'родственникам')}',
+          ),
+          const SizedBox(height: 8),
+          _buildStatusLine(
+            color: Colors.orange.shade700,
+            label: inviteReadyCount > 0
+                ? (isFriendsTree
+                    ? 'Ждут приглашения: ${_countLabel(inviteReadyCount, one: 'человек', few: 'человека', many: 'человек')}'
+                    : 'Нужно пригласить: ${_countLabel(inviteReadyCount, one: 'родственника', few: 'родственников', many: 'родственников')}')
+                : (isFriendsTree
+                    ? 'Все добавленные люди уже в приложении или только для просмотра'
+                    : 'Все добавленные родственники уже в приложении или только для просмотра'),
+          ),
+          if (_pendingRequestsCount > 0) ...[
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: _currentTreeId == null
+                  ? null
+                  : () =>
+                      context.push('/relatives/requests/${_currentTreeId!}'),
+              icon: const Icon(Icons.mark_email_unread_outlined),
+              label: Text(
+                isFriendsTree ? 'Открыть запросы на связи' : 'Открыть запросы',
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusLine({
+    required Color color,
+    required String label,
+  }) {
+    final theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          margin: const EdgeInsets.only(top: 5),
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            label,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              height: 1.35,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSideStatChip({
+    required IconData icon,
+    required String label,
+  }) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color:
+            theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: theme.colorScheme.primary),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGraphContextBanner({
+    required String treeName,
+    required bool isFriendsTree,
+    required int relativesCount,
+  }) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.65),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.onSecondaryContainer
+                  .withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(
+              isFriendsTree
+                  ? Icons.diversity_3_outlined
+                  : Icons.account_tree_outlined,
+              color: theme.colorScheme.onSecondaryContainer,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isFriendsTree
+                      ? 'Активен круг друзей'
+                      : 'Активно семейное дерево',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: theme.colorScheme.onSecondaryContainer,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  isFriendsTree
+                      ? '"$treeName" содержит $relativesCount человек. Здесь удобно поддерживать связи, приглашать новых людей и быстро переходить в чат.'
+                      : '"$treeName" содержит $relativesCount родственников. Здесь удобно поддерживать связи, приглашать новых людей и быстро переходить в чат.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSecondaryContainer,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -554,6 +890,7 @@ class _RelativesScreenState extends State<RelativesScreen> {
     );
 
     if (relativesForTab.isEmpty) {
+      final treeProvider = Provider.of<TreeProvider>(context, listen: false);
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
@@ -567,17 +904,39 @@ class _RelativesScreenState extends State<RelativesScreen> {
               ),
               SizedBox(height: 16),
               Text(
-                isOnlineTab ? 'Нет доступных чатов' : 'Нет родственников',
+                isOnlineTab
+                    ? 'Нет доступных чатов'
+                    : _isFriendsTree(Provider.of<TreeProvider>(
+                        context,
+                        listen: false,
+                      ))
+                        ? 'Пока нет людей в круге'
+                        : 'Нет родственников',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               SizedBox(height: 8),
               Text(
                 isOnlineTab
                     ? 'Здесь появятся чаты с родственниками, использующими приложение'
-                    : 'Добавьте родственников вручную или пригласите их присоединиться',
+                    : _isFriendsTree(Provider.of<TreeProvider>(
+                        context,
+                        listen: false,
+                      ))
+                        ? 'Добавьте друзей, коллег или близкий круг вручную либо отправьте приглашение'
+                        : 'Добавьте родственников вручную или пригласите их присоединиться',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey[600]),
               ),
+              if (!isOnlineTab) ...[
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: _currentTreeId == null
+                      ? null
+                      : () => context.push('/relatives/add/${_currentTreeId!}'),
+                  icon: const Icon(Icons.person_add_alt_1_outlined),
+                  label: Text(_graphAddLabel(treeProvider)),
+                ),
+              ],
             ],
           ),
         ),
@@ -932,6 +1291,10 @@ class _RelativesScreenState extends State<RelativesScreen> {
       }
     }
 
+    final treeProvider = _treeProviderInstance;
+    if (treeProvider?.selectedTreeKind == TreeKind.friends) {
+      return 'Связь';
+    }
     return 'Родственник';
   }
 
@@ -1000,8 +1363,12 @@ class _RelativesScreenState extends State<RelativesScreen> {
         personId: relative.id,
       );
       await Share.share(
-        'Присоединяйтесь к нашему семейному древу в Родне: ${inviteUrl.toString()}',
-        subject: 'Приглашение в Родню',
+        (_treeProviderInstance?.selectedTreeKind == TreeKind.friends)
+            ? 'Присоединяйтесь к нашему кругу друзей в Родне: ${inviteUrl.toString()}'
+            : 'Присоединяйтесь к нашему семейному древу в Родне: ${inviteUrl.toString()}',
+        subject: _treeProviderInstance?.selectedTreeKind == TreeKind.friends
+            ? 'Приглашение в круг друзей'
+            : 'Приглашение в Родню',
       );
     } catch (error) {
       if (!mounted) {

@@ -60,15 +60,17 @@ Use Playwright only for web smoke tests, not for Android-native flows.
 
 ## Codex notes
 - Primary repo-level Codex instructions live in [CODEX.md](CODEX.md).
+- Active autopilot behavior, response style, and execution rules live in [Codex_rules.md](Codex_rules.md).
 - Keep an up-to-date web audit in [docs/mvp_web_audit_2026-04-09.md](docs/mvp_web_audit_2026-04-09.md) until the major MVP blockers are closed.
 - Keep the working self-prompt in [PROMPT.md](PROMPT.md) and refine it when the project direction changes.
 
 ## Web startup
 - Preferred local web validation path:
 - `flutter pub get`
-- `flutter build web --no-wasm-dry-run`
+- `flutter build web`
 - `python -m http.server 3000 --bind 127.0.0.1` from `build/web`
 - Then run a Playwright MCP smoke pass against `http://127.0.0.1:3000/#/...`
+- Use `flutter build web --no-wasm-dry-run` only as a compile check. In this repo it can leave a locally served `build/web` without the final asset manifests/icons needed for a real browser smoke pass.
 
 ## Current MVP web blockers
 - Repo state: local custom backend now implements `/v1/posts`, likes and comments, but production API still needs deployment.

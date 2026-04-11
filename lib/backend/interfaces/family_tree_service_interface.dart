@@ -10,6 +10,7 @@ abstract class FamilyTreeServiceInterface {
     required String name,
     required String description,
     required bool isPrivate,
+    TreeKind kind = TreeKind.family,
   });
   Future<List<FamilyTree>> getUserTrees();
   Future<List<FamilyPerson>> getRelatives(String treeId);

@@ -9,5 +9,6 @@ abstract class NotificationServiceInterface {
     required String senderName,
     required String messageText,
     required int notificationId,
+    bool playSound = true,
   });
 }

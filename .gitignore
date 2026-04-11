@@ -57,3 +57,4 @@ app.*.map.json
 ДОМАШКИ/
 ПРИМЕРЫ РАБОТ RUSTORE/
 node_modules
+.tmp/

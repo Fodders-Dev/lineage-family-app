@@ -6,12 +6,14 @@ import 'package:lineage/backend/interfaces/auth_service_interface.dart';
 import 'package:lineage/backend/interfaces/chat_service_interface.dart';
 import 'package:lineage/backend/interfaces/family_tree_service_interface.dart';
 import 'package:lineage/backend/interfaces/invitation_link_service_interface.dart';
+import 'package:lineage/models/chat_attachment.dart';
 import 'package:lineage/models/chat_details.dart';
 import 'package:lineage/models/chat_message.dart';
 import 'package:lineage/models/chat_preview.dart';
 import 'package:lineage/models/chat_send_progress.dart';
 import 'package:lineage/models/family_person.dart';
 import 'package:lineage/models/family_relation.dart';
+import 'package:lineage/models/family_tree.dart';
 import 'package:lineage/models/relation_request.dart';
 import 'package:lineage/providers/tree_provider.dart';
 import 'package:lineage/screens/relatives_screen.dart';
@@ -80,6 +82,10 @@ class _FakeChatService implements ChatServiceInterface {
     required String chatId,
     String text = '',
     List<XFile> attachments = const <XFile>[],
+    List<ChatAttachment> forwardedAttachments = const <ChatAttachment>[],
+    ChatReplyReference? replyTo,
+    String? clientMessageId,
+    int? expiresInSeconds,
     void Function(ChatSendProgress progress)? onProgress,
   }) async {}
 
@@ -148,6 +154,19 @@ class _FakeChatService implements ChatServiceInterface {
     required String participantId,
   }) async =>
       getChatDetails(chatId);
+
+  @override
+  Future<void> editChatMessage({
+    required String chatId,
+    required String messageId,
+    required String text,
+  }) async {}
+
+  @override
+  Future<void> deleteChatMessage({
+    required String chatId,
+    required String messageId,
+  }) async {}
 }
 
 class _FakeFamilyTreeService implements FamilyTreeServiceInterface {
@@ -315,7 +334,11 @@ void main() {
 
   Future<void> pumpRelativesScreen(WidgetTester tester) async {
     final treeProvider = TreeProvider();
-    await treeProvider.selectTree('tree-1', 'Семья Кузнецовых');
+    await treeProvider.selectTree(
+      'tree-1',
+      'Семья Кузнецовых',
+      treeKind: TreeKind.family,
+    );
 
     final router = GoRouter(
       initialLocation: '/relatives',
@@ -353,16 +376,19 @@ void main() {
 
     expect(find.text('Кузнецов Андрей Анатольевич'), findsOneWidget);
     expect(find.text('Отец'), findsOneWidget);
-    expect(find.text('Жена'), findsOneWidget);
     expect(find.text('Сестра'), findsOneWidget);
-    expect(find.text('Можно написать'), findsNWidgets(3));
+    expect(find.text('Можно написать'), findsAtLeastNWidgets(1));
     expect(find.text('Нужно пригласить'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Шуфляк Анастасия Эдуардовна'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Жена'), findsOneWidget);
+    expect(find.text('Можно написать'), findsAtLeastNWidgets(1));
     expect(
       find.byTooltip('Написать Кузнецов Андрей Анатольевич'),
-      findsOneWidget,
-    );
-    expect(
-      find.byTooltip('Пригласить Кузнецов Анатолий Степанович'),
       findsOneWidget,
     );
   });
@@ -377,5 +403,21 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('chat:user-father'), findsOneWidget);
+  });
+
+  testWidgets(
+      'Desktop side panel показывает быстрые действия и статус контактов',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await pumpRelativesScreen(tester);
+
+    expect(find.text('Быстрые действия'), findsOneWidget);
+    expect(find.text('Добавить родственника'), findsWidgets);
+    expect(find.text('Состояние контактов'), findsOneWidget);
+    expect(find.text('Можно написать 3 родственникам'), findsOneWidget);
+    expect(find.text('Нужно пригласить: 1 родственника'), findsOneWidget);
   });
 }

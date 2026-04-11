@@ -56,6 +56,8 @@
 - `POST /v1/chats/direct`
 - `GET /v1/chats/:chatId/messages`
 - `POST /v1/chats/:chatId/messages`
+- `PATCH /v1/chats/:chatId/messages/:messageId`
+- `DELETE /v1/chats/:chatId/messages/:messageId`
 - `POST /v1/chats/:chatId/read`
 - `GET /v1/notifications`
 - `GET /v1/notifications/unread-count`

@@ -220,11 +220,9 @@ class CustomApiAuthService implements AuthServiceInterface {
 
   @override
   Future<Map<String, dynamic>> checkProfileCompleteness() async {
-    if (_session == null) {
-      return {
-        'isComplete': false,
-        'missingFields': ['auth'],
-      };
+    final session = _session;
+    if (session == null) {
+      return _signedOutProfileStatus();
     }
 
     try {
@@ -239,12 +237,19 @@ class CustomApiAuthService implements AuthServiceInterface {
     } on CustomApiException catch (error) {
       if (error.statusCode == 401 || error.statusCode == 403) {
         await _clearSession();
-        return {
-          'isComplete': false,
-          'missingFields': ['auth'],
-        };
+        return _signedOutProfileStatus();
       }
-      return _profileStatusMap(_session!);
+      final cachedSession = _session;
+      if (cachedSession == null) {
+        return _signedOutProfileStatus();
+      }
+      return _profileStatusMap(cachedSession);
+    } catch (_) {
+      final cachedSession = _session;
+      if (cachedSession == null) {
+        return _signedOutProfileStatus();
+      }
+      return _profileStatusMap(cachedSession);
     }
   }
 
@@ -343,6 +348,7 @@ class CustomApiAuthService implements AuthServiceInterface {
             await refreshSession();
             return await _executeRequest(method, uri, authenticated, body);
           } catch (_) {
+            await _clearSession();
             rethrow;
           }
         } else {
@@ -532,6 +538,13 @@ class CustomApiAuthService implements AuthServiceInterface {
     return {
       'isComplete': session.isProfileComplete,
       'missingFields': session.missingFields,
+    };
+  }
+
+  Map<String, dynamic> _signedOutProfileStatus() {
+    return {
+      'isComplete': false,
+      'missingFields': ['auth'],
     };
   }
 

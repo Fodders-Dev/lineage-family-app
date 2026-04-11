@@ -6,7 +6,9 @@ import 'package:lineage/backend/interfaces/auth_service_interface.dart';
 import 'package:lineage/backend/interfaces/chat_service_interface.dart';
 import 'package:lineage/backend/interfaces/family_tree_service_interface.dart';
 import 'package:lineage/backend/interfaces/profile_service_interface.dart';
+import 'package:lineage/models/chat_attachment.dart';
 import 'package:lineage/models/chat_details.dart';
+import 'package:lineage/models/chat_message.dart';
 import 'package:lineage/models/family_person.dart';
 import 'package:lineage/models/family_tree.dart';
 import 'package:lineage/models/chat_send_progress.dart';
@@ -75,6 +77,10 @@ class _FakeChatService implements ChatServiceInterface {
     required String chatId,
     String text = '',
     List<XFile> attachments = const <XFile>[],
+    List<ChatAttachment> forwardedAttachments = const <ChatAttachment>[],
+    ChatReplyReference? replyTo,
+    String? clientMessageId,
+    int? expiresInSeconds,
     void Function(ChatSendProgress progress)? onProgress,
   }) async {}
 

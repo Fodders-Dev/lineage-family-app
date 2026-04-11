@@ -3,6 +3,19 @@ import '../utils/date_parser.dart';
 
 part 'family_tree.g.dart';
 
+TreeKind treeKindFromRaw(Object? rawValue) {
+  final normalized = rawValue?.toString().trim().toLowerCase();
+  return normalized == 'friends' ? TreeKind.friends : TreeKind.family;
+}
+
+@HiveType(typeId: 7)
+enum TreeKind {
+  @HiveField(0)
+  family,
+  @HiveField(1)
+  friends,
+}
+
 @HiveType(typeId: 2)
 class FamilyTree extends HiveObject {
   @HiveField(0)
@@ -29,6 +42,8 @@ class FamilyTree extends HiveObject {
   final bool isCertified;
   @HiveField(11)
   final String? certificationNote;
+  @HiveField(12)
+  final TreeKind kind;
 
   FamilyTree({
     required this.id,
@@ -43,9 +58,13 @@ class FamilyTree extends HiveObject {
     this.publicSlug,
     this.isCertified = false,
     this.certificationNote,
+    this.kind = TreeKind.family,
   });
 
   bool get isPublic => !isPrivate;
+  bool get isFriendsTree => kind == TreeKind.friends;
+  bool get isFamilyTree => kind == TreeKind.family;
+  String get kindLabel => isFriendsTree ? 'Дерево друзей' : 'Семейное дерево';
 
   String get publicRouteId {
     final slug = publicSlug?.trim();
@@ -71,6 +90,7 @@ class FamilyTree extends HiveObject {
       publicSlug: data['publicSlug']?.toString(),
       isCertified: data['isCertified'] == true,
       certificationNote: data['certificationNote']?.toString(),
+      kind: treeKindFromRaw(data['kind']),
     );
   }
 
@@ -87,6 +107,7 @@ class FamilyTree extends HiveObject {
       'publicSlug': publicSlug,
       'isCertified': isCertified,
       'certificationNote': certificationNote,
+      'kind': kind.name,
     };
   }
 
@@ -104,6 +125,7 @@ class FamilyTree extends HiveObject {
       publicSlug: data['publicSlug']?.toString(),
       isCertified: data['isCertified'] == true,
       certificationNote: data['certificationNote']?.toString(),
+      kind: treeKindFromRaw(data['kind']),
     );
   }
 }

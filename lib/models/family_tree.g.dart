@@ -29,13 +29,14 @@ class FamilyTreeAdapter extends TypeAdapter<FamilyTree> {
       publicSlug: fields[9] as String?,
       isCertified: fields[10] as bool? ?? false,
       certificationNote: fields[11] as String?,
+      kind: fields[12] as TreeKind? ?? TreeKind.family,
     );
   }
 
   @override
   void write(BinaryWriter writer, FamilyTree obj) {
     writer
-      ..writeByte(12)
+      ..writeByte(13)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -59,7 +60,9 @@ class FamilyTreeAdapter extends TypeAdapter<FamilyTree> {
       ..writeByte(10)
       ..write(obj.isCertified)
       ..writeByte(11)
-      ..write(obj.certificationNote);
+      ..write(obj.certificationNote)
+      ..writeByte(12)
+      ..write(obj.kind);
   }
 
   @override
@@ -69,6 +72,44 @@ class FamilyTreeAdapter extends TypeAdapter<FamilyTree> {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is FamilyTreeAdapter &&
+          runtimeType == other.runtimeType &&
+          typeId == other.typeId;
+}
+
+class TreeKindAdapter extends TypeAdapter<TreeKind> {
+  @override
+  final int typeId = 7;
+
+  @override
+  TreeKind read(BinaryReader reader) {
+    switch (reader.readByte()) {
+      case 1:
+        return TreeKind.friends;
+      case 0:
+      default:
+        return TreeKind.family;
+    }
+  }
+
+  @override
+  void write(BinaryWriter writer, TreeKind obj) {
+    switch (obj) {
+      case TreeKind.family:
+        writer.writeByte(0);
+        return;
+      case TreeKind.friends:
+        writer.writeByte(1);
+        return;
+    }
+  }
+
+  @override
+  int get hashCode => typeId.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TreeKindAdapter &&
           runtimeType == other.runtimeType &&
           typeId == other.typeId;
 }

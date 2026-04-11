@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 import '../models/app_notification_item.dart';
+import '../models/family_tree.dart';
+import '../providers/tree_provider.dart';
 import '../services/custom_api_notification_service.dart';
 
 IconData _notificationIconForType(String type) {
@@ -37,6 +41,26 @@ String _notificationLabelForType(String type) {
     default:
       return 'Уведомление';
   }
+}
+
+String _activityEventCountLabel(int count) {
+  final mod10 = count % 10;
+  final mod100 = count % 100;
+  if (mod10 == 1 && mod100 != 11) {
+    return 'новое событие';
+  }
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return 'новых события';
+  }
+  return 'новых событий';
+}
+
+String _graphLabelForInvitations(bool isFriendsTree) {
+  return isFriendsTree ? 'круг друзей' : 'семейное дерево';
+}
+
+String _graphLabelForQueue(bool isFriendsTree) {
+  return isFriendsTree ? 'круга друзей' : 'семейного дерева';
 }
 
 class NotificationsScreen extends StatefulWidget {
@@ -206,6 +230,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final treeProvider = context.watch<TreeProvider>();
+    final isFriendsTree = treeProvider.selectedTreeKind == TreeKind.friends;
+    final graphLabel = _graphLabelForInvitations(isFriendsTree);
+    final eventLabel =
+        isFriendsTree ? 'важные события круга' : 'важные семейные события';
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Активность'),
@@ -225,12 +255,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: _refresh,
-        child: _buildBody(),
+        child: _buildBody(
+          isFriendsTree: isFriendsTree,
+          graphLabel: graphLabel,
+          eventLabel: eventLabel,
+        ),
       ),
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody({
+    required bool isFriendsTree,
+    required String graphLabel,
+    required String eventLabel,
+  }) {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -251,7 +289,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         icon: Icons.notifications_none,
         title: 'Пока нет новых уведомлений',
         description:
-            'Сюда придут приглашения в дерево, новые сообщения и важные семейные события.',
+            'Сюда придут приглашения в $graphLabel, новые сообщения и $eventLabel.',
         actionLabel: 'На главную',
         onPressed: () => Navigator.of(context).maybePop(),
       );
@@ -259,14 +297,24 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
     final groupedNotifications = _buildGroupedNotifications(_notifications);
     final typeSummary = _buildTypeSummary();
+    final sortedTypeSummary = typeSummary.entries.toList()
+      ..sort((left, right) => right.value.compareTo(left.value));
 
     final listView = ListView.separated(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-      itemCount: groupedNotifications.length,
+      itemCount: groupedNotifications.length + 1,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
-        final group = groupedNotifications[index];
+        if (index == 0) {
+          return _NotificationsOverviewCard(
+            totalCount: _notifications.length,
+            isFriendsTree: isFriendsTree,
+            graphLabel: _graphLabelForQueue(isFriendsTree),
+            typeSummary: sortedTypeSummary,
+          );
+        }
+        final group = groupedNotifications[index - 1];
         final item = group.first;
         return _NotificationCard(
           item: item,
@@ -314,15 +362,101 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color:
+                              theme.colorScheme.primary.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              isFriendsTree
+                                  ? Icons.diversity_3_outlined
+                                  : Icons.account_tree_outlined,
+                              size: 16,
+                              color: theme.colorScheme.primary,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              isFriendsTree
+                                  ? 'Контекст круга друзей'
+                                  : 'Контекст семейного дерева',
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                color: theme.colorScheme.primary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
                       Text(
-                        'Здесь собираются новые сообщения, приглашения в дерево и важные обновления семьи. На desktop проще быстро просматривать очередь уведомлений и сразу переходить в нужный раздел.',
+                        'Здесь собираются новые сообщения, приглашения в $graphLabel и $eventLabel. На desktop проще быстро просматривать очередь уведомлений и сразу переходить в нужный раздел.',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                           height: 1.4,
                         ),
                       ),
                       const SizedBox(height: 16),
-                      ...typeSummary.entries.map(
+                      Text(
+                        'Всего новых: ${_notifications.length}',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _buildPanelStatChip(
+                            theme,
+                            icon: Icons.notifications_active_outlined,
+                            label: '${_notifications.length} в очереди',
+                          ),
+                          _buildPanelStatChip(
+                            theme,
+                            icon: Icons.chat_bubble_outline,
+                            label:
+                                '${typeSummary['chat_message'] ?? typeSummary['chat'] ?? 0} чатов',
+                          ),
+                          _buildPanelStatChip(
+                            theme,
+                            icon: Icons.people_outline,
+                            label:
+                                '${typeSummary['relation_request'] ?? 0} запросов',
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      if (_notifications.isNotEmpty)
+                        FilledButton.icon(
+                          onPressed: _isMutating ? null : _markAllAsRead,
+                          icon: const Icon(Icons.done_all),
+                          label: const Text('Прочитать всё'),
+                        ),
+                      const SizedBox(height: 14),
+                      OutlinedButton.icon(
+                        onPressed: () => context.go('/chats'),
+                        icon: const Icon(Icons.chat_bubble_outline),
+                        label: const Text('Открыть чаты'),
+                      ),
+                      const SizedBox(height: 10),
+                      OutlinedButton.icon(
+                        onPressed: () => context.go('/tree'),
+                        icon: const Icon(Icons.account_tree_outlined),
+                        label: Text(
+                          isFriendsTree ? 'Открыть круг' : 'Открыть дерево',
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      ...sortedTypeSummary.map(
                         (entry) => Padding(
                           padding: const EdgeInsets.only(bottom: 10),
                           child: Row(
@@ -356,6 +490,34 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildPanelStatChip(
+    ThemeData theme, {
+    required IconData icon,
+    required String label,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color:
+            theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: theme.colorScheme.primary),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: theme.textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -443,12 +605,38 @@ class _NotificationCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      _notificationLabelForType(item.type),
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        color: theme.colorScheme.primary,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          _notificationLabelForType(item.type),
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: theme.colorScheme.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (groupedCount > 1) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary.withValues(
+                                alpha: 0.10,
+                              ),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              '$groupedCount',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.primary,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 6),
                     Text(
@@ -578,6 +766,117 @@ class _NotificationsMessageState extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _NotificationsOverviewCard extends StatelessWidget {
+  const _NotificationsOverviewCard({
+    required this.totalCount,
+    required this.isFriendsTree,
+    required this.graphLabel,
+    required this.typeSummary,
+  });
+
+  final int totalCount;
+  final bool isFriendsTree;
+  final String graphLabel;
+  final List<MapEntry<String, int>> typeSummary;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.65),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.onSecondaryContainer
+                  .withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(
+              isFriendsTree
+                  ? Icons.diversity_3_outlined
+                  : Icons.notifications_active_outlined,
+              color: theme.colorScheme.onSecondaryContainer,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Сейчас $totalCount ${_activityEventCountLabel(totalCount)}',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: theme.colorScheme.onSecondaryContainer,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Очередь активности собирается для $graphLabel. Просмотрите сообщения, приглашения и запросы в одном месте.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSecondaryContainer,
+                    height: 1.4,
+                  ),
+                ),
+                if (typeSummary.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: typeSummary
+                        .take(3)
+                        .map(
+                          (entry) => Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 7,
+                            ),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.onSecondaryContainer
+                                  .withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _notificationIconForType(entry.key),
+                                  size: 16,
+                                  color: theme.colorScheme.onSecondaryContainer,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '${_notificationLabelForType(entry.key)} · ${entry.value}',
+                                  style: theme.textTheme.labelLarge?.copyWith(
+                                    color:
+                                        theme.colorScheme.onSecondaryContainer,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

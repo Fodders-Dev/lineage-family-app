@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lineage/models/family_tree.dart';
 import 'package:lineage/navigation/app_router.dart';
 import 'package:lineage/providers/tree_provider.dart';
@@ -97,4 +98,32 @@ void main() {
     expect(redirect,
         '/tree/view/tree-2?name=%D0%92%D1%82%D0%BE%D1%80%D0%BE%D0%B5%20%D0%B4%D0%B5%D1%80%D0%B5%D0%B2%D0%BE');
   });
+
+  test(
+      'сохраняет deep link при переходе на login и восстанавливает его после входа',
+      () {
+    final loginRedirect = AppRouter.buildLoginRedirectTarget(
+      _FakeGoRouterState(Uri.parse('/chats?tab=unread')),
+    );
+
+    expect(loginRedirect, '/login?from=%2Fchats%3Ftab%3Dunread');
+
+    final restored = AppRouter.restoreDeferredLoginTarget(
+      _FakeGoRouterState(Uri.parse('/login?from=%2Fchats%3Ftab%3Dunread')),
+    );
+
+    expect(restored, '/chats?tab=unread');
+  });
+}
+
+class _FakeGoRouterState implements GoRouterState {
+  _FakeGoRouterState(this._uri);
+
+  final Uri _uri;
+
+  @override
+  Uri get uri => _uri;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

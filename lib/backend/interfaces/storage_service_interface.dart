@@ -1,7 +1,18 @@
 import 'dart:typed_data';
 
 import 'package:image_picker/image_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
+class FileOptions {
+  const FileOptions({
+    this.contentType,
+    this.cacheControl,
+    this.upsert = false,
+  });
+
+  final String? contentType;
+  final String? cacheControl;
+  final bool upsert;
+}
 
 abstract class StorageServiceInterface {
   Future<String?> uploadImage(XFile imageFile, String folder);

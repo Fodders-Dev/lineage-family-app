@@ -108,7 +108,7 @@ class _AuthScreenState extends State<AuthScreen> {
           return;
         }
 
-        context.go('/');
+        context.go(_resolvePostAuthTarget());
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -152,7 +152,7 @@ class _AuthScreenState extends State<AuthScreen> {
       await _authService.signInWithGoogle();
 
       if (mounted && _authService.currentUserId != null) {
-        context.go('/');
+        context.go(_resolvePostAuthTarget());
       }
     } catch (e) {
       if (!mounted) {
@@ -191,6 +191,14 @@ class _AuthScreenState extends State<AuthScreen> {
     });
   }
 
+  String _resolvePostAuthTarget() {
+    final from = GoRouterState.of(context).uri.queryParameters['from'];
+    if (from == null || from.isEmpty || from == '/login') {
+      return '/';
+    }
+    return from;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -215,7 +223,7 @@ class _AuthScreenState extends State<AuthScreen> {
               return Center(
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
-                    maxWidth: isWide ? 1180 : 520,
+                    maxWidth: isWide ? 1260 : 520,
                   ),
                   child: Padding(
                     padding: EdgeInsets.symmetric(
@@ -237,22 +245,21 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Widget _buildWideLayout(ThemeData theme) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Expanded(
-          flex: 11,
-          child: Padding(
-            padding: const EdgeInsets.only(right: 20),
-            child: _buildHeroPanel(theme, compact: false),
+          flex: 10,
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 24),
+              child: _buildHeroPanel(theme, compact: false),
+            ),
           ),
         ),
         Expanded(
           flex: 9,
-          child: Align(
-            alignment: Alignment.center,
-            child: SingleChildScrollView(
-              child: _buildAuthCard(theme, compact: false),
-            ),
+          child: SingleChildScrollView(
+            child: _buildAuthCard(theme, compact: false),
           ),
         ),
       ],
@@ -289,101 +296,102 @@ class _AuthScreenState extends State<AuthScreen> {
           ),
         ],
       ),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: Colors.white24),
-              ),
-              child: const Text(
-                'Родня',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.3,
-                ),
-              ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: Colors.white24),
             ),
-            SizedBox(height: compact ? 18 : 24),
-            Text(
-              'Семейное дерево и связи для близких',
-              style: theme.textTheme.displaySmall?.copyWith(
+            child: const Text(
+              'Родня',
+              style: TextStyle(
                 color: Colors.white,
-                fontWeight: FontWeight.w800,
-                height: 1.05,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.3,
               ),
             ),
-            const SizedBox(height: 14),
-            Text(
-              'Вход и регистрация открывают дерево семьи, профили родственников, личные сообщения и публичный просмотр дерева.',
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: Colors.white.withValues(alpha: 0.9),
-                fontWeight: FontWeight.w400,
-                height: 1.45,
-              ),
+          ),
+          SizedBox(height: compact ? 18 : 24),
+          Text(
+            'Семейное дерево и связи для близких',
+            style: theme.textTheme.displaySmall?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              height: 1.05,
             ),
-            const SizedBox(height: 18),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Вход и регистрация открывают дерево семьи, профили родственников, личные сообщения и публичный просмотр дерева.',
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: Colors.white.withValues(alpha: 0.9),
+              fontWeight: FontWeight.w400,
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 18),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: const [
+              _HeroChip(label: 'Семейное дерево'),
+              _HeroChip(label: 'Личные связи'),
+              _HeroChip(label: 'Профиль семьи'),
+              _HeroChip(label: 'Публичный просмотр дерева'),
+            ],
+          ),
+          SizedBox(height: compact ? 18 : 26),
+          if (!compact)
             Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: const [
-                _HeroChip(label: 'Семейное дерево'),
-                _HeroChip(label: 'Личные связи'),
-                _HeroChip(label: 'Профиль семьи'),
-                _HeroChip(label: 'Публичный просмотр дерева'),
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                FilledButton.icon(
+                  onPressed: _isLoading || _isGoogleLoading
+                      ? null
+                      : () {
+                          _setMode(true);
+                          _focusPrimaryField();
+                        },
+                  icon: const Icon(Icons.login),
+                  label: const Text('Войти сейчас'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: colorScheme.primary,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 16,
+                    ),
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _isLoading || _isGoogleLoading
+                      ? null
+                      : () {
+                          _setMode(false);
+                          _focusPrimaryField();
+                        },
+                  icon: const Icon(Icons.family_restroom_outlined),
+                  label: const Text('Зарегистрироваться'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: Colors.white38),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 16,
+                    ),
+                  ),
+                ),
               ],
             ),
-            SizedBox(height: compact ? 18 : 26),
-            if (!compact)
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  FilledButton.icon(
-                    onPressed: _isLoading || _isGoogleLoading
-                        ? null
-                        : () {
-                            _setMode(true);
-                            _focusPrimaryField();
-                          },
-                    icon: const Icon(Icons.login),
-                    label: const Text('Войти сейчас'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: colorScheme.primary,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 16,
-                      ),
-                    ),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: _isLoading || _isGoogleLoading
-                        ? null
-                        : () {
-                            _setMode(false);
-                            _focusPrimaryField();
-                          },
-                    icon: const Icon(Icons.family_restroom_outlined),
-                    label: const Text('Зарегистрироваться'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      side: const BorderSide(color: Colors.white38),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 16,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            SizedBox(height: compact ? 18 : 26),
+          SizedBox(height: compact ? 18 : 26),
+          if (compact)
             ..._mvpHighlights.map(
               (feature) => Padding(
                 padding: const EdgeInsets.only(bottom: 12),
@@ -392,9 +400,30 @@ class _AuthScreenState extends State<AuthScreen> {
                   compact: compact,
                 ),
               ),
+            )
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final availableWidth = constraints.maxWidth;
+                final cardWidth = (availableWidth - 12) / 2;
+                return Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: _mvpHighlights
+                      .map(
+                        (feature) => SizedBox(
+                          width: cardWidth,
+                          child: _FeatureCard(
+                            feature: feature,
+                            compact: true,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                );
+              },
             ),
-          ],
-        ),
+        ],
       ),
     );
   }
@@ -402,7 +431,7 @@ class _AuthScreenState extends State<AuthScreen> {
   Widget _buildAuthCard(ThemeData theme, {required bool compact}) {
     return Container(
       width: double.infinity,
-      constraints: const BoxConstraints(maxWidth: 460),
+      constraints: const BoxConstraints(maxWidth: 500),
       padding: EdgeInsets.all(compact ? 20 : 28),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.94),
@@ -451,6 +480,23 @@ class _AuthScreenState extends State<AuthScreen> {
               textAlign: TextAlign.center,
             ),
             SizedBox(height: compact ? 18 : 22),
+            if (!compact) ...[
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _CompactFeatureChip(
+                    label: _isLogin ? 'Web вход' : 'Быстрая регистрация',
+                  ),
+                  _CompactFeatureChip(
+                    label: _isLogin ? 'Чаты и связи' : 'Дерево и круги',
+                  ),
+                  const _CompactFeatureChip(label: 'Desktop MVP'),
+                ],
+              ),
+              const SizedBox(height: 18),
+            ],
             if (!compact) ...[
               _buildModeToggle(theme),
               const SizedBox(height: 22),

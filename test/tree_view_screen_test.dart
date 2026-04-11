@@ -5,15 +5,18 @@ import 'package:go_router/go_router.dart';
 import 'package:lineage/backend/interfaces/auth_service_interface.dart';
 import 'package:lineage/backend/interfaces/chat_service_interface.dart';
 import 'package:lineage/backend/interfaces/family_tree_service_interface.dart';
+import 'package:lineage/models/chat_attachment.dart';
 import 'package:lineage/models/chat_details.dart';
 import 'package:lineage/models/chat_message.dart';
 import 'package:lineage/models/chat_preview.dart';
 import 'package:lineage/models/chat_send_progress.dart';
 import 'package:lineage/models/family_person.dart';
 import 'package:lineage/models/family_relation.dart';
+import 'package:lineage/models/family_tree.dart';
 import 'package:lineage/providers/tree_provider.dart';
 import 'package:lineage/screens/tree_view_screen.dart';
 import 'package:lineage/services/local_storage_service.dart';
+import 'package:lineage/widgets/interactive_family_tree.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -45,6 +48,45 @@ class _FakeAuthService implements AuthServiceInterface {
 }
 
 class _FakeLocalStorageService implements LocalStorageService {
+  final Map<String, Map<String, Offset>> _savedPositions =
+      <String, Map<String, Offset>>{};
+
+  @override
+  Future<Map<String, Offset>> getTreeNodePositions(String treeId) async {
+    return Map<String, Offset>.from(
+      _savedPositions[treeId] ?? const <String, Offset>{},
+    );
+  }
+
+  @override
+  Future<void> saveTreeNodePositions(
+    String treeId,
+    Map<String, Offset> positions,
+  ) async {
+    _savedPositions[treeId] = Map<String, Offset>.from(positions);
+  }
+
+  @override
+  Future<void> clearTreeNodePositions(String treeId) async {
+    _savedPositions.remove(treeId);
+  }
+
+  @override
+  Future<FamilyTree?> getTree(String treeId) async {
+    final now = DateTime(2024, 1, 1);
+    return FamilyTree(
+      id: treeId,
+      name: treeId == 'tree-2' ? 'Второе дерево' : 'Первое дерево',
+      description: '',
+      creatorId: 'user-1',
+      memberIds: const ['user-1'],
+      createdAt: now,
+      updatedAt: now,
+      isPrivate: true,
+      members: const ['user-1'],
+    );
+  }
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -87,6 +129,10 @@ class _FakeChatService implements ChatServiceInterface {
     required String chatId,
     String text = '',
     List<XFile> attachments = const <XFile>[],
+    List<ChatAttachment> forwardedAttachments = const <ChatAttachment>[],
+    ChatReplyReference? replyTo,
+    String? clientMessageId,
+    int? expiresInSeconds,
     void Function(ChatSendProgress progress)? onProgress,
   }) async {}
 
@@ -156,12 +202,54 @@ class _FakeChatService implements ChatServiceInterface {
     required String participantId,
   }) async =>
       getChatDetails(chatId);
+
+  @override
+  Future<void> editChatMessage({
+    required String chatId,
+    required String messageId,
+    required String text,
+  }) async {}
+
+  @override
+  Future<void> deleteChatMessage({
+    required String chatId,
+    required String messageId,
+  }) async {}
 }
 
 class _FakeFamilyTreeService implements FamilyTreeServiceInterface {
   final List<String> requestedTreeIds = [];
   bool showFirstPerson = false;
   bool showBranchFamily = false;
+
+  @override
+  Future<List<FamilyTree>> getUserTrees() async {
+    final now = DateTime(2024, 1, 1);
+    return [
+      FamilyTree(
+        id: 'tree-1',
+        name: 'Первое дерево',
+        description: '',
+        creatorId: 'user-1',
+        memberIds: const ['user-1'],
+        createdAt: now,
+        updatedAt: now,
+        isPrivate: true,
+        members: const ['user-1'],
+      ),
+      FamilyTree(
+        id: 'tree-2',
+        name: 'Второе дерево',
+        description: '',
+        creatorId: 'user-1',
+        memberIds: const ['user-1'],
+        createdAt: now,
+        updatedAt: now,
+        isPrivate: true,
+        members: const ['user-1'],
+      ),
+    ];
+  }
 
   @override
   Future<List<FamilyPerson>> getRelatives(String treeId) async {
@@ -423,11 +511,17 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    await tester.longPress(find.text('Иван Петров').first);
+    final treeWidget = tester.widget<InteractiveFamilyTree>(
+      find.byType(InteractiveFamilyTree),
+    );
+    final branchRootPerson =
+        treeWidget.peopleData.first['person']! as FamilyPerson;
+    treeWidget.onBranchFocusRequested?.call(branchRootPerson);
     await tester.pumpAndSettle();
 
     expect(find.text('Написать ветке'), findsOneWidget);
 
+    await tester.ensureVisible(find.text('Написать ветке'));
     await tester.tap(find.text('Написать ветке'));
     await tester.pumpAndSettle();
 
@@ -435,5 +529,64 @@ void main() {
     expect(chatService.createdBranchRootIds, ['person-1']);
     expect(chatService.createdBranchTitle, 'Ветка Иван Петров');
     expect(find.textContaining('chat:chat-branch-1'), findsOneWidget);
+  });
+
+  testWidgets('быстрые действия из tree view открывают родных и чаты',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1440, 1024));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final familyService = _FakeFamilyTreeService()..showFirstPerson = true;
+    getIt.registerSingleton<FamilyTreeServiceInterface>(familyService);
+    final treeProvider = TreeProvider();
+    await treeProvider.selectTree('tree-1', 'Тест');
+
+    GoRouter buildRouter() => GoRouter(
+          initialLocation: '/tree/view/tree-1?name=%D0%A2%D0%B5%D1%81%D1%82',
+          routes: [
+            GoRoute(
+              path: '/tree/view/:treeId',
+              builder: (context, state) => TreeViewScreen(
+                routeTreeId: state.pathParameters['treeId'],
+                routeTreeName: state.uri.queryParameters['name'],
+              ),
+            ),
+            GoRoute(
+              path: '/relatives',
+              builder: (context, state) => const Text('relatives-screen'),
+            ),
+            GoRoute(
+              path: '/chats',
+              builder: (context, state) => const Text('chats-screen'),
+            ),
+          ],
+        );
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<TreeProvider>.value(
+        value: treeProvider,
+        child: MaterialApp.router(routerConfig: buildRouter()),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Открыть родных'));
+    await tester.tap(find.text('Открыть родных'));
+    await tester.pumpAndSettle();
+    expect(find.text('relatives-screen'), findsOneWidget);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<TreeProvider>.value(
+        value: treeProvider,
+        child: MaterialApp.router(routerConfig: buildRouter()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Открыть чаты'));
+    await tester.tap(find.text('Открыть чаты'));
+    await tester.pumpAndSettle();
+    expect(find.text('chats-screen'), findsOneWidget);
   });
 }

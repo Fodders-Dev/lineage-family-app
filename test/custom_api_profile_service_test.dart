@@ -13,7 +13,6 @@ import 'package:lineage/services/custom_api_auth_service.dart';
 import 'package:lineage/services/custom_api_profile_service.dart';
 import 'package:lineage/services/invitation_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 void main() {
   setUp(() {

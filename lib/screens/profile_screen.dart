@@ -153,6 +153,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isWideLayout(BuildContext context) =>
       MediaQuery.of(context).size.width >= 1100;
 
+  TreeKind? _selectedTreeKind(BuildContext context) =>
+      context.select<TreeProvider, TreeKind?>(
+        (provider) => provider.selectedTreeKind,
+      );
+
+  bool _isFriendsTree(BuildContext context) =>
+      _selectedTreeKind(context) == TreeKind.friends;
+
+  String _graphStatLabel(BuildContext context) =>
+      _isFriendsTree(context) ? 'Связи' : 'Родственники';
+
+  String _graphProfilesLabel(BuildContext context) =>
+      _isFriendsTree(context) ? 'Карточки круга' : 'Ваши профили';
+
+  String _graphPostsTitle(BuildContext context) =>
+      _isFriendsTree(context) ? 'Публикации круга' : 'Ваши публикации';
+
+  String _graphPostsEmptyMessage(BuildContext context) =>
+      _isFriendsTree(context)
+          ? 'Здесь появятся ваши заметки, фото и апдейты для круга друзей.'
+          : 'Ваши истории и фотографии появятся здесь.';
+
+  String _graphSelectionHint(BuildContext context) => _isFriendsTree(context)
+      ? 'Сначала выберите активный круг друзей на вкладке "Дерево" или "Родные"'
+      : 'Сначала выберите активное дерево на вкладке "Дерево" или "Родные"';
+
   String get _appBarTitle {
     final profile = _userProfile;
     if (profile == null) {
@@ -410,8 +436,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Получаем TreeProvider, НЕ слушаем изменения здесь, только для нажатия кнопки
-    final treeProvider = Provider.of<TreeProvider>(context, listen: false);
+    final treeProvider = Provider.of<TreeProvider>(context);
+    final selectedTreeKind = treeProvider.selectedTreeKind;
+    final selectedTreeName = treeProvider.selectedTreeName;
+    final isFriendsTree = selectedTreeKind == TreeKind.friends;
 
     return Scaffold(
       appBar: AppBar(
@@ -540,6 +568,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                                 crossAxisAlignment:
                                                     CrossAxisAlignment.start,
                                                 children: [
+                                                  if (selectedTreeName !=
+                                                      null) ...[
+                                                    _buildGraphContextBanner(
+                                                      context,
+                                                      isFriendsTree:
+                                                          isFriendsTree,
+                                                      selectedTreeName:
+                                                          selectedTreeName,
+                                                    ),
+                                                    const SizedBox(height: 16),
+                                                  ],
                                                   if ((_userProfile!.city !=
                                                               null &&
                                                           _userProfile!.city!
@@ -578,7 +617,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                                             .toString(),
                                                       ),
                                                       _ProfileStatItem(
-                                                        label: 'Родственники',
+                                                        label: _graphStatLabel(
+                                                          context,
+                                                        ),
                                                         value: _relativeCount
                                                             .toString(),
                                                       ),
@@ -595,7 +636,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                                       Expanded(
                                                         child:
                                                             _ProfileActionButton(
-                                                          label: 'Ваши профили',
+                                                          label:
+                                                              _graphProfilesLabel(
+                                                            context,
+                                                          ),
                                                           onPressed: () {
                                                             final currentSelectedTreeId =
                                                                 treeProvider
@@ -607,9 +651,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                                                 context,
                                                               ).showSnackBar(
                                                                 SnackBar(
-                                                                  content:
-                                                                      const Text(
-                                                                    'Сначала выберите активное дерево на вкладке "Дерево" или "Родные"',
+                                                                  content: Text(
+                                                                    _graphSelectionHint(
+                                                                      context,
+                                                                    ),
                                                                   ),
                                                                   action:
                                                                       SnackBarAction(
@@ -653,6 +698,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                         )
                                       : Column(
                                           children: [
+                                            if (selectedTreeName != null) ...[
+                                              _buildGraphContextBanner(
+                                                context,
+                                                isFriendsTree: isFriendsTree,
+                                                selectedTreeName:
+                                                    selectedTreeName,
+                                              ),
+                                              const SizedBox(height: 16),
+                                            ],
                                             CircleAvatar(
                                               radius: 50,
                                               backgroundImage:
@@ -715,7 +769,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                                   value: _postCount.toString(),
                                                 ),
                                                 _ProfileStatItem(
-                                                  label: 'Родственники',
+                                                  label: _graphStatLabel(
+                                                    context,
+                                                  ),
                                                   value:
                                                       _relativeCount.toString(),
                                                 ),
@@ -730,7 +786,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                               children: [
                                                 Expanded(
                                                   child: _ProfileActionButton(
-                                                    label: 'Ваши профили',
+                                                    label: _graphProfilesLabel(
+                                                      context,
+                                                    ),
                                                     onPressed: () {
                                                       final currentSelectedTreeId =
                                                           treeProvider
@@ -741,8 +799,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                                           context,
                                                         ).showSnackBar(
                                                           SnackBar(
-                                                            content: const Text(
-                                                              'Сначала выберите активное дерево на вкладке "Дерево" или "Родные"',
+                                                            content: Text(
+                                                              _graphSelectionHint(
+                                                                context,
+                                                              ),
                                                             ),
                                                             action:
                                                                 SnackBarAction(
@@ -929,7 +989,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 16.0, 24.0, 16.0, 8.0),
                             sliver: SliverToBoxAdapter(
                               child: Text(
-                                'Ваши публикации',
+                                _graphPostsTitle(context),
                                 style: TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.bold,
@@ -953,7 +1013,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     : 'Публикаций пока нет',
                                 message: _postsUnavailable
                                     ? 'Лента профиля появится, когда backend публикаций будет доступен для этого аккаунта.'
-                                    : 'Ваши истории и фотографии появятся здесь.',
+                                    : _graphPostsEmptyMessage(context),
                                 actionLabel:
                                     _postsUnavailable ? 'Обновить' : 'Создать',
                                 onAction: () async {
@@ -986,6 +1046,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ],
                       ),
                     ),
+    );
+  }
+
+  Widget _buildGraphContextBanner(
+    BuildContext context, {
+    required bool isFriendsTree,
+    required String selectedTreeName,
+  }) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            isFriendsTree
+                ? Icons.diversity_3_outlined
+                : Icons.account_tree_outlined,
+            color: theme.colorScheme.onSecondaryContainer,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              isFriendsTree
+                  ? 'Сейчас активен круг друзей "$selectedTreeName". Публикации и карточки ниже читаются в этом контексте.'
+                  : 'Сейчас активно семейное дерево "$selectedTreeName". Публикации и карточки ниже читаются в семейном контексте.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSecondaryContainer,
+                fontWeight: FontWeight.w600,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

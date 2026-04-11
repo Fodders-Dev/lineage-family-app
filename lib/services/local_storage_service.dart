@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'dart:async';
+import 'dart:ui' show Offset;
 import 'package:flutter/foundation.dart';
 import '../models/user_profile.dart';
 import '../models/family_tree.dart';
@@ -21,6 +23,7 @@ class LocalStorageService {
   static const String _boxPersons = 'personsBox';
   static const String _boxRelations = 'relationsBox';
   static const String _boxMessages = 'messagesBox';
+  static const String _boxTreeLayouts = 'treeLayoutsBox';
 
   bool _isInitialized = false;
 
@@ -61,6 +64,9 @@ class LocalStorageService {
     if (!Hive.isAdapterRegistered(GenderAdapter().typeId)) {
       Hive.registerAdapter(GenderAdapter()); // Регистрируем адаптер для Gender
     }
+    if (!Hive.isAdapterRegistered(TreeKindAdapter().typeId)) {
+      Hive.registerAdapter(TreeKindAdapter());
+    }
     if (!Hive.isAdapterRegistered(RelationTypeAdapter().typeId)) {
       Hive.registerAdapter(
         RelationTypeAdapter(),
@@ -73,6 +79,7 @@ class LocalStorageService {
     await Hive.openBox<FamilyPerson>(_boxPersons);
     await Hive.openBox<FamilyRelation>(_boxRelations);
     await Hive.openBox<ChatMessage>(_boxMessages);
+    await Hive.openBox<String>(_boxTreeLayouts);
 
     instance._isInitialized = true;
     debugPrint('LocalStorage: Using Hive for local data.');
@@ -148,6 +155,7 @@ class LocalStorageService {
   Future<void> deleteTree(String treeId) async {
     try {
       await Hive.box<FamilyTree>(_boxTrees).delete(treeId);
+      await clearTreeNodePositions(treeId);
       debugPrint('LocalStorage: Deleted tree $treeId');
     } catch (e) {
       debugPrint('LocalStorage: Error deleting tree $treeId: $e');
@@ -184,6 +192,65 @@ class LocalStorageService {
     debugPrint(
       'LocalStorage: Deleted ${keysToDelete.length} relations for tree $treeId',
     );
+  }
+
+  Future<Map<String, Offset>> getTreeNodePositions(String treeId) async {
+    final box = Hive.box<String>(_boxTreeLayouts);
+    final rawValue = box.get(treeId);
+    if (rawValue == null || rawValue.isEmpty) {
+      return const <String, Offset>{};
+    }
+
+    try {
+      final decoded = jsonDecode(rawValue);
+      if (decoded is! Map<String, dynamic>) {
+        return const <String, Offset>{};
+      }
+
+      final positions = <String, Offset>{};
+      for (final entry in decoded.entries) {
+        final value = entry.value;
+        if (value is! Map<String, dynamic>) {
+          continue;
+        }
+        final dx = (value['x'] as num?)?.toDouble();
+        final dy = (value['y'] as num?)?.toDouble();
+        if (dx == null || dy == null) {
+          continue;
+        }
+        positions[entry.key] = Offset(dx, dy);
+      }
+      return positions;
+    } catch (error) {
+      debugPrint(
+        'LocalStorage: Failed to decode node positions for tree $treeId: $error',
+      );
+      return const <String, Offset>{};
+    }
+  }
+
+  Future<void> saveTreeNodePositions(
+    String treeId,
+    Map<String, Offset> positions,
+  ) async {
+    final box = Hive.box<String>(_boxTreeLayouts);
+    if (positions.isEmpty) {
+      await box.delete(treeId);
+      return;
+    }
+
+    final normalized = <String, Map<String, double>>{};
+    for (final entry in positions.entries) {
+      normalized[entry.key] = <String, double>{
+        'x': entry.value.dx,
+        'y': entry.value.dy,
+      };
+    }
+    await box.put(treeId, jsonEncode(normalized));
+  }
+
+  Future<void> clearTreeNodePositions(String treeId) async {
+    await Hive.box<String>(_boxTreeLayouts).delete(treeId);
   }
 
   // --- Операции с персонами ---
@@ -335,6 +402,7 @@ class LocalStorageService {
       await Hive.box<FamilyPerson>(_boxPersons).clear();
       await Hive.box<FamilyRelation>(_boxRelations).clear();
       await Hive.box<ChatMessage>(_boxMessages).clear();
+      await Hive.box<String>(_boxTreeLayouts).clear();
       _relationCache.clear(); // Очищаем и кеш отношений в памяти
       debugPrint('LocalStorage: All Hive boxes and relation cache cleared.');
     } catch (e) {

@@ -1,4 +1,3 @@
-import '../utils/date_parser.dart';
 import '../utils/url_utils.dart';
 
 class Comment {
@@ -26,24 +25,27 @@ class Comment {
     this.likedBy = const [],
   }) : _authorPhotoUrl = UrlUtils.normalizeImageUrl(authorPhotoUrl);
 
-  factory Comment.fromFirestore(dynamic doc) {
-    final data = doc.data() as Map<String, dynamic>;
+  factory Comment.fromJson(Map<String, dynamic> json) {
     return Comment(
-      id: doc.id,
-      postId: data['postId'] ?? '',
-      authorId: data['authorId'] ?? '',
-      authorName: data['authorName'],
-      authorPhotoUrl: data['authorPhotoUrl'],
-      content: data['content'] ?? '',
-      createdAt: parseDateTimeRequired(data['createdAt']),
-      likeCount: data['likeCount'] ?? 0,
-      likedBy:
-          data['likedBy'] != null ? List<String>.from(data['likedBy']) : [],
+      id: json['id']?.toString() ?? '',
+      postId: json['postId']?.toString() ?? '',
+      authorId: json['authorId']?.toString() ?? '',
+      authorName: json['authorName']?.toString(),
+      authorPhotoUrl: json['authorPhotoUrl']?.toString(),
+      content: json['content']?.toString() ?? '',
+      createdAt: json['createdAt'] != null
+          ? DateTime.parse(json['createdAt'].toString())
+          : DateTime.now(),
+      likeCount: json['likeCount'] ?? 0,
+      likedBy: (json['likedBy'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList(),
     );
   }
 
-  Map<String, dynamic> toMap() {
+  Map<String, dynamic> toJson() {
     return {
+      'id': id,
       'postId': postId,
       'authorId': authorId,
       'authorName': authorName,

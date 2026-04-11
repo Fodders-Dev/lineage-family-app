@@ -68,6 +68,12 @@ class _FakeFamilyTreeService implements FamilyTreeServiceInterface {
 
 class _FakeLocalStorageService implements LocalStorageService {
   @override
+  Future<List<FamilyTree>> getAllTrees() async => const <FamilyTree>[];
+
+  @override
+  Future<FamilyTree?> getTree(String treeId) async => null;
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
@@ -230,6 +236,12 @@ void main() {
     expect(find.text('Активное дерево'), findsOneWidget);
     expect(find.text('Мои деревья'), findsNWidgets(2));
     expect(find.text('Сейчас открыто'), findsOneWidget);
+    await tester.dragUntilVisible(
+      find.text('Моё второе дерево'),
+      find.byType(Scrollable).first,
+      const Offset(0, -180),
+    );
+    await tester.pumpAndSettle();
     expect(find.text('Моё второе дерево'), findsOneWidget);
     await tester.dragUntilVisible(
       find.text('Дерево родственников'),

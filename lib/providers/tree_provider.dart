@@ -8,19 +8,40 @@ import '../models/family_tree.dart';
 class TreeProvider with ChangeNotifier {
   String? _selectedTreeId;
   String? _selectedTreeName;
+  TreeKind? _selectedTreeKind;
 
   final LocalStorageService _localStorageService =
       GetIt.I<LocalStorageService>();
 
   static const _treeIdKey = 'selected_tree_id';
   static const _treeNameKey = 'selected_tree_name';
+  static const _treeKindKey = 'selected_tree_kind';
 
   String? get selectedTreeId => _selectedTreeId;
   String? get selectedTreeName => _selectedTreeName;
+  TreeKind? get selectedTreeKind => _selectedTreeKind;
   FamilyTreeServiceInterface? get _familyTreeService =>
       GetIt.I.isRegistered<FamilyTreeServiceInterface>()
           ? GetIt.I<FamilyTreeServiceInterface>()
           : null;
+
+  Future<FamilyTree?> _resolveTree(String treeId) async {
+    final familyTreeService = _familyTreeService;
+    if (familyTreeService != null) {
+      try {
+        final backendTrees = await familyTreeService.getUserTrees();
+        for (final tree in backendTrees) {
+          if (tree.id == treeId) {
+            return tree;
+          }
+        }
+      } catch (e) {
+        debugPrint('TreeProvider: Error resolving tree from backend: $e');
+      }
+    }
+
+    return _localStorageService.getTree(treeId);
+  }
 
   Future<void> loadInitialTree() async {
     try {
@@ -50,6 +71,7 @@ class TreeProvider with ChangeNotifier {
         if (existingTree != null) {
           _selectedTreeId = loadedId;
           _selectedTreeName = existingTree.name;
+          _selectedTreeKind = existingTree.kind;
           debugPrint(
             'TreeProvider: Verified. Loaded initial tree ID: $_selectedTreeId, Name: $_selectedTreeName',
           );
@@ -60,11 +82,14 @@ class TreeProvider with ChangeNotifier {
           );
           _selectedTreeId = null;
           _selectedTreeName = null;
+          _selectedTreeKind = treeKindFromRaw(prefs.getString(_treeKindKey));
           await prefs.remove(_treeIdKey);
           await prefs.remove(_treeNameKey);
+          await prefs.remove(_treeKindKey);
         }
       } else {
         debugPrint('TreeProvider: No tree selected in SharedPreferences.');
+        _selectedTreeKind = treeKindFromRaw(prefs.getString(_treeKindKey));
       }
 
       await selectDefaultTreeIfNeeded(preloadedTrees: backendTrees);
@@ -75,10 +100,20 @@ class TreeProvider with ChangeNotifier {
     }
   }
 
-  Future<void> selectTree(String? treeId, String? treeName) async {
-    if (_selectedTreeId != treeId || _selectedTreeName != treeName) {
+  Future<void> selectTree(
+    String? treeId,
+    String? treeName, {
+    TreeKind? treeKind,
+  }) async {
+    final resolvedKind =
+        treeId == null ? null : treeKind ?? (await _resolveTree(treeId))?.kind;
+
+    if (_selectedTreeId != treeId ||
+        _selectedTreeName != treeName ||
+        _selectedTreeKind != resolvedKind) {
       _selectedTreeId = treeId;
       _selectedTreeName = treeName;
+      _selectedTreeKind = resolvedKind;
       debugPrint(
         'TreeProvider: Selected tree ID: $_selectedTreeId, Name: $_selectedTreeName',
       );
@@ -88,6 +123,7 @@ class TreeProvider with ChangeNotifier {
         if (treeId == null) {
           await prefs.remove(_treeIdKey);
           await prefs.remove(_treeNameKey);
+          await prefs.remove(_treeKindKey);
           debugPrint(
               'TreeProvider: Cleared tree selection in SharedPreferences');
         } else {
@@ -96,6 +132,11 @@ class TreeProvider with ChangeNotifier {
             await prefs.setString(_treeNameKey, treeName);
           } else {
             await prefs.remove(_treeNameKey);
+          }
+          if (resolvedKind != null) {
+            await prefs.setString(_treeKindKey, resolvedKind.name);
+          } else {
+            await prefs.remove(_treeKindKey);
           }
           debugPrint('TreeProvider: Saved tree selection to SharedPreferences');
         }
@@ -136,7 +177,11 @@ class TreeProvider with ChangeNotifier {
           debugPrint(
             'TreeProvider: Found ${availableTrees.length} trees in cache. Selecting first one as default: ${defaultTree.id}',
           );
-          await selectTree(defaultTree.id, defaultTree.name);
+          await selectTree(
+            defaultTree.id,
+            defaultTree.name,
+            treeKind: defaultTree.kind,
+          );
         } else {
           debugPrint('TreeProvider: No available trees found in cache.');
         }

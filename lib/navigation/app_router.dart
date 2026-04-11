@@ -33,6 +33,7 @@ import '../screens/relative_details_screen.dart';
 import '../screens/user_profile_entry_screen.dart';
 import '../screens/notifications_screen.dart';
 import '../models/family_person.dart';
+import '../models/family_tree.dart';
 import '../screens/privacy_policy_screen.dart';
 import '../providers/tree_provider.dart';
 import 'package:provider/provider.dart';
@@ -120,6 +121,24 @@ class AppRouter {
   final AuthServiceInterface _authService = GetIt.I<AuthServiceInterface>();
   late final authState = AuthState(_authService);
 
+  static String buildLoginRedirectTarget(GoRouterState state) {
+    final location = state.uri.toString();
+    return '/login?from=${Uri.encodeComponent(location)}';
+  }
+
+  static String? restoreDeferredLoginTarget(GoRouterState state) {
+    final from = state.uri.queryParameters['from'];
+    if (from == null || from.isEmpty) {
+      return null;
+    }
+
+    final restored = Uri.decodeComponent(from);
+    if (restored.isEmpty || restored == '/login') {
+      return null;
+    }
+    return restored;
+  }
+
   static String? resolveTreeRootRedirect({
     required Uri uri,
     required TreeProvider treeProvider,
@@ -181,35 +200,41 @@ class AppRouter {
 
       // Если не залогинен и не на странице входа/сброса/завершения профиля/политики -> на /login
       if (!isLoggedIn && !isLoggingIn && !completingProfile) {
-        debugPrint('Redirecting to /login (not logged in)');
-        return '/login';
+        return buildLoginRedirectTarget(state);
       }
 
       // Если залогинен и на странице входа -> на /
       if (isLoggedIn && isLoggingIn) {
-        debugPrint('Redirecting to / (already logged in)');
-        return '/';
+        final deferredTarget = restoreDeferredLoginTarget(state);
+        final target = deferredTarget ?? '/';
+        return target;
       }
 
       // Если залогинен, но профиль не заполнен и не на странице заполнения -> на /complete_profile
       if (isLoggedIn && !completingProfile) {
         try {
-          debugPrint(
-            'Checking profile completeness for ${_authService.currentUserId}',
-          );
           final profileStatus = await _authService.checkProfileCompleteness();
-          debugPrint('Profile status: $profileStatus');
-          if (!profileStatus['isComplete']!) {
-            debugPrint('Redirecting to /complete_profile (profile incomplete)');
+          if (_authService.currentUserId == null) {
+            return buildLoginRedirectTarget(state);
+          }
+          final isComplete = profileStatus['isComplete'] == true;
+          if (!isComplete) {
             return '/complete_profile?requiredFields=${Uri.encodeComponent(profileStatus.toString())}'; // Кодируем параметры
           }
         } catch (e) {
           debugPrint('Error checking profile completeness during redirect: $e');
-          // Возможно, стоит перенаправить на страницу ошибки или остаться
+          final normalizedError = e.toString().toLowerCase();
+          final looksLikeSessionIssue = _authService.currentUserId == null ||
+              normalizedError.contains('null check operator') ||
+              normalizedError.contains('session') ||
+              normalizedError.contains('сесс') ||
+              normalizedError.contains('401') ||
+              normalizedError.contains('403');
+          if (looksLikeSessionIssue) {
+            return buildLoginRedirectTarget(state);
+          }
         }
       }
-
-      debugPrint('No redirect needed for location: ${state.matchedLocation}');
       return null; // Нет редиректа
     },
 
@@ -305,7 +330,7 @@ class AppRouter {
               GoRoute(
                 path: '/',
                 pageBuilder: (context, state) =>
-                    NoTransitionPage(child: HomeScreen()),
+                    NoTransitionPage(key: state.pageKey, child: HomeScreen()),
                 routes: [
                   // <<< Добавляем маршрут для создания поста >>>
                   GoRoute(
@@ -347,8 +372,10 @@ class AppRouter {
             routes: [
               GoRoute(
                 path: '/relatives',
-                pageBuilder: (context, state) =>
-                    NoTransitionPage(child: RelativesScreen()),
+                pageBuilder: (context, state) => NoTransitionPage(
+                  key: state.pageKey,
+                  child: RelativesScreen(),
+                ),
                 routes: [
                   // Добавление родственника (открывается поверх)
                   GoRoute(
@@ -514,8 +541,10 @@ class AppRouter {
                   }
                   return null;
                 },
-                pageBuilder: (context, state) =>
-                    NoTransitionPage(child: TreeSelectorScreen()),
+                pageBuilder: (context, state) => NoTransitionPage(
+                  key: state.pageKey,
+                  child: TreeSelectorScreen(),
+                ),
                 routes: [
                   // Просмотр конкретного дерева (открывается поверх)
                   GoRoute(
@@ -546,8 +575,10 @@ class AppRouter {
             routes: [
               GoRoute(
                 path: '/chats',
-                pageBuilder: (context, state) =>
-                    NoTransitionPage(child: const ChatsListScreen()),
+                pageBuilder: (context, state) => NoTransitionPage(
+                  key: state.pageKey,
+                  child: const ChatsListScreen(),
+                ),
               ),
             ],
           ),
@@ -558,8 +589,10 @@ class AppRouter {
             routes: [
               GoRoute(
                 path: '/profile',
-                pageBuilder: (context, state) =>
-                    NoTransitionPage(child: ProfileScreen()),
+                pageBuilder: (context, state) => NoTransitionPage(
+                  key: state.pageKey,
+                  child: ProfileScreen(),
+                ),
                 routes: [
                   GoRoute(
                     path: 'edit',
@@ -639,12 +672,18 @@ class AppRouter {
           GoRoute(
             path: 'create',
             parentNavigatorKey: rootNavigatorKey,
-            pageBuilder: (context, state) => LineageCustomTransitionPage(
-              key: state.pageKey,
-              constrainWidth: true,
-              child: const CreateTreeScreen(),
-              transitionsBuilder: slideTransition,
-            ),
+            pageBuilder: (context, state) {
+              final kindParam = state.uri.queryParameters['kind'];
+              final initialKind = kindParam?.toLowerCase() == 'friends'
+                  ? TreeKind.friends
+                  : TreeKind.family;
+              return LineageCustomTransitionPage(
+                key: state.pageKey,
+                constrainWidth: true,
+                child: CreateTreeScreen(initialKind: initialKind),
+                transitionsBuilder: slideTransition,
+              );
+            },
           ),
         ],
       ),

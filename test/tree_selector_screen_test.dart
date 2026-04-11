@@ -25,6 +25,12 @@ class _FakeFamilyTreeService implements FamilyTreeServiceInterface {
 
 class _FakeLocalStorageService implements LocalStorageService {
   @override
+  Future<List<FamilyTree>> getAllTrees() async => const <FamilyTree>[];
+
+  @override
+  Future<FamilyTree?> getTree(String treeId) async => null;
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
@@ -155,9 +161,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Семейные деревья'), findsOneWidget);
+    expect(find.text('Деревья и круги'), findsOneWidget);
     expect(find.text('Откройте нужное дерево'), findsOneWidget);
-    expect(find.text('Создать дерево'), findsOneWidget);
+    expect(find.text('Создать семью'), findsOneWidget);
     expect(find.text('Семья Ивановых'), findsOneWidget);
     expect(find.text('Семья Петровых'), findsOneWidget);
   });

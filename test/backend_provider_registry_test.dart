@@ -9,8 +9,6 @@ import 'package:lineage/backend/interfaces/notification_service_interface.dart';
 import 'package:lineage/backend/interfaces/profile_service_interface.dart';
 import 'package:lineage/backend/interfaces/storage_service_interface.dart';
 import 'package:lineage/backend/pending_backend_adapters.dart';
-import 'package:lineage/services/notification_service.dart';
-import 'package:lineage/services/storage_service.dart';
 
 void main() {
   final getIt = GetIt.instance;
@@ -45,30 +43,6 @@ void main() {
       isA<PendingBackendFamilyTreeService>(),
     );
     expect(getIt<ChatServiceInterface>(), isA<PendingBackendChatService>());
-    expect(getIt<StorageServiceInterface>(), isA<NoopStorageService>());
-    expect(
-      getIt<NotificationServiceInterface>(),
-      isA<NoopNotificationService>(),
-    );
-  });
-
-  test('registry falls back to safe adapters when legacy services are absent',
-      () {
-    const config = BackendProviderConfig(
-      authProvider: BackendProviderKind.customApi,
-      profileProvider: BackendProviderKind.customApi,
-      chatProvider: BackendProviderKind.customApi,
-      treeProvider: BackendProviderKind.firebase,
-      storageProvider: BackendProviderKind.supabase,
-      notificationProvider: BackendProviderKind.firebase,
-    );
-
-    BackendProviderRegistry.register(getIt, config: config);
-
-    expect(
-      getIt<FamilyTreeServiceInterface>(),
-      isA<PendingBackendFamilyTreeService>(),
-    );
     expect(getIt<StorageServiceInterface>(), isA<NoopStorageService>());
     expect(
       getIt<NotificationServiceInterface>(),

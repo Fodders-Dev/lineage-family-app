@@ -9,8 +9,10 @@ import 'package:provider/provider.dart';
 import '../backend/interfaces/family_tree_service_interface.dart';
 import '../backend/interfaces/post_service_interface.dart';
 import '../models/family_person.dart';
+import '../models/family_tree.dart';
 import '../models/post.dart';
 import '../providers/tree_provider.dart';
+import '../services/local_storage_service.dart';
 
 class CreatePostScreen extends StatefulWidget {
   const CreatePostScreen({super.key});
@@ -25,6 +27,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   final FamilyTreeServiceInterface _familyTreeService =
       GetIt.I<FamilyTreeServiceInterface>();
   final PostServiceInterface _postService = GetIt.I<PostServiceInterface>();
+  final LocalStorageService _localStorageService =
+      GetIt.I<LocalStorageService>();
 
   bool _isPublic = false;
   bool _isLoading = false;
@@ -34,6 +38,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   final Set<String> _selectedBranchPersonIds = <String>{};
   TreeContentScopeType _scopeType = TreeContentScopeType.wholeTree;
   String? _currentTreeId;
+  FamilyTree? _currentTreeMeta;
+
+  bool get _isFriendsTree => _currentTreeMeta?.isFriendsTree == true;
 
   @override
   void initState() {
@@ -42,7 +49,22 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       context,
       listen: false,
     ).selectedTreeId;
+    _loadCurrentTreeMeta();
     _loadBranchCandidates();
+  }
+
+  Future<void> _loadCurrentTreeMeta() async {
+    final treeId = _currentTreeId;
+    if (treeId == null) {
+      return;
+    }
+    final treeMeta = await _localStorageService.getTree(treeId);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _currentTreeMeta = treeMeta;
+    });
   }
 
   Future<void> _loadBranchCandidates() async {
@@ -262,7 +284,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Короткий семейный апдейт, объявление или фотоотчет. Публикация появится в ленте выбранного дерева.',
+            _isFriendsTree
+                ? 'Короткий апдейт для круга друзей, объявление или фотоотчёт. Публикация появится в ленте выбранного графа.'
+                : 'Короткий семейный апдейт, объявление или фотоотчет. Публикация появится в ленте выбранного дерева.',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
               height: 1.4,
@@ -327,7 +351,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Публикация привязывается к конкретному дереву. Откройте нужное дерево и вернитесь к созданию поста.',
+                  'Публикация привязывается к конкретному дереву или графу друзей. Откройте нужный контекст и вернитесь к созданию поста.',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
@@ -367,16 +391,17 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           ),
           const SizedBox(height: 10),
           SegmentedButton<TreeContentScopeType>(
-            segments: const [
+            segments: [
               ButtonSegment<TreeContentScopeType>(
                 value: TreeContentScopeType.wholeTree,
-                icon: Icon(Icons.account_tree_outlined),
-                label: Text('Всё дерево'),
+                icon: const Icon(Icons.account_tree_outlined),
+                label: Text(_isFriendsTree ? 'Весь круг' : 'Всё дерево'),
               ),
               ButtonSegment<TreeContentScopeType>(
                 value: TreeContentScopeType.branches,
-                icon: Icon(Icons.alt_route),
-                label: Text('Отдельные ветки'),
+                icon: const Icon(Icons.alt_route),
+                label: Text(
+                    _isFriendsTree ? 'Отдельные круги' : 'Отдельные ветки'),
               ),
             ],
             selected: <TreeContentScopeType>{_scopeType},
@@ -394,8 +419,10 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           SwitchListTile.adaptive(
             contentPadding: EdgeInsets.zero,
             title: const Text('Публичная публикация'),
-            subtitle: const Text(
-              'Пост будет доступен для просмотра всем родственникам в дереве.',
+            subtitle: Text(
+              _isFriendsTree
+                  ? 'Пост будет доступен всем участникам выбранного круга.'
+                  : 'Пост будет доступен для просмотра всем родственникам в дереве.',
             ),
             value: _isPublic,
             onChanged: (value) {
@@ -407,7 +434,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           if (_scopeType == TreeContentScopeType.branches) ...[
             const SizedBox(height: 8),
             Text(
-              'Выберите корневых людей для веток. В публикацию попадут эти линии семьи.',
+              _isFriendsTree
+                  ? 'Выберите опорных людей для кругов. Публикация попадёт в выбранные части вашего социального графа.'
+                  : 'Выберите корневых людей для веток. В публикацию попадут эти линии семьи.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 10),
@@ -418,7 +447,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               )
             else if (_availablePeople.isEmpty)
               Text(
-                'В этом дереве пока нет людей для branch-публикации.',
+                _isFriendsTree
+                    ? 'В этом графе пока нет людей для публикации по кругам.'
+                    : 'В этом дереве пока нет людей для branch-публикации.',
                 style: Theme.of(context).textTheme.bodyMedium,
               )
             else
@@ -477,14 +508,19 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           ),
           _buildHintRow(
             icon: Icons.alt_route,
-            text:
-                'Режим «Отдельные ветки» ограничивает видимость выбранными семейными линиями.',
+            text: _isFriendsTree
+                ? 'Режим выборочных кругов ограничивает видимость выбранными частями дружеского графа.'
+                : 'Режим «Отдельные ветки» ограничивает видимость выбранными семейными линиями.',
           ),
           _buildHintRow(
             icon: Icons.public,
             text: _isPublic
-                ? 'Сейчас публикация помечена как публичная внутри дерева.'
-                : 'Сейчас публикация останется внутренней для выбранного дерева.',
+                ? _isFriendsTree
+                    ? 'Сейчас публикация помечена как публичная внутри круга.'
+                    : 'Сейчас публикация помечена как публичная внутри дерева.'
+                : _isFriendsTree
+                    ? 'Сейчас публикация останется внутренней для выбранного графа.'
+                    : 'Сейчас публикация останется внутренней для выбранного дерева.',
           ),
           _buildHintRow(
             icon: Icons.cloud_done_outlined,

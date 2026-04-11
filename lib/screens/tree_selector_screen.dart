@@ -71,7 +71,7 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Семейные деревья'),
+        title: const Text('Деревья и круги'),
         actions: [
           if (isCompact)
             IconButton(
@@ -148,7 +148,7 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Сразу после создания откроется схема семьи. Потом сможете добавить первого человека и пригласить родных.',
+              'Сразу после создания откроется схема семьи или дружеского круга. Потом сможете добавить первого человека и пригласить нужных людей.',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey[600]),
             ),
@@ -157,6 +157,12 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
               icon: const Icon(Icons.add),
               label: const Text('Создать первое дерево'),
               onPressed: _openCreateTree,
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.diversity_3_outlined),
+              label: const Text('Создать круг друзей'),
+              onPressed: _openCreateFriendsTree,
             ),
             const SizedBox(height: 12),
             OutlinedButton.icon(
@@ -219,7 +225,7 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Активное дерево идёт первым. Остальные разделены на ваши и те, куда вас пригласили.',
+                  'Активное дерево идёт первым. Семейные деревья и дружеские круги живут в одном переключателе.',
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
@@ -232,7 +238,12 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
                     FilledButton.icon(
                       onPressed: _openCreateTree,
                       icon: const Icon(Icons.add),
-                      label: const Text('Создать дерево'),
+                      label: const Text('Создать семью'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _openCreateFriendsTree,
+                      icon: const Icon(Icons.diversity_3_outlined),
+                      label: const Text('Создать круг'),
                     ),
                     OutlinedButton.icon(
                       onPressed: _loadUserTrees,
@@ -259,8 +270,8 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
             _SelectorSectionHeader(
               title: 'Мои деревья',
               subtitle: ownTrees.length == 1
-                  ? 'Дерево, которое вы создали.'
-                  : 'Деревья, которые вы создали сами.',
+                  ? 'Дерево или круг, который вы создали.'
+                  : 'Деревья и круги, которые вы создали сами.',
             ),
             ...ownTrees.map(
               (tree) => _buildTreeCard(
@@ -274,8 +285,8 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
             _SelectorSectionHeader(
               title: 'Другие деревья',
               subtitle: memberTrees.length == 1
-                  ? 'Дерево, куда вас пригласили.'
-                  : 'Деревья, куда вас пригласили другие родственники.',
+                  ? 'Дерево или круг, куда вас пригласили.'
+                  : 'Деревья и круги, куда вас пригласили другие люди.',
             ),
             ...memberTrees.map(
               (tree) => _buildTreeCard(
@@ -319,7 +330,11 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
                 setState(() {
                   _selectingTreeId = treeId;
                 });
-                await treeProvider.selectTree(treeId, treeName);
+                await treeProvider.selectTree(
+                  treeId,
+                  treeName,
+                  treeKind: tree.kind,
+                );
                 if (!mounted) {
                   return;
                 }
@@ -339,8 +354,10 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
               CircleAvatar(
                 radius: 24,
                 backgroundColor: Theme.of(context).colorScheme.primary,
-                child: const Icon(
-                  Icons.account_tree,
+                child: Icon(
+                  tree.isFriendsTree
+                      ? Icons.diversity_3_outlined
+                      : Icons.account_tree,
                   color: Colors.white,
                 ),
               ),
@@ -366,6 +383,12 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
                               ? Icons.lock_outline
                               : Icons.public,
                           label: tree.isPrivate ? 'Приватное' : 'Публичное',
+                        ),
+                        _SelectorChip(
+                          icon: tree.isFriendsTree
+                              ? Icons.diversity_3_outlined
+                              : Icons.family_restroom,
+                          label: tree.kindLabel,
                         ),
                         _SelectorChip(
                           icon: _isOwnedByCurrentUser(tree)
@@ -459,6 +482,14 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
 
   void _openCreateTree() {
     context.push('/trees/create').then((result) {
+      if (result == true) {
+        _loadUserTrees();
+      }
+    });
+  }
+
+  void _openCreateFriendsTree() {
+    context.push('/trees/create?kind=friends').then((result) {
       if (result == true) {
         _loadUserTrees();
       }

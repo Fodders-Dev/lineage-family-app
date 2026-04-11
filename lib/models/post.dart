@@ -1,4 +1,3 @@
-import '../utils/date_parser.dart';
 import '../utils/url_utils.dart';
 
 enum TreeContentScopeType { wholeTree, branches }
@@ -45,36 +44,37 @@ class Post {
         likedBy = likedBy ?? [],
         anchorPersonIds = anchorPersonIds ?? [];
 
-  factory Post.fromFirestore(dynamic doc) {
-    final data =
-        (doc.data != null ? (doc.data() as Map<String, dynamic>?) : null) ?? {};
-    final rawImageUrls = (data['imageUrls'] as List<dynamic>? ?? [])
+  factory Post.fromJson(Map<String, dynamic> json) {
+    final rawImageUrls = (json['imageUrls'] as List<dynamic>? ?? [])
         .map((e) => e.toString())
         .toList();
 
     return Post(
-      id: doc.id,
-      treeId: data['treeId'] ?? '',
-      authorId: data['authorId'] ?? '',
-      authorName: data['authorName'] ?? 'Аноним',
-      authorPhotoUrl: data['authorPhotoUrl'] as String?,
-      content: data['content'] ?? '',
+      id: json['id']?.toString() ?? '',
+      treeId: json['treeId']?.toString() ?? '',
+      authorId: json['authorId']?.toString() ?? '',
+      authorName: json['authorName']?.toString() ?? 'Аноним',
+      authorPhotoUrl: json['authorPhotoUrl'] as String?,
+      content: json['content']?.toString() ?? '',
       imageUrls: rawImageUrls,
-      createdAt: parseDateTime(data['createdAt']) ?? DateTime.now(),
-      likedBy: (data['likedBy'] as List<dynamic>? ?? [])
+      createdAt: json['createdAt'] != null
+          ? DateTime.parse(json['createdAt'].toString())
+          : DateTime.now(),
+      likedBy: (json['likedBy'] as List<dynamic>? ?? [])
           .map((e) => e.toString())
           .toList(),
-      commentCount: data['commentCount'] ?? 0,
-      isPublic: data['isPublic'] ?? false,
-      scopeType: _scopeTypeFromString(data['scopeType']?.toString()),
-      anchorPersonIds: (data['anchorPersonIds'] as List<dynamic>? ?? [])
+      commentCount: json['commentCount'] ?? 0,
+      isPublic: json['isPublic'] ?? false,
+      scopeType: _scopeTypeFromString(json['scopeType']?.toString()),
+      anchorPersonIds: (json['anchorPersonIds'] as List<dynamic>? ?? [])
           .map((e) => e.toString())
           .toList(),
     );
   }
 
-  Map<String, dynamic> toMap() {
+  Map<String, dynamic> toJson() {
     return {
+      'id': id,
       'treeId': treeId,
       'authorId': authorId,
       'authorName': authorName,

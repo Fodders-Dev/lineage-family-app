@@ -2,7 +2,7 @@
 
 ## Purpose
 This file is the Codex-specific operating guide for Lineage.
-Use it together with `AGENTS.md`, not instead of it.
+Use it together with `AGENTS.md` and `Codex_rules.md`, not instead of them.
 
 ## Project stance
 - Ship a stable Android + web MVP first.
@@ -25,13 +25,15 @@ Use it together with `AGENTS.md`, not instead of it.
 - Do not reintroduce Firebase-only assumptions into new code.
 - Do not store real credentials in repo files. Use user-provided credentials only during the interactive session.
 - Respect dirty worktrees. Never revert unrelated user changes.
+- Follow the autopilot execution model and concise response style in `Codex_rules.md`.
 
 ## Reliable web workflow
 1. Run `flutter pub get`.
-2. If web needs validation, prefer `flutter build web --no-wasm-dry-run`.
+2. If web needs validation, use `flutter build web` for any real served smoke pass.
 3. Serve `build/web` locally via `python -m http.server 3000 --bind 127.0.0.1`.
 4. Run Playwright MCP against the local build, not only against widget tests.
 5. Capture concrete route failures, console errors, and UI regressions in a dated audit file under `docs/`.
+6. Treat `flutter build web --no-wasm-dry-run` as a compile-only check; in this repo it can produce a locally served output missing `AssetManifest`, `FontManifest`, and web icons.
 
 ## Known web reality as of 2026-04-09
 - `flutter build web` was blocked by a missing `ChatPreview` import in `lib/screens/chat_screen.dart`; fixed.

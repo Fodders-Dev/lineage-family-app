@@ -11,7 +11,7 @@ import 'package:get_it/get_it.dart';
 import '../backend/interfaces/auth_service_interface.dart';
 import '../backend/interfaces/family_tree_service_interface.dart';
 import '../backend/models/tree_invitation.dart';
-import '../services/crashlytics_service.dart';
+
 import '../services/public_tree_link_service.dart';
 
 class TreesScreen extends StatefulWidget {
@@ -31,7 +31,7 @@ class _TreesScreenState extends State<TreesScreen>
   final AuthServiceInterface _authService = GetIt.I<AuthServiceInterface>();
   final FamilyTreeServiceInterface _familyTreeService =
       GetIt.I<FamilyTreeServiceInterface>();
-  final CrashlyticsService _crashlyticsService = CrashlyticsService();
+
   late TabController _tabController;
 
   // Переменные для хранения состояния
@@ -119,7 +119,7 @@ class _TreesScreenState extends State<TreesScreen>
             onPressed: _navigateToCreateTree,
             icon: const Icon(Icons.add),
             label: const Text('Новое дерево'),
-            tooltip: 'Создать семейное дерево',
+            tooltip: 'Создать семейное или дружеское дерево',
           ),
         );
       },
@@ -210,7 +210,25 @@ class _TreesScreenState extends State<TreesScreen>
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Открывайте нужное дерево сразу в интерактивной схеме. Количество веток: ${_myTrees.length}.',
+                      'Открывайте нужное дерево сразу в интерактивной схеме. Семейные и дружеские графы лежат в одном списке.',
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        FilledButton.icon(
+                          onPressed: () => context.push('/trees/create'),
+                          icon: const Icon(Icons.family_restroom),
+                          label: const Text('Новая семья'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () =>
+                              context.push('/trees/create?kind=friends'),
+                          icon: const Icon(Icons.diversity_3_outlined),
+                          label: const Text('Новый круг друзей'),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -259,7 +277,7 @@ class _TreesScreenState extends State<TreesScreen>
                   title: 'Другие деревья',
                   subtitle: memberTrees.length == 1
                       ? 'Дерево, куда вас добавили.'
-                      : 'Деревья, куда вас добавили другие родственники.',
+                      : 'Деревья, куда вас добавили другие люди.',
                 ),
                 ...memberTrees.map(
                   (tree) => TreeCard(
@@ -426,6 +444,11 @@ class _TreesScreenState extends State<TreesScreen>
                   icon: const Icon(Icons.add),
                   label: const Text('Создать своё дерево'),
                 ),
+                OutlinedButton.icon(
+                  onPressed: () => context.push('/trees/create?kind=friends'),
+                  icon: const Icon(Icons.diversity_3_outlined),
+                  label: const Text('Создать круг друзей'),
+                ),
               ],
             ),
           ],
@@ -490,8 +513,7 @@ class _TreesScreenState extends State<TreesScreen>
           _isLoading = false;
         });
       }
-    } catch (e, stackTrace) {
-      _crashlyticsService.logError(e, stackTrace, reason: 'LoadUserTreesError');
+    } catch (e) {
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -516,8 +538,7 @@ class _TreesScreenState extends State<TreesScreen>
 
     try {
       await _loadUserTrees();
-    } catch (e, stackTrace) {
-      _crashlyticsService.logError(e, stackTrace, reason: 'RefreshTreesError');
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Ошибка обновления списка деревьев')),
@@ -530,6 +551,7 @@ class _TreesScreenState extends State<TreesScreen>
     await Provider.of<TreeProvider>(context, listen: false).selectTree(
       tree.id,
       tree.name,
+      treeKind: tree.kind,
     );
     if (!mounted) {
       return;
@@ -606,7 +628,11 @@ class _TreesScreenState extends State<TreesScreen>
       if (wasSelected) {
         if (_myTrees.isNotEmpty) {
           final nextTree = _myTrees.first;
-          await treeProvider.selectTree(nextTree.id, nextTree.name);
+          await treeProvider.selectTree(
+            nextTree.id,
+            nextTree.name,
+            treeKind: nextTree.kind,
+          );
         } else {
           await treeProvider.clearSelection();
         }
@@ -619,12 +645,7 @@ class _TreesScreenState extends State<TreesScreen>
           ),
         ),
       );
-    } catch (e, stackTrace) {
-      _crashlyticsService.logError(
-        e,
-        stackTrace,
-        reason: 'RemoveTreeError',
-      );
+    } catch (e) {
       if (!mounted) {
         return;
       }
@@ -774,6 +795,8 @@ class TreeCard extends StatelessWidget {
   Widget build(BuildContext context) {
     String roleText;
     IconData roleIcon;
+    final treeIcon =
+        tree.isFriendsTree ? Icons.diversity_3_outlined : Icons.family_restroom;
 
     switch (role) {
       case MemberRole.owner:
@@ -816,7 +839,7 @@ class TreeCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
-                  Icons.family_restroom,
+                  treeIcon,
                   size: 32,
                   color: Theme.of(context).primaryColor,
                 ),
@@ -850,6 +873,12 @@ class TreeCard extends StatelessWidget {
                             label: 'Сертифицировано',
                             highlighted: true,
                           ),
+                        _MetaChip(
+                          icon: tree.isFriendsTree
+                              ? Icons.diversity_3_outlined
+                              : Icons.family_restroom,
+                          label: tree.kindLabel,
+                        ),
                         if (isSelected)
                           _MetaChip(
                             icon: Icons.check_circle_outline,

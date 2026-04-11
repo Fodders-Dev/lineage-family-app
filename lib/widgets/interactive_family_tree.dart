@@ -37,6 +37,13 @@ class InteractiveFamilyTree extends StatefulWidget {
   final VoidCallback? onBranchFocusCleared;
   final String? selectedEditPersonId;
   final ValueChanged<FamilyPerson>? onEditPersonSelected;
+  final Map<String, Offset>? manualNodePositions;
+  final ValueChanged<Map<String, Offset>>? onNodePositionsChanged;
+  final bool showGenerationGuides;
+  final bool enableClusterHighlights;
+  final String graphLabel;
+  final bool hasManualLayout;
+  final VoidCallback? onResetLayout;
 
   // Константы для размеров узлов и отступов - понадобятся для расчета layout
   static const double nodeWidth = 132; // Примерная ширина карточки
@@ -66,6 +73,13 @@ class InteractiveFamilyTree extends StatefulWidget {
     this.onBranchFocusCleared,
     this.selectedEditPersonId,
     this.onEditPersonSelected,
+    this.manualNodePositions,
+    this.onNodePositionsChanged,
+    this.showGenerationGuides = true,
+    this.enableClusterHighlights = true,
+    this.graphLabel = 'дерева',
+    this.hasManualLayout = false,
+    this.onResetLayout,
   });
 
   @override
@@ -88,6 +102,7 @@ class _InteractiveFamilyTreeState extends State<InteractiveFamilyTree> {
   String? _selectedEditPersonId;
   String? _hoveredBranchPersonId;
   double _currentScale = 1.0;
+  String? _draggingPersonId;
 
   @override
   void initState() {
@@ -103,7 +118,8 @@ class _InteractiveFamilyTreeState extends State<InteractiveFamilyTree> {
     if (oldWidget.peopleData != widget.peopleData ||
         oldWidget.relations != widget.relations ||
         oldWidget.currentUserId != widget.currentUserId ||
-        oldWidget.branchRootPersonId != widget.branchRootPersonId) {
+        oldWidget.branchRootPersonId != widget.branchRootPersonId ||
+        oldWidget.manualNodePositions != widget.manualNodePositions) {
       _hasAppliedViewportFit = false;
       _calculateLayout(); // Пересчитываем layout при изменении данных
     }
@@ -146,10 +162,15 @@ class _InteractiveFamilyTreeState extends State<InteractiveFamilyTree> {
   void _calculateLayout() {
     final modernLayout = _buildModernLayout();
     if (modernLayout != null) {
+      final positions = _mergeManualNodePositions(modernLayout.nodePositions);
       setState(() {
-        nodePositions = modernLayout.nodePositions;
+        nodePositions = positions;
         connections = modernLayout.connections;
-        treeSize = modernLayout.treeSize;
+        treeSize = _calculateTreeSize(
+          positions,
+          minimumWidth: modernLayout.treeSize.width,
+          minimumHeight: modernLayout.treeSize.height,
+        );
       });
       _scheduleViewportFit();
       return;
@@ -562,13 +583,15 @@ class _InteractiveFamilyTreeState extends State<InteractiveFamilyTree> {
             (InteractiveFamilyTree.nodeHeight +
                 InteractiveFamilyTree.levelSeparation)) +
         InteractiveFamilyTree.nodeHeight;
-    final Size finalTreeSize = Size(
-      max(maxTreeWidth, 300.0),
-      max(finalMaxY, 300.0),
+    final mergedPositions = _mergeManualNodePositions(finalPositions);
+    final Size finalTreeSize = _calculateTreeSize(
+      mergedPositions,
+      minimumWidth: max(maxTreeWidth, 300.0),
+      minimumHeight: max(finalMaxY, 300.0),
     );
 
     setState(() {
-      nodePositions = finalPositions;
+      nodePositions = mergedPositions;
       connections = finalConnections;
       treeSize = finalTreeSize;
     });
@@ -697,7 +720,9 @@ class _InteractiveFamilyTreeState extends State<InteractiveFamilyTree> {
   Widget build(BuildContext context) {
     final stackWidth = treeSize.width;
     final stackHeight = treeSize.height;
-    final familyClusters = _buildFamilyClusters();
+    final familyClusters = widget.enableClusterHighlights
+        ? _buildFamilyClusters()
+        : const <_FamilyClusterOverlay>[];
     final interactionBoundary = max(stackWidth, stackHeight) + 160;
 
     return DecoratedBox(
@@ -753,7 +778,7 @@ class _InteractiveFamilyTreeState extends State<InteractiveFamilyTree> {
                       clipBehavior: Clip.none,
                       boundaryMargin: EdgeInsets.all(interactionBoundary),
                       panAxis: PanAxis.free,
-                      panEnabled: true,
+                      panEnabled: _draggingPersonId == null,
                       scaleEnabled: true,
                       trackpadScrollCausesScale: true,
                       minScale: 0.08,
@@ -764,10 +789,12 @@ class _InteractiveFamilyTreeState extends State<InteractiveFamilyTree> {
                         child: Stack(
                           clipBehavior: Clip.none,
                           children: [
-                            ..._buildGenerationGuideWidgets(
-                              stackWidth: stackWidth,
-                            ),
-                            if (_showFamilyClusters)
+                            if (widget.showGenerationGuides)
+                              ..._buildGenerationGuideWidgets(
+                                stackWidth: stackWidth,
+                              ),
+                            if (widget.enableClusterHighlights &&
+                                _showFamilyClusters)
                               IgnorePointer(
                                 child: Stack(
                                   children: _buildFamilyClusterWidgets(
@@ -813,6 +840,114 @@ class _InteractiveFamilyTreeState extends State<InteractiveFamilyTree> {
       _selectedEditPersonId = person.id;
     });
     widget.onEditPersonSelected?.call(person);
+  }
+
+  Map<String, Offset> _mergeManualNodePositions(
+    Map<String, Offset> automaticPositions,
+  ) {
+    final manualPositions = widget.manualNodePositions;
+    if (manualPositions == null || manualPositions.isEmpty) {
+      return automaticPositions;
+    }
+
+    final merged = Map<String, Offset>.from(automaticPositions);
+    for (final entry in manualPositions.entries) {
+      if (!merged.containsKey(entry.key)) {
+        continue;
+      }
+      merged[entry.key] = _normalizeNodePosition(entry.value);
+    }
+    return merged;
+  }
+
+  Size _calculateTreeSize(
+    Map<String, Offset> positions, {
+    double minimumWidth = 300,
+    double minimumHeight = 300,
+  }) {
+    if (positions.isEmpty) {
+      return Size(
+        max(minimumWidth, 300),
+        max(minimumHeight, 300),
+      );
+    }
+
+    double maxRight = 0;
+    double maxBottom = 0;
+    for (final position in positions.values) {
+      maxRight = max(
+        maxRight,
+        position.dx +
+            InteractiveFamilyTree.nodeWidth / 2 +
+            InteractiveFamilyTree.contentInsetHorizontal,
+      );
+      maxBottom = max(
+        maxBottom,
+        position.dy +
+            InteractiveFamilyTree.nodeHeight / 2 +
+            InteractiveFamilyTree.contentInsetBottom,
+      );
+    }
+
+    return Size(
+      max(maxRight, max(minimumWidth, 300)),
+      max(maxBottom, max(minimumHeight, 300)),
+    );
+  }
+
+  Offset _normalizeNodePosition(Offset position) {
+    final minDx = InteractiveFamilyTree.contentInsetHorizontal +
+        InteractiveFamilyTree.nodeWidth / 2;
+    final minDy = InteractiveFamilyTree.contentInsetTop +
+        InteractiveFamilyTree.nodeHeight / 2;
+    return Offset(
+      max(position.dx, minDx),
+      max(position.dy, minDy),
+    );
+  }
+
+  void _handleNodePanStart(FamilyPerson person) {
+    if (!widget.isEditMode) {
+      return;
+    }
+    _selectEditPerson(person);
+    setState(() {
+      _draggingPersonId = person.id;
+    });
+  }
+
+  void _handleNodePanUpdate(FamilyPerson person, DragUpdateDetails details) {
+    if (!widget.isEditMode) {
+      return;
+    }
+
+    final currentPosition = nodePositions[person.id];
+    if (currentPosition == null) {
+      return;
+    }
+
+    final effectiveScale = _currentScale <= 0 ? 1.0 : _currentScale;
+    final delta = details.delta / effectiveScale;
+    final nextPosition = _normalizeNodePosition(currentPosition + delta);
+    final updatedPositions = Map<String, Offset>.from(nodePositions)
+      ..[person.id] = nextPosition;
+
+    setState(() {
+      nodePositions = updatedPositions;
+      treeSize = _calculateTreeSize(updatedPositions);
+    });
+  }
+
+  void _handleNodePanEnd() {
+    if (_draggingPersonId == null) {
+      return;
+    }
+
+    final updatedPositions = Map<String, Offset>.from(nodePositions);
+    setState(() {
+      _draggingPersonId = null;
+    });
+    widget.onNodePositionsChanged?.call(updatedPositions);
   }
 
   List<_FamilyClusterOverlay> _buildFamilyClusters() {
@@ -1355,6 +1490,7 @@ class _InteractiveFamilyTreeState extends State<InteractiveFamilyTree> {
     final isBranchRoot = widget.branchRootPersonId == person.id;
     final isSelectedInEditMode =
         widget.isEditMode && _selectedEditPersonId == person.id;
+    final isDraggingNode = _draggingPersonId == person.id;
     final showBranchChip = !widget.isEditMode &&
         widget.onBranchFocusRequested != null &&
         (isBranchRoot || _hoveredBranchPersonId == person.id);
@@ -1369,31 +1505,42 @@ class _InteractiveFamilyTreeState extends State<InteractiveFamilyTree> {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: isSelectedInEditMode
-                ? Theme.of(context)
-                    .colorScheme
-                    .secondary
-                    .withValues(alpha: 0.28)
-                : isCurrentUserNode
+            color: isDraggingNode
+                ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.32)
+                : isSelectedInEditMode
                     ? Theme.of(context)
                         .colorScheme
-                        .primary
-                        .withValues(alpha: 0.22)
-                    : Colors.black.withValues(alpha: 0.1),
-            blurRadius:
-                isSelectedInEditMode ? 14 : (isCurrentUserNode ? 10 : 6),
-            offset: const Offset(0, 2),
+                        .secondary
+                        .withValues(alpha: 0.28)
+                    : isCurrentUserNode
+                        ? Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withValues(alpha: 0.22)
+                        : Colors.black.withValues(alpha: 0.1),
+            blurRadius: isDraggingNode
+                ? 18
+                : isSelectedInEditMode
+                    ? 14
+                    : (isCurrentUserNode ? 10 : 6),
+            offset: Offset(0, isDraggingNode ? 5 : 2),
           ),
         ],
         border: Border.all(
-          color: isSelectedInEditMode
-              ? Theme.of(context).colorScheme.secondary
-              : isCurrentUserNode
-                  ? Theme.of(context).colorScheme.primary
-                  : displayGender == Gender.male
-                      ? Colors.blue.shade300
-                      : Colors.pink.shade300,
-          width: isSelectedInEditMode ? 2.5 : (isCurrentUserNode ? 2 : 1.5),
+          color: isDraggingNode
+              ? Theme.of(context).colorScheme.primary
+              : isSelectedInEditMode
+                  ? Theme.of(context).colorScheme.secondary
+                  : isCurrentUserNode
+                      ? Theme.of(context).colorScheme.primary
+                      : displayGender == Gender.male
+                          ? Colors.blue.shade300
+                          : Colors.pink.shade300,
+          width: isDraggingNode
+              ? 2.8
+              : isSelectedInEditMode
+                  ? 2.5
+                  : (isCurrentUserNode ? 2 : 1.5),
         ),
       ),
       child: Column(
@@ -1470,6 +1617,13 @@ class _InteractiveFamilyTreeState extends State<InteractiveFamilyTree> {
       children: [
         GestureDetector(
           behavior: HitTestBehavior.opaque,
+          onPanStart:
+              widget.isEditMode ? (_) => _handleNodePanStart(person) : null,
+          onPanUpdate: widget.isEditMode
+              ? (details) => _handleNodePanUpdate(person, details)
+              : null,
+          onPanEnd: widget.isEditMode ? (_) => _handleNodePanEnd() : null,
+          onPanCancel: widget.isEditMode ? _handleNodePanEnd : null,
           onTap: () {
             if (widget.isEditMode) {
               _selectEditPerson(person);
@@ -1530,23 +1684,33 @@ class _InteractiveFamilyTreeState extends State<InteractiveFamilyTree> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    isSelectedInEditMode
-                        ? Icons.check
-                        : Icons.touch_app_outlined,
+                    isDraggingNode
+                        ? Icons.open_with
+                        : isSelectedInEditMode
+                            ? Icons.check
+                            : Icons.touch_app_outlined,
                     size: 12,
-                    color: isSelectedInEditMode
-                        ? Theme.of(context).colorScheme.onSecondary
-                        : Theme.of(context).colorScheme.onPrimary,
+                    color: isDraggingNode
+                        ? Theme.of(context).colorScheme.onPrimary
+                        : isSelectedInEditMode
+                            ? Theme.of(context).colorScheme.onSecondary
+                            : Theme.of(context).colorScheme.onPrimary,
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    isSelectedInEditMode ? 'Выбрано' : 'Нажмите',
+                    isDraggingNode
+                        ? 'Тяните'
+                        : isSelectedInEditMode
+                            ? 'Выбрано'
+                            : 'Нажмите',
                     style: TextStyle(
                       fontSize: 9,
                       fontWeight: FontWeight.w700,
-                      color: isSelectedInEditMode
-                          ? Theme.of(context).colorScheme.onSecondary
-                          : Theme.of(context).colorScheme.onPrimary,
+                      color: isDraggingNode
+                          ? Theme.of(context).colorScheme.onPrimary
+                          : isSelectedInEditMode
+                              ? Theme.of(context).colorScheme.onSecondary
+                              : Theme.of(context).colorScheme.onPrimary,
                     ),
                   ),
                 ],
@@ -1834,18 +1998,55 @@ class _InteractiveFamilyTreeState extends State<InteractiveFamilyTree> {
   Widget _buildViewportControls() {
     final currentUserNodeId = _findCurrentUserNodeId();
     final branchRootPersonId = widget.branchRootPersonId;
-    final familyClusters = _buildFamilyClusters();
-    final generationCount = _estimateGenerationCount();
+    final selectedPersonId = _selectedEditPersonId;
+    final familyClusters = widget.enableClusterHighlights
+        ? _buildFamilyClusters()
+        : const <_FamilyClusterOverlay>[];
+    final generationCount =
+        widget.showGenerationGuides ? _estimateGenerationCount() : 0;
     final zoomPercent = (_currentScale * 100).round();
     final helperText = widget.isEditMode
-        ? 'Нажмите на карточку, чтобы открыть быстрые действия. Долгое нажатие открывает полное меню.'
+        ? 'Нажмите на карточку, чтобы открыть быстрые действия. Долгое нажатие открывает полное меню, а drag позволяет вручную собрать композицию ${widget.graphLabel}.'
         : branchRootPersonId != null && branchRootPersonId.isNotEmpty
-            ? 'Показана выбранная ветка. Используйте плашки на карточках, чтобы сменить фокус.'
-            : 'Тяните схему в любую сторону, масштабируйте колесом или кнопками и открывайте карточки людей. Плашка «Ветка» или долгое нажатие на карточку фокусирует схему на выбранной семье. Горячие клавиши: +, -, 0.';
+            ? widget.showGenerationGuides
+                ? 'Показана выбранная ветка. Используйте плашки на карточках, чтобы сменить фокус.'
+                : 'Показан выбранный круг. Используйте плашки на карточках, чтобы сменить фокус.'
+            : widget.showGenerationGuides
+                ? 'Тяните схему в любую сторону, масштабируйте колесом или кнопками и открывайте карточки людей. Плашка «Ветка» или долгое нажатие на карточку фокусирует схему на выбранной семье. Горячие клавиши: +, -, 0.'
+                : 'Тяните граф в любую сторону, масштабируйте колесом или кнопками и открывайте карточки людей. Плашка на карточке помогает сфокусироваться на выбранном круге. Горячие клавиши: +, -, 0.';
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final isCompact = constraints.maxWidth < 860;
+        final statusChips = Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _buildOverlayChip(
+              icon: widget.showGenerationGuides
+                  ? Icons.account_tree_outlined
+                  : Icons.diversity_3_outlined,
+              label:
+                  widget.showGenerationGuides ? 'Режим семьи' : 'Режим друзей',
+            ),
+            _buildOverlayChip(
+              icon: Icons.zoom_in_map_outlined,
+              label: 'Масштаб $zoomPercent%',
+            ),
+            if (widget.hasManualLayout)
+              _buildOverlayChip(
+                icon: Icons.open_with,
+                label: 'Ручной layout',
+                highlighted: true,
+              ),
+            if (selectedPersonId != null && selectedPersonId.isNotEmpty)
+              _buildOverlayChip(
+                icon: Icons.ads_click_outlined,
+                label: 'Выбран узел',
+                highlighted: true,
+              ),
+          ],
+        );
         final infoCard = Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
@@ -1858,17 +2059,37 @@ class _InteractiveFamilyTreeState extends State<InteractiveFamilyTree> {
               color: Theme.of(context).colorScheme.outlineVariant,
             ),
           ),
-          child: Text(
-            familyClusters.isEmpty
-                ? '$helperText Поколений на экране: $generationCount. Синие карточки обозначают мужчин, розовые — женщин.'
-                : '$helperText Поколений на экране: $generationCount. Цветные рамки помогают увидеть отдельные семейные ветки, а подписи слева — уровни поколения.',
-            style: Theme.of(context).textTheme.bodySmall,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              statusChips,
+              const SizedBox(height: 10),
+              Text(
+                !widget.showGenerationGuides
+                    ? '$helperText Это свободный сетевой режим без поколенческой сетки: связи читаются по линиям, а карточки можно раскладывать вручную.'
+                    : familyClusters.isEmpty
+                        ? '$helperText Поколений на экране: $generationCount. Синие карточки обозначают мужчин, розовые — женщин.'
+                        : '$helperText Поколений на экране: $generationCount. Цветные рамки помогают увидеть отдельные семейные ветки, а подписи слева — уровни поколения.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
           ),
         );
         final controls = Wrap(
           spacing: 8,
           runSpacing: 8,
           children: [
+            _buildQuickControlStat(
+              icon: Icons.open_with,
+              label: widget.hasManualLayout ? 'Ручной layout' : 'Auto layout',
+              highlighted: widget.hasManualLayout,
+            ),
+            _buildQuickControlStat(
+              icon: Icons.layers_outlined,
+              label: widget.showGenerationGuides
+                  ? '$generationCount поколений'
+                  : '${familyClusters.length} кластеров',
+            ),
             IconButton.filledTonal(
               onPressed: () => _zoomBy(1.2),
               tooltip: 'Увеличить',
@@ -1879,21 +2100,22 @@ class _InteractiveFamilyTreeState extends State<InteractiveFamilyTree> {
               tooltip: 'Уменьшить',
               icon: const Icon(Icons.remove),
             ),
-            IconButton.filledTonal(
-              onPressed: () {
-                setState(() {
-                  _showFamilyClusters = !_showFamilyClusters;
-                });
-              },
-              tooltip: _showFamilyClusters
-                  ? 'Скрыть семейные рамки'
-                  : 'Показать семейные рамки',
-              icon: Icon(
-                _showFamilyClusters
-                    ? Icons.layers_clear_outlined
-                    : Icons.layers_outlined,
+            if (widget.enableClusterHighlights)
+              IconButton.filledTonal(
+                onPressed: () {
+                  setState(() {
+                    _showFamilyClusters = !_showFamilyClusters;
+                  });
+                },
+                tooltip: _showFamilyClusters
+                    ? 'Скрыть семейные рамки'
+                    : 'Показать семейные рамки',
+                icon: Icon(
+                  _showFamilyClusters
+                      ? Icons.layers_clear_outlined
+                      : Icons.layers_outlined,
+                ),
               ),
-            ),
             FilledButton.tonalIcon(
               onPressed: _fitTreeToViewport,
               icon: const Icon(Icons.fit_screen_outlined),
@@ -1903,7 +2125,8 @@ class _InteractiveFamilyTreeState extends State<InteractiveFamilyTree> {
               FilledButton.tonalIcon(
                 onPressed: () => _focusOnPerson(branchRootPersonId),
                 icon: const Icon(Icons.alt_route),
-                label: const Text('К ветке'),
+                label:
+                    Text(widget.showGenerationGuides ? 'К ветке' : 'К кругу'),
               ),
             if (branchRootPersonId != null &&
                 branchRootPersonId.isNotEmpty &&
@@ -1911,7 +2134,11 @@ class _InteractiveFamilyTreeState extends State<InteractiveFamilyTree> {
               FilledButton.tonalIcon(
                 onPressed: widget.onBranchFocusCleared,
                 icon: const Icon(Icons.clear_all),
-                label: const Text('Сбросить ветку'),
+                label: Text(
+                  widget.showGenerationGuides
+                      ? 'Сбросить ветку'
+                      : 'Сбросить круг',
+                ),
               ),
             if (currentUserNodeId != null)
               FilledButton.tonalIcon(
@@ -1919,32 +2146,30 @@ class _InteractiveFamilyTreeState extends State<InteractiveFamilyTree> {
                 icon: const Icon(Icons.my_location_outlined),
                 label: const Text('Ко мне'),
               ),
-            if (!isCompact)
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .surfaceContainerHighest
-                      .withValues(alpha: 0.92),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                  ),
-                ),
-                child: Text(
-                  'Масштаб $zoomPercent%',
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
+            if (selectedPersonId != null && selectedPersonId.isNotEmpty)
+              FilledButton.tonalIcon(
+                onPressed: () => _focusOnPerson(selectedPersonId),
+                icon: const Icon(Icons.center_focus_strong_outlined),
+                label: const Text('К выбранному'),
+              ),
+            if (widget.hasManualLayout && widget.onResetLayout != null)
+              FilledButton.tonalIcon(
+                onPressed: widget.onResetLayout,
+                icon: const Icon(Icons.restart_alt),
+                label: const Text('Сбросить layout'),
               ),
           ],
         );
 
         if (isCompact) {
-          return controls;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              infoCard,
+              const SizedBox(height: 8),
+              controls,
+            ],
+          );
         }
 
         return Row(
@@ -1952,10 +2177,82 @@ class _InteractiveFamilyTreeState extends State<InteractiveFamilyTree> {
           children: [
             Expanded(child: infoCard),
             const SizedBox(width: 10),
-            controls,
+            SizedBox(
+              width: 260,
+              child: Align(
+                alignment: Alignment.topRight,
+                child: controls,
+              ),
+            ),
           ],
         );
       },
+    );
+  }
+
+  Widget _buildQuickControlStat({
+    required IconData icon,
+    required String label,
+    bool highlighted = false,
+  }) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: highlighted
+            ? theme.colorScheme.primaryContainer
+            : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: highlighted
+              ? theme.colorScheme.primary
+              : theme.colorScheme.outlineVariant,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: theme.colorScheme.primary),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOverlayChip({
+    required IconData icon,
+    required String label,
+    bool highlighted = false,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: highlighted ? colorScheme.primaryContainer : colorScheme.surface,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: highlighted ? colorScheme.primary : colorScheme.outlineVariant,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2981,7 +3278,6 @@ class FamilyTreePainter extends CustomPainter {
 
     final parentBarY =
         parentAnchors.map((anchor) => anchor.dy).reduce(max) + 18;
-    final childBarY = childAnchors.map((anchor) => anchor.dy).reduce(min) - 18;
     final familyCenterX =
         parentAnchors.map((anchor) => anchor.dx).reduce((a, b) => a + b) /
             parentAnchors.length;
@@ -3008,42 +3304,80 @@ class FamilyTreePainter extends CustomPainter {
         Offset(familyCenterX, parentBarY),
         familyLinePaint,
       );
+      _drawJunction(canvas, Offset(familyCenterX, parentBarY));
     }
 
-    if (childBarY > parentBarY) {
+    final downwardChildren =
+        childAnchors.where((anchor) => anchor.dy >= parentBarY).toList();
+    final upwardChildren =
+        childAnchors.where((anchor) => anchor.dy < parentBarY).toList();
+
+    if (downwardChildren.isNotEmpty) {
+      _drawChildAnchorGroup(
+        canvas,
+        familyCenterX: familyCenterX,
+        parentBarY: parentBarY,
+        anchors: downwardChildren,
+        branchY: downwardChildren.map((anchor) => anchor.dy).reduce(min) - 18,
+      );
+    }
+
+    if (upwardChildren.isNotEmpty) {
+      _drawChildAnchorGroup(
+        canvas,
+        familyCenterX: familyCenterX,
+        parentBarY: parentBarY,
+        anchors: upwardChildren,
+        branchY: upwardChildren.map((anchor) => anchor.dy).reduce(max) + 18,
+      );
+    }
+  }
+
+  void _drawChildAnchorGroup(
+    Canvas canvas, {
+    required double familyCenterX,
+    required double parentBarY,
+    required List<Offset> anchors,
+    required double branchY,
+  }) {
+    if (anchors.isEmpty) {
+      return;
+    }
+
+    if ((branchY - parentBarY).abs() > 0.1) {
       canvas.drawLine(
         Offset(familyCenterX, parentBarY),
-        Offset(familyCenterX, childBarY),
+        Offset(familyCenterX, branchY),
         familyLinePaint,
       );
     }
 
-    final minChildX = childAnchors.map((anchor) => anchor.dx).reduce(min);
-    final maxChildX = childAnchors.map((anchor) => anchor.dx).reduce(max);
+    final minChildX = anchors.map((anchor) => anchor.dx).reduce(min);
+    final maxChildX = anchors.map((anchor) => anchor.dx).reduce(max);
     if ((maxChildX - minChildX).abs() > 0.1) {
       canvas.drawLine(
-        Offset(minChildX, childBarY),
-        Offset(maxChildX, childBarY),
+        Offset(minChildX, branchY),
+        Offset(maxChildX, branchY),
         familyLinePaint,
       );
     }
-    _drawJunction(canvas, Offset(familyCenterX, childBarY));
+    _drawJunction(canvas, Offset(familyCenterX, branchY));
 
-    for (final anchor in childAnchors) {
+    for (final anchor in anchors) {
       if ((anchor.dx - familyCenterX).abs() > 0.1) {
         canvas.drawLine(
-          Offset(anchor.dx, childBarY),
+          Offset(anchor.dx, branchY),
           anchor,
           familyLinePaint,
         );
       } else {
         canvas.drawLine(
-          Offset(familyCenterX, childBarY),
+          Offset(familyCenterX, branchY),
           anchor,
           familyLinePaint,
         );
       }
-      _drawJunction(canvas, Offset(anchor.dx, childBarY));
+      _drawJunction(canvas, Offset(anchor.dx, branchY));
     }
   }
 

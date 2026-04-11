@@ -8,9 +8,12 @@ import 'package:lineage/backend/interfaces/chat_service_interface.dart';
 import 'package:lineage/backend/interfaces/family_tree_service_interface.dart';
 import 'package:lineage/backend/interfaces/invitation_link_service_interface.dart';
 import 'package:lineage/backend/interfaces/profile_service_interface.dart';
+import 'package:lineage/models/chat_attachment.dart';
 import 'package:lineage/models/chat_details.dart';
+import 'package:lineage/models/chat_message.dart';
 import 'package:lineage/models/family_person.dart';
 import 'package:lineage/models/family_relation.dart';
+import 'package:lineage/models/family_tree.dart';
 import 'package:lineage/models/chat_send_progress.dart';
 import 'package:lineage/models/user_profile.dart';
 import 'package:lineage/providers/tree_provider.dart';
@@ -46,6 +49,26 @@ class _FakeAuthService implements AuthServiceInterface {
 }
 
 class _FakeLocalStorageService implements LocalStorageService {
+  final Map<String, FamilyTree> _treesById = {
+    'tree-1': FamilyTree(
+      id: 'tree-1',
+      name: 'Семья Кузнецовых',
+      description: '',
+      creatorId: 'user-1',
+      memberIds: const ['user-1'],
+      createdAt: DateTime(2024, 1, 1),
+      updatedAt: DateTime(2024, 1, 1),
+      isPrivate: true,
+      members: const ['user-1'],
+    ),
+  };
+
+  @override
+  Future<List<FamilyTree>> getAllTrees() async => _treesById.values.toList();
+
+  @override
+  Future<FamilyTree?> getTree(String treeId) async => _treesById[treeId];
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -70,6 +93,10 @@ class _FakeChatService implements ChatServiceInterface {
     required String chatId,
     String text = '',
     List<XFile> attachments = const <XFile>[],
+    List<ChatAttachment> forwardedAttachments = const <ChatAttachment>[],
+    ChatReplyReference? replyTo,
+    String? clientMessageId,
+    int? expiresInSeconds,
     void Function(ChatSendProgress progress)? onProgress,
   }) async {}
 
@@ -242,6 +269,21 @@ class _FakeFamilyTreeService implements FamilyTreeServiceInterface {
       createdAt: DateTime(2024, 1, 1),
     ),
   ];
+
+  @override
+  Future<List<FamilyTree>> getUserTrees() async => [
+        FamilyTree(
+          id: 'tree-1',
+          name: 'Семья Кузнецовых',
+          description: '',
+          creatorId: 'user-1',
+          memberIds: const ['user-1', 'user-father'],
+          createdAt: DateTime(2024, 1, 1),
+          updatedAt: DateTime(2024, 1, 1),
+          isPrivate: true,
+          members: const ['user-1', 'user-father'],
+        ),
+      ];
 
   @override
   Future<List<FamilyPerson>> getRelatives(String treeId) async => _people;

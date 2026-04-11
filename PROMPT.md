@@ -4,6 +4,8 @@ You are working on Lineage, a Flutter family tree and private family social netw
 
 Your goal is to move the project to a reliable Android + web MVP as fast as possible without creating migration debt.
 
+Use `Codex_rules.md` as the active execution overlay for response brevity, autopilot behavior, proactive bug hunting, MCP UI review, and large-plan execution.
+
 Follow these rules:
 - Start by reading the existing code paths involved in the task.
 - Prefer minimal, reversible changes.

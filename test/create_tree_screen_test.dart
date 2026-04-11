@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lineage/backend/interfaces/family_tree_service_interface.dart';
+import 'package:lineage/models/family_tree.dart';
 import 'package:lineage/screens/family_tree/create_tree_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -10,16 +11,19 @@ class _FakeFamilyTreeService implements FamilyTreeServiceInterface {
   String? createdName;
   String? createdDescription;
   bool? createdIsPrivate;
+  TreeKind? createdKind;
 
   @override
   Future<String> createTree({
     required String name,
-    String description = '',
-    bool isPrivate = true,
+    required String description,
+    required bool isPrivate,
+    TreeKind kind = TreeKind.family,
   }) async {
     createdName = name;
     createdDescription = description;
     createdIsPrivate = isPrivate;
+    createdKind = kind;
     return 'tree-99';
   }
 
@@ -79,12 +83,15 @@ void main() {
       find.byType(TextFormField).first,
       'Семья Смирновых',
     );
+    await tester.ensureVisible(find.text('Создать и открыть'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Создать и открыть'));
     await tester.pumpAndSettle();
 
     expect(familyTreeService.createdName, 'Семья Смирновых');
     expect(familyTreeService.createdDescription, '');
     expect(familyTreeService.createdIsPrivate, isTrue);
+    expect(familyTreeService.createdKind, TreeKind.family);
     expect(
       find.text('opened tree-99 Семья Смирновых'),
       findsOneWidget,

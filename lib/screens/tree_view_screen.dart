@@ -16,6 +16,7 @@ import '../backend/interfaces/chat_service_interface.dart';
 import '../backend/interfaces/family_tree_service_interface.dart';
 
 import '../services/public_tree_link_service.dart';
+import '../services/local_storage_service.dart';
 import '../utils/user_facing_error.dart';
 
 class SectionTitle extends StatelessWidget {
@@ -58,6 +59,8 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
       GetIt.I<FamilyTreeServiceInterface>();
   final AuthServiceInterface _authService = GetIt.I<AuthServiceInterface>();
   final ChatServiceInterface _chatService = GetIt.I<ChatServiceInterface>();
+  final LocalStorageService _localStorageService =
+      GetIt.I<LocalStorageService>();
 
   // Map<String, dynamic> _graphData = {'nodes': [], 'edges': []}; // Больше не нужно
   bool _isLoading = true;
@@ -70,8 +73,17 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
   String? _selectedEditPersonId;
   String? _selectedEditPersonName;
   FamilyTree? _currentTreeMeta;
+  Map<String, Offset> _manualNodePositions = <String, Offset>{};
   // <<< НОВОЕ СОСТОЯНИЕ: Флаг, добавлен ли текущий пользователь в дерево >>>
   bool _currentUserIsInTree = true; // Изначально true, пока не проверили
+
+  bool get _isFriendsTree => _currentTreeMeta?.isFriendsTree == true;
+  String get _treeLabel => _isFriendsTree ? 'Дерево друзей' : 'Семейное дерево';
+  String get _peopleLabel => _isFriendsTree ? 'людей' : 'человек';
+  String get _branchLabel => _isFriendsTree ? 'кругов' : 'веток семьи';
+  int get _graphClusterCount => _isFriendsTree
+      ? _estimateGraphCircleCount()
+      : _estimateFamilyBranchCount();
 
   String _describeTreeActionError(
     Object error, {
@@ -150,6 +162,7 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
         setState(() {
           _isLoading = false;
           _errorMessage = '';
+          _manualNodePositions = <String, Offset>{};
         });
       }
     }
@@ -189,6 +202,7 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
         setState(() {
           _isLoading = false;
           _errorMessage = 'В этом дереве еще нет людей.';
+          _manualNodePositions = <String, Offset>{};
         });
         return;
       }
@@ -220,6 +234,17 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
         });
       }
 
+      final savedPositions = await _localStorageService.getTreeNodePositions(
+        treeId,
+      );
+      final visiblePersonIds = relatives.map((person) => person.id).toSet();
+      final filteredPositions = <String, Offset>{};
+      for (final entry in savedPositions.entries) {
+        if (visiblePersonIds.contains(entry.key)) {
+          filteredPositions[entry.key] = entry.value;
+        }
+      }
+
       // Сохраняем данные в состоянии для передачи в виджет
       if (mounted) {
         final branchRootStillExists = _branchRootPersonId == null ||
@@ -231,6 +256,7 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
           _relativesData = peopleData;
           _relationsData = relations;
           _currentTreeMeta = treeMeta;
+          _manualNodePositions = filteredPositions;
           _isLoading = false;
           if (!branchRootStillExists) {
             _branchRootPersonId = null;
@@ -407,15 +433,23 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
               constraints: const BoxConstraints(maxWidth: 1520),
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                child: Column(
                   children: [
-                    SizedBox(
-                      width: 372,
-                      child: SingleChildScrollView(child: overviewCard),
+                    _buildTreeHeroBanner(selectedTreeName),
+                    const SizedBox(height: 16),
+                    Expanded(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SizedBox(
+                            width: 372,
+                            child: SingleChildScrollView(child: overviewCard),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(child: treeCanvas),
+                        ],
+                      ),
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(child: treeCanvas),
                   ],
                 ),
               ),
@@ -425,9 +459,24 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
 
         return Column(
           children: [
-            Padding(
-              padding: EdgeInsets.fromLTRB(16, isCompact ? 10 : 16, 16, 12),
-              child: overviewCard,
+            Flexible(
+              fit: FlexFit.loose,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Column(
+                  children: [
+                    Padding(
+                      padding:
+                          EdgeInsets.fromLTRB(16, isCompact ? 10 : 16, 16, 12),
+                      child: _buildTreeHeroBanner(selectedTreeName),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                      child: overviewCard,
+                    ),
+                  ],
+                ),
+              ),
             ),
             Expanded(
               child: Padding(
@@ -443,12 +492,21 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
 
   Widget _buildTreeCanvas() {
     final theme = Theme.of(context);
+    final canvasAccent =
+        _isFriendsTree ? const Color(0xFF0F9D8A) : theme.colorScheme.primary;
     return Container(
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            theme.colorScheme.surface,
+            canvasAccent.withValues(alpha: _isFriendsTree ? 0.04 : 0.02),
+          ],
+        ),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+          color: canvasAccent.withValues(alpha: 0.18),
         ),
         boxShadow: [
           BoxShadow(
@@ -479,10 +537,90 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
               _selectedEditPersonName = person.name;
             });
           },
+          manualNodePositions: _manualNodePositions,
+          onNodePositionsChanged: (positions) {
+            _handleNodePositionsChanged(positions);
+          },
+          showGenerationGuides: !_isFriendsTree,
+          enableClusterHighlights: !_isFriendsTree,
+          graphLabel: _isFriendsTree ? 'дружеского графа' : 'дерева',
+          hasManualLayout: _manualNodePositions.isNotEmpty,
+          onResetLayout:
+              _manualNodePositions.isNotEmpty && _currentTreeId != null
+                  ? () => _resetManualTreeLayout(_currentTreeId!)
+                  : null,
           onAddRelativeTapWithType: _handleAddRelativeFromTree,
           currentUserIsInTree: _currentUserIsInTree,
           onAddSelfTapWithType: _handleAddSelfFromTree,
         ),
+      ),
+    );
+  }
+
+  Widget _buildTreeHeroBanner(String selectedTreeName) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final accent =
+        _isFriendsTree ? const Color(0xFF0F9D8A) : colorScheme.primary;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            accent.withValues(alpha: 0.18),
+            colorScheme.surfaceContainerHighest.withValues(alpha: 0.75),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: accent.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(
+              _isFriendsTree
+                  ? Icons.diversity_3_outlined
+                  : Icons.account_tree_outlined,
+              color: accent,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _isFriendsTree
+                      ? 'Активен дружеский граф'
+                      : 'Активно семейное дерево',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _isFriendsTree
+                      ? '"$selectedTreeName" сейчас открыт для ручной композиции, быстрых переходов по людям и чатов внутри круга.'
+                      : '"$selectedTreeName" сейчас открыт для ручной композиции, быстрых переходов по веткам и семейных чатов.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -495,11 +633,14 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final branchRootPerson = _findBranchRootPerson();
+    final branchCount = _graphClusterCount;
 
     if (compact) {
       final compactPrimaryAction =
           _currentUserIsInTree ? 'Добавить' : 'Добавить себя';
       final canOpenBranchChat = branchRootPerson != null;
+      final branchChatLabel =
+          _isFriendsTree ? 'Написать кругу' : 'Написать ветке';
 
       return Container(
         width: double.infinity,
@@ -515,15 +656,24 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
             Text(
               _isEditMode
                   ? 'Режим редактирования включён'
-                  : 'Дерево готово к просмотру',
+                  : 'Граф готов к просмотру',
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w800,
               ),
             ),
             const SizedBox(height: 6),
             Text(
-              '${_relativesData.length} человек, ${_relationsData.length} связей, ${_estimateFamilyBranchCount()} веток семьи.',
+              '${_relativesData.length} $_peopleLabel, ${_relationsData.length} связей, $branchCount $_branchLabel.',
               style: theme.textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _isFriendsTree
+                  ? 'Это свободный граф друзей: карточки лучше раскладывать вручную, а связи сохраняются и перестраиваются прямо на полотне.'
+                  : 'В edit mode карточки можно двигать вручную: связи сохраняются и перестраиваются прямо на полотне.',
+              style: theme.textTheme.bodySmall?.copyWith(
                 color: colorScheme.onSurfaceVariant,
               ),
             ),
@@ -542,7 +692,7 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
                     onPressed: () =>
                         _openBranchChat(selectedTreeId, branchRootPerson),
                     icon: const Icon(Icons.forum_outlined),
-                    label: const Text('Написать ветке'),
+                    label: Text(branchChatLabel),
                   ),
                 OutlinedButton.icon(
                   onPressed: () => context.go('/tree?selector=1'),
@@ -553,7 +703,15 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
                   OutlinedButton.icon(
                     onPressed: _resetBranchFocus,
                     icon: const Icon(Icons.clear_all),
-                    label: const Text('Сбросить ветку'),
+                    label: Text(
+                      _isFriendsTree ? 'Сбросить круг' : 'Сбросить ветку',
+                    ),
+                  ),
+                if (_manualNodePositions.isNotEmpty)
+                  OutlinedButton.icon(
+                    onPressed: () => _resetManualTreeLayout(selectedTreeId),
+                    icon: const Icon(Icons.restart_alt),
+                    label: const Text('Сбросить layout'),
                   ),
               ],
             ),
@@ -586,7 +744,8 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
                 if (_branchRootName != null)
                   _buildInfoChip(
                     icon: Icons.alt_route,
-                    label: 'Ветка: $_branchRootName',
+                    label:
+                        '${_isFriendsTree ? 'Круг' : 'Ветка'}: $_branchRootName',
                     highlighted: true,
                   ),
                 if (_selectedEditPersonName != null && _isEditMode)
@@ -595,12 +754,27 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
                     label: 'Выбрано: $_selectedEditPersonName',
                     highlighted: true,
                   ),
+                if (_manualNodePositions.isNotEmpty)
+                  _buildInfoChip(
+                    icon: Icons.open_with,
+                    label: 'Ручной layout активен',
+                    highlighted: true,
+                  ),
+                _buildInfoChip(
+                  icon: Icons.diversity_3_outlined,
+                  label: _isFriendsTree
+                      ? 'Режим друзей включён'
+                      : 'Дерево друзей: доступно',
+                ),
               ],
             ),
           ],
         ),
       );
     }
+
+    final branchChatLabel =
+        _isFriendsTree ? 'Написать кругу' : 'Написать ветке';
 
     return Container(
       width: double.infinity,
@@ -619,11 +793,23 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
               fontWeight: FontWeight.w700,
             ),
           ),
+          const SizedBox(height: 4),
+          Text(
+            _treeLabel,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: colorScheme.primary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           const SizedBox(height: 6),
           Text(
             _isEditMode
-                ? 'Режим редактирования включён. Нажмите на карточку человека, чтобы открыть быстрые действия прямо на дереве.'
-                : 'Открывайте карточки людей, чтобы смотреть детали. Для правок включите режим редактирования. Долгое нажатие или плашка «Ветка» фокусируют схему на нужной семье.',
+                ? _isFriendsTree
+                    ? 'Режим редактирования включён. Это свободный граф друзей: тяните карточки по полотну, чтобы собрать свой круг вручную.'
+                    : 'Режим редактирования включён. Нажмите на карточку человека, чтобы открыть быстрые действия, или тяните её по полотну для ручной композиции дерева.'
+                : _isFriendsTree
+                    ? 'Открывайте карточки, чтобы смотреть детали. В режиме друзей поколенческая сетка скрыта, а акцент сделан на свободную сеть связей.'
+                    : 'Открывайте карточки людей, чтобы смотреть детали. Для правок включите режим редактирования. Долгое нажатие или плашка «Ветка» фокусируют схему на нужной семье.',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
@@ -635,7 +821,7 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
             children: [
               _buildInfoChip(
                 icon: Icons.people_alt_outlined,
-                label: '${_relativesData.length} человек',
+                label: '${_relativesData.length} $_peopleLabel',
               ),
               _buildInfoChip(
                 icon: Icons.hub_outlined,
@@ -643,12 +829,18 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
               ),
               _buildInfoChip(
                 icon: Icons.group_work_outlined,
-                label: '${_estimateFamilyBranchCount()} веток семьи',
+                label: '$branchCount $_branchLabel',
               ),
               _buildInfoChip(
                 icon: Icons.unfold_more_outlined,
                 label: 'Drag, zoom, + / - / 0',
               ),
+              if (_manualNodePositions.isNotEmpty)
+                _buildInfoChip(
+                  icon: Icons.open_with,
+                  label: 'Ручной layout сохранён',
+                  highlighted: true,
+                ),
               _buildInfoChip(
                 icon: _isEditMode ? Icons.edit : Icons.visibility_outlined,
                 label: _isEditMode ? 'Редактирование' : 'Просмотр',
@@ -676,7 +868,8 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
               if (_branchRootName != null)
                 _buildInfoChip(
                   icon: Icons.alt_route,
-                  label: 'Ветка: $_branchRootName',
+                  label:
+                      '${_isFriendsTree ? 'Круг' : 'Ветка'}: $_branchRootName',
                   highlighted: true,
                 ),
               _buildInfoChip(
@@ -687,6 +880,12 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
                     ? 'Вы уже в дереве'
                     : 'Вы ещё не добавлены',
                 highlighted: !_currentUserIsInTree,
+              ),
+              _buildInfoChip(
+                icon: Icons.diversity_3_outlined,
+                label: _isFriendsTree
+                    ? 'Дружеский граф'
+                    : 'Можно создать дерево друзей',
               ),
             ],
           ),
@@ -707,6 +906,11 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
                 color: colorScheme.primary,
                 label: 'Вы в дереве',
               ),
+              if (_isFriendsTree)
+                _buildLegendChip(
+                  color: Colors.teal.shade400,
+                  label: 'Свободная сеть',
+                ),
             ],
           ),
           const SizedBox(height: 14),
@@ -730,25 +934,47 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
                 icon: const Icon(Icons.swap_horiz),
                 label: const Text('Сменить дерево'),
               ),
+              FilledButton.icon(
+                onPressed: () => context.go('/relatives'),
+                icon: const Icon(Icons.people_outline),
+                label:
+                    Text(_isFriendsTree ? 'Открыть связи' : 'Открыть родных'),
+              ),
+              FilledButton.icon(
+                onPressed: () => context.go('/chats'),
+                icon: const Icon(Icons.forum_outlined),
+                label: const Text('Открыть чаты'),
+              ),
+              FilledButton.icon(
+                onPressed: () => context.push('/post/create'),
+                icon: const Icon(Icons.post_add_outlined),
+                label: Text(_isFriendsTree ? 'Пост в круг' : 'Новый пост'),
+              ),
               if (_branchRootPersonId != null)
                 OutlinedButton.icon(
                   onPressed: _resetBranchFocus,
                   icon: const Icon(Icons.account_tree_outlined),
-                  label: const Text('Показать всё дерево'),
+                  label: Text(_isFriendsTree
+                      ? 'Показать весь граф'
+                      : 'Показать всё дерево'),
                 ),
               if (branchRootPerson != null)
                 OutlinedButton.icon(
                   onPressed: () =>
                       _openBranchChat(selectedTreeId, branchRootPerson),
                   icon: const Icon(Icons.forum_outlined),
-                  label: const Text('Написать ветке'),
+                  label: Text(branchChatLabel),
                 ),
               if (branchRootPerson != null)
                 OutlinedButton.icon(
                   onPressed: () =>
                       context.push('/relative/details/${branchRootPerson.id}'),
                   icon: const Icon(Icons.open_in_new),
-                  label: const Text('Открыть карточку ветки'),
+                  label: Text(
+                    _isFriendsTree
+                        ? 'Открыть карточку круга'
+                        : 'Открыть карточку ветки',
+                  ),
                 ),
               if (_currentTreeMeta?.isPublic == true)
                 OutlinedButton.icon(
@@ -759,13 +985,20 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
               OutlinedButton.icon(
                 onPressed: () => _navigateToAddRelative(selectedTreeId),
                 icon: const Icon(Icons.person_add_alt_1),
-                label: const Text('Добавить человека'),
+                label: Text(
+                    _isFriendsTree ? 'Добавить в круг' : 'Добавить человека'),
               ),
               OutlinedButton.icon(
                 onPressed: () => _loadData(selectedTreeId),
                 icon: const Icon(Icons.refresh),
                 label: const Text('Обновить'),
               ),
+              if (_manualNodePositions.isNotEmpty)
+                OutlinedButton.icon(
+                  onPressed: () => _resetManualTreeLayout(selectedTreeId),
+                  icon: const Icon(Icons.restart_alt),
+                  label: const Text('Сбросить layout'),
+                ),
             ],
           ),
         ],
@@ -908,6 +1141,31 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
   }
 
   // === НОВЫЙ МЕТОД-КОЛЛБЭК для InteractiveFamilyTree ===
+  Future<void> _handleNodePositionsChanged(
+    Map<String, Offset> updatedPositions,
+  ) async {
+    final treeId = _currentTreeId;
+    if (treeId == null) {
+      return;
+    }
+
+    setState(() {
+      _manualNodePositions = updatedPositions;
+    });
+    await _localStorageService.saveTreeNodePositions(treeId, updatedPositions);
+  }
+
+  Future<void> _resetManualTreeLayout(String treeId) async {
+    await _localStorageService.clearTreeNodePositions(treeId);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _manualNodePositions = <String, Offset>{};
+    });
+    await _loadData(treeId);
+  }
+
   void _handleAddRelativeFromTree(FamilyPerson person, RelationType type) {
     if (_currentTreeId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1124,6 +1382,53 @@ class _TreeViewScreenState extends State<TreeViewScreen> {
     }
 
     return count == 0 && _relativesData.isNotEmpty ? 1 : count;
+  }
+
+  int _estimateGraphCircleCount() {
+    final personIds = _relativesData
+        .map((entry) => entry['person'])
+        .whereType<FamilyPerson>()
+        .map((person) => person.id)
+        .toSet();
+    if (personIds.isEmpty) {
+      return 0;
+    }
+
+    final adjacency = <String, Set<String>>{
+      for (final id in personIds) id: <String>{},
+    };
+    for (final relation in _relationsData) {
+      if (!personIds.contains(relation.person1Id) ||
+          !personIds.contains(relation.person2Id)) {
+        continue;
+      }
+      adjacency
+          .putIfAbsent(relation.person1Id, () => <String>{})
+          .add(relation.person2Id);
+      adjacency
+          .putIfAbsent(relation.person2Id, () => <String>{})
+          .add(relation.person1Id);
+    }
+
+    final visited = <String>{};
+    var count = 0;
+    for (final personId in personIds) {
+      if (!visited.add(personId)) {
+        continue;
+      }
+      count++;
+      final queue = <String>[personId];
+      while (queue.isNotEmpty) {
+        final currentId = queue.removeLast();
+        for (final neighbour in adjacency[currentId] ?? const <String>{}) {
+          if (visited.add(neighbour)) {
+            queue.add(neighbour);
+          }
+        }
+      }
+    }
+
+    return count;
   }
 
   bool _isSpouseRelation(FamilyRelation relation) {

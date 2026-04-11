@@ -4,11 +4,13 @@ import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lineage/backend/interfaces/auth_service_interface.dart';
 import 'package:lineage/backend/interfaces/family_tree_service_interface.dart';
+import 'package:lineage/backend/interfaces/post_service_interface.dart';
 import 'package:lineage/backend/backend_runtime_config.dart';
 import 'package:lineage/backend/models/tree_invitation.dart';
 import 'package:lineage/models/family_tree.dart';
 import 'package:lineage/models/family_person.dart';
 import 'package:lineage/models/family_relation.dart';
+import 'package:lineage/models/post.dart';
 import 'package:lineage/providers/tree_provider.dart';
 import 'package:lineage/screens/home_screen.dart';
 import 'package:lineage/services/browser_notification_bridge.dart';
@@ -44,14 +46,32 @@ class _FakeAuthService implements AuthServiceInterface {
 }
 
 class _FakeLocalStorageService implements LocalStorageService {
+  _FakeLocalStorageService([List<FamilyTree> trees = const []])
+      : _treesById = {for (final tree in trees) tree.id: tree};
+
+  final Map<String, FamilyTree> _treesById;
+
+  @override
+  Future<List<FamilyTree>> getAllTrees() async => _treesById.values.toList();
+
+  @override
+  Future<FamilyTree?> getTree(String treeId) async => _treesById[treeId];
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeFamilyTreeService implements FamilyTreeServiceInterface {
-  _FakeFamilyTreeService({this.invitations = const []});
+  _FakeFamilyTreeService({
+    this.invitations = const [],
+    List<FamilyTree>? trees,
+  }) : trees = trees ?? [_buildTree(id: 'tree-1', name: 'Тестовое дерево')];
 
   final List<TreeInvitation> invitations;
+  final List<FamilyTree> trees;
+
+  @override
+  Future<List<FamilyTree>> getUserTrees() async => trees;
 
   @override
   Future<List<FamilyPerson>> getRelatives(String treeId) async => [
@@ -73,6 +93,19 @@ class _FakeFamilyTreeService implements FamilyTreeServiceInterface {
   @override
   Stream<List<TreeInvitation>> getPendingTreeInvitations() =>
       Stream.value(invitations);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakePostService implements PostServiceInterface {
+  @override
+  Future<List<Post>> getPosts({
+    String? treeId,
+    String? authorId,
+    bool onlyBranches = false,
+  }) async =>
+      throw Exception('feed unavailable');
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -132,6 +165,24 @@ class _FakeBrowserNotificationBridge implements BrowserNotificationBridge {
   }
 }
 
+FamilyTree _buildTree({
+  required String id,
+  required String name,
+}) {
+  final now = DateTime(2024, 1, 1);
+  return FamilyTree(
+    id: id,
+    name: name,
+    description: '',
+    creatorId: 'user-1',
+    memberIds: const ['user-1'],
+    createdAt: now,
+    updatedAt: now,
+    isPrivate: true,
+    members: const ['user-1'],
+  );
+}
+
 void main() {
   final getIt = GetIt.instance;
 
@@ -139,10 +190,14 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     await getIt.reset();
     getIt.registerSingleton<AuthServiceInterface>(_FakeAuthService());
-    getIt.registerSingleton<LocalStorageService>(_FakeLocalStorageService());
+    getIt.registerSingleton<LocalStorageService>(
+      _FakeLocalStorageService(
+          [_buildTree(id: 'tree-1', name: 'Тестовое дерево')]),
+    );
     getIt.registerSingleton<FamilyTreeServiceInterface>(
       _FakeFamilyTreeService(),
     );
+    getIt.registerSingleton<PostServiceInterface>(_FakePostService());
   });
 
   tearDown(() async {
@@ -152,6 +207,13 @@ void main() {
   testWidgets(
     'HomeScreen не падает без legacy post feed и показывает fallback-секцию',
     (tester) async {
+      tester.view.physicalSize = const Size(1400, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
       final treeProvider = TreeProvider();
       await treeProvider.selectTree('tree-1', 'Тестовое дерево');
 
@@ -166,19 +228,19 @@ void main() {
 
       expect(find.text('Тестовое дерево'), findsOneWidget);
       expect(find.text('Ближайшие события'), findsOneWidget);
-      expect(find.text('Главное по семье'), findsOneWidget);
+      expect(find.text('Быстрые действия'), findsOneWidget);
       expect(
         find.text(
-          'Отсюда удобно переходить в дерево, к родственникам и в личные сообщения.',
+          'Backend ленты пока не отвечает для этого дерева. Основные разделы работают, а публикации нужно восстановить отдельно.',
         ),
         findsOneWidget,
       );
-      expect(find.text('Истории пока недоступны'), findsNothing);
-      expect(find.text('Открыть дерево'), findsOneWidget);
-      expect(find.text('Родные'), findsOneWidget);
-      expect(find.text('Сообщения'), findsOneWidget);
+      expect(find.text('Публикации временно недоступны'), findsOneWidget);
+      expect(find.text('Новая публикация'), findsOneWidget);
+      expect(find.text('Раздел родных'), findsOneWidget);
+      expect(find.text('Сменить дерево'), findsOneWidget);
       expect(find.text('День рождения'), findsOneWidget);
-      expect(find.byType(FloatingActionButton), findsNothing);
+      expect(find.byType(FloatingActionButton), findsOneWidget);
     },
   );
 
@@ -199,7 +261,8 @@ void main() {
       expect(find.text('Главная'), findsOneWidget);
       expect(find.text('Сначала выберите дерево'), findsOneWidget);
       expect(find.text('Выбрать дерево'), findsOneWidget);
-      expect(find.text('Создать дерево'), findsOneWidget);
+      expect(find.text('Создать граф'), findsOneWidget);
+      expect(find.text('Что будет дальше'), findsOneWidget);
       expect(find.text('Ближайшие события'), findsNothing);
       expect(find.text('Лента новостей'), findsNothing);
       expect(find.byType(FloatingActionButton), findsNothing);
@@ -211,7 +274,10 @@ void main() {
     (tester) async {
       await getIt.reset();
       getIt.registerSingleton<AuthServiceInterface>(_FakeAuthService());
-      getIt.registerSingleton<LocalStorageService>(_FakeLocalStorageService());
+      getIt.registerSingleton<LocalStorageService>(
+        _FakeLocalStorageService(
+            [_buildTree(id: 'tree-1', name: 'Тестовое дерево')]),
+      );
       getIt.registerSingleton<FamilyTreeServiceInterface>(
         _FakeFamilyTreeService(
           invitations: [
@@ -232,6 +298,7 @@ void main() {
           ],
         ),
       );
+      getIt.registerSingleton<PostServiceInterface>(_FakePostService());
 
       final treeProvider = TreeProvider();
       final router = GoRouter(
@@ -270,7 +337,7 @@ void main() {
   );
 
   testWidgets(
-    'HomeScreen предлагает включить browser уведомления и скрывает prompt после разрешения',
+    'HomeScreen монтируется с browser notification service без отдельного prompt',
     (tester) async {
       final bridge = _FakeBrowserNotificationBridge(
         permissionStatusValue: BrowserNotificationPermissionStatus.defaultState,
@@ -294,18 +361,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Включите уведомления о семье'), findsOneWidget);
-      expect(find.text('Включить уведомления'), findsOneWidget);
-
-      await tester.tap(find.text('Включить уведомления'));
-      await tester.pumpAndSettle();
-
-      expect(notificationService.notificationsEnabled, isTrue);
       expect(find.text('Включите уведомления о семье'), findsNothing);
-      expect(
-        find.textContaining('Уведомления включены'),
-        findsOneWidget,
-      );
+      expect(find.byTooltip('Активность'), findsOneWidget);
+      expect(notificationService.notificationsEnabled, isFalse);
+      expect(bridge.permissionRequests, 0);
     },
   );
 
@@ -331,6 +390,9 @@ void main() {
           ),
         ],
       );
+      if (!getIt.isRegistered<PostServiceInterface>()) {
+        getIt.registerSingleton<PostServiceInterface>(_FakePostService());
+      }
 
       await tester.pumpWidget(MaterialApp.router(routerConfig: router));
       await tester.pumpAndSettle();
