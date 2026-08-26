@@ -46,6 +46,17 @@ const stateTable = `"${schema}"."${table}"`;
     const rawData = stateResult.rows[0].data;
     const state = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
 
+    // Guard: без маркера миграция НЕ выполнялась — сообщения ещё в блобе,
+    // а таблицы пусты. Перезапись блоба «пустотой из таблиц» уничтожила бы
+    // реальные данные. Обойти можно только осознанно через --force.
+    const marker = state?.migrationStatus?.chatCollectionsToTables;
+    if (marker !== "complete-v1" && !process.argv.includes("--force")) {
+      throw new Error(
+        `миграция не выполнялась (маркер='${marker || "нет"}') — откатывать нечего; ` +
+          "если уверены, повторите с --force",
+      );
+    }
+
     const messages = (
       await client.query(`SELECT message_data FROM ${q("chat_messages")}`)
     ).rows.map((row) =>
@@ -104,6 +115,14 @@ const stateTable = `"${schema}"."${table}"`;
     await client.query(`DELETE FROM ${q("chat_reactions")}`);
     await client.query(`DELETE FROM ${q("chat_drafts")}`);
     await client.query(`DELETE FROM ${q("chat_pins")}`);
+    // Архивируем старый бэкап: у повторной миграции должен появиться СВЕЖИЙ
+    // снапшот (write-once id иначе оставил бы устаревший).
+    await client.query(
+      `UPDATE ${q("chat_backups")}
+          SET id = id || '-restored-' || $1
+        WHERE id = 'pre-migration-complete-v1'`,
+      [Date.now().toString(36)],
+    );
     await client.query("COMMIT");
     console.log("Готово: чат-коллекции возвращены в блоб, маркер снят, таблицы очищены.");
     console.log("Теперь можно запускать бэкенд ЛЮБОЙ версии (старый — читает блоб,");

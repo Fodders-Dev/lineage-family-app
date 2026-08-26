@@ -10,6 +10,7 @@ const {
   buildPersonRecord,
   chatMessageSearchHaystack,
   cloneUserWithAuthState,
+  collectMessageMediaUrls,
   createChatDraftRecord,
   createChatPinRecord,
   createPersonIdentityRecord,
@@ -219,6 +220,8 @@ class PostgresStore extends FileStore {
     this._qualifiedChatBackupsTableName = `${quoteIdentifier(this._schema)}.${quoteIdentifier(this._chatBackupsTable)}`;
     this._lastChatsProjectionHash = null;
     this._chatPurgeSweepScheduled = false;
+    this._chatsProjectionDirty = false;
+    this._chatRowMutationQueue = Promise.resolve();
     this._initializePromise = null;
     this._cachedState = null;
     this._snapshotLoadPromise = null;
@@ -492,6 +495,17 @@ class PostgresStore extends FileStore {
     );
   }
 
+  // Receipt/edit-пути делают SELECT→изменение→полная перезапись message_data.
+  // В FileStore их сериализовала глобальная _mutateQueue; здесь — узкая
+  // очередь ТОЛЬКО для таких RMW строк сообщений (два конкурентных
+  // delivered-ack'а иначе теряют друг друга). Отправка (чистый INSERT) в
+  // очереди не участвует — ack-путь остаётся неблокирующим.
+  _enqueueChatRowMutation(operation) {
+    this._chatRowMutationQueue = (this._chatRowMutationQueue || Promise.resolve())
+      .then(operation, operation);
+    return this._chatRowMutationQueue;
+  }
+
   async _updateChatMessageRow(message) {
     const values = this._chatMessageRowValues(message);
     await this._pool.query(
@@ -566,22 +580,44 @@ class PostgresStore extends FileStore {
         ],
       );
 
+      // Канонизировать можно ТОЛЬКО настоящие direct-alias'ы: id групповых
+      // и branch-чатов (`chat_<uuid>`) тоже парсится на 2 части и сортировка
+      // переставила бы их местами, оторвав сообщения от чата. Правило: id
+      // сохранённого чата не трогаем, id с префиксом chat_ не трогаем.
+      const storedChatIds = new Set(
+        (Array.isArray(state.chats) ? state.chats : [])
+          .map((chat) => String(chat?.id || "").trim())
+          .filter(Boolean),
+      );
+      const canonicalizeMigratedChatId = (rawChatId) => {
+        const normalized = String(rawChatId || "").trim();
+        if (storedChatIds.has(normalized) || normalized.startsWith("chat_")) {
+          return normalized;
+        }
+        return this._canonicalChatIdFor(normalized);
+      };
+
       const seenMessageIds = new Set();
+      let skippedMessages = 0;
       for (const message of messages) {
         const messageId = String(message?.id || "").trim();
         if (!messageId || seenMessageIds.has(messageId)) {
+          skippedMessages += 1;
           continue;
         }
         seenMessageIds.add(messageId);
         const canonicalMessage = {
           ...message,
-          chatId: this._canonicalChatIdFor(message?.chatId),
+          chatId: canonicalizeMigratedChatId(message?.chatId),
         };
+        // Targetless ON CONFLICT: легаси-дубликат по dedup_key (одинаковый
+        // clientMessageId в раздельных когда-то alias-чатах) не должен
+        // ронять бут — молча оставляем первый, остальное есть в бэкапе.
         await this._pool.query(
           `INSERT INTO ${this._qualifiedChatMessagesTableName}
              (id, chat_id, sender_id, ts, client_message_id, expires_at, haystack, dedup_key, message_data)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
-           ON CONFLICT (id) DO NOTHING`,
+           ON CONFLICT DO NOTHING`,
           this._chatMessageRowValues(canonicalMessage),
         );
       }
@@ -600,10 +636,12 @@ class PostgresStore extends FileStore {
           [messageId, userId, emoji, String(reaction?.createdAt || nowIso())],
         );
       }
+      let skippedDrafts = 0;
       for (const draft of drafts) {
         const userId = String(draft?.userId || "").trim();
-        const chatId = this._canonicalChatIdFor(draft?.chatId);
+        const chatId = canonicalizeMigratedChatId(draft?.chatId);
         if (!userId || !chatId || !String(draft?.text || "").trim()) {
+          skippedDrafts += 1;
           continue;
         }
         await this._pool.query(
@@ -614,10 +652,12 @@ class PostgresStore extends FileStore {
           [userId, chatId, JSON.stringify({...draft, chatId})],
         );
       }
+      let skippedPins = 0;
       for (const pin of pins) {
-        const chatId = this._canonicalChatIdFor(pin?.chatId);
+        const chatId = canonicalizeMigratedChatId(pin?.chatId);
         const messageId = String(pin?.messageId || "").trim();
         if (!chatId || !messageId) {
+          skippedPins += 1;
           continue;
         }
         await this._pool.query(
@@ -648,6 +688,10 @@ class PostgresStore extends FileStore {
         [this._rowId, JSON.stringify(nextState)],
       );
       this._cachedState = normalizeDbState(nextState);
+      // Sidecar-кэш обязан пережить границу миграции, иначе fallback-чтение
+      // при недоступной БД воскресит домиграционный блоб (с сообщениями и
+      // без маркера) и следующая мутация затрёт им состояние.
+      await this._persistSnapshotCache(this._cachedState);
       console.log(
         "[backend] chat collections migrated to tables",
         JSON.stringify({
@@ -655,6 +699,11 @@ class PostgresStore extends FileStore {
           reactions: reactions.length,
           drafts: drafts.length,
           pins: pins.length,
+          skipped: {
+            messages: skippedMessages,
+            drafts: skippedDrafts,
+            pins: skippedPins,
+          },
         }),
       );
     } catch (error) {
@@ -678,26 +727,50 @@ class PostgresStore extends FileStore {
     const normalizedChats = (Array.isArray(chats) ? chats : []).filter(
       (chat) => String(chat?.id || "").trim(),
     );
-    await this._pool.query(`DELETE FROM ${this._qualifiedChatsProjectionTableName}`);
-    await this._pool.query(`DELETE FROM ${this._qualifiedChatParticipantsTableName}`);
-    for (const chat of normalizedChats) {
-      const chatId = String(chat.id).trim();
-      await this._pool.query(
-        `INSERT INTO ${this._qualifiedChatsProjectionTableName} (id, chat_data)
-         VALUES ($1, $2::jsonb)
-         ON CONFLICT (id) DO UPDATE SET chat_data = EXCLUDED.chat_data`,
-        [chatId, JSON.stringify(chat)],
-      );
-      for (const participantId of normalizeParticipantIds(chat.participantIds)) {
-        await this._pool.query(
-          `INSERT INTO ${this._qualifiedChatParticipantsTableName} (chat_id, user_id)
-           VALUES ($1, $2)
-           ON CONFLICT (chat_id, user_id) DO NOTHING`,
-          [chatId, participantId],
-        );
+    // Транзакция (как у auth-гидратации): без неё конкурентный findChat в
+    // окне DELETE→INSERT видел бы пустую projection и валил access-check
+    // существующих чатов. На пулах без connect (pg-mem) — plain-фолбэк.
+    await this._withProjectionClient(async (client, useTransaction) => {
+      try {
+        if (useTransaction) {
+          await client.query("BEGIN");
+          await client.query("SET LOCAL statement_timeout = 0");
+        }
+        await client.query(`DELETE FROM ${this._qualifiedChatsProjectionTableName}`);
+        await client.query(`DELETE FROM ${this._qualifiedChatParticipantsTableName}`);
+        for (const chat of normalizedChats) {
+          const chatId = String(chat.id).trim();
+          await client.query(
+            `INSERT INTO ${this._qualifiedChatsProjectionTableName} (id, chat_data)
+             VALUES ($1, $2::jsonb)
+             ON CONFLICT (id) DO UPDATE SET chat_data = EXCLUDED.chat_data`,
+            [chatId, JSON.stringify(chat)],
+          );
+          for (const participantId of normalizeParticipantIds(chat.participantIds)) {
+            await client.query(
+              `INSERT INTO ${this._qualifiedChatParticipantsTableName} (chat_id, user_id)
+               VALUES ($1, $2)
+               ON CONFLICT (chat_id, user_id) DO NOTHING`,
+              [chatId, participantId],
+            );
+          }
+        }
+        if (useTransaction) {
+          await client.query("COMMIT");
+        }
+      } catch (error) {
+        if (useTransaction) {
+          try {
+            await client.query("ROLLBACK");
+          } catch (_) {
+            // исходная ошибка важнее
+          }
+        }
+        throw error;
       }
-    }
+    });
     this._lastChatsProjectionHash = computeProjectionHash(normalizedChats);
+    this._chatsProjectionDirty = false;
   }
 
   async _hydrateChatProjectionFromState() {
@@ -712,6 +785,10 @@ class PostgresStore extends FileStore {
       );
       await this._replaceChatProjection(state.chats);
     } catch (error) {
+      // Деградация вместо падения (БД могла мигнуть): dirty-флаг переводит
+      // резолв чатов на блоб через super.findChat, а первый успешный _write
+      // (хэш стартует null → mismatch) перезальёт projection и снимет флаг.
+      this._chatsProjectionDirty = true;
       console.warn(
         "[backend] postgres-store skipped chat projection hydration",
         JSON.stringify({message: error?.message || String(error)}),
@@ -1679,6 +1756,11 @@ class PostgresStore extends FileStore {
     if (!normalizedChatId) {
       return null;
     }
+    if (this._chatsProjectionDirty) {
+      // Projection не догидратировалась на буте — правду о чатах даёт блоб.
+      const blobChat = await super.findChat(normalizedChatId);
+      return blobChat ? {chat: blobChat, stored: true} : null;
+    }
     const nowTimestamp = nowIso();
     let chat = await this._selectChatProjectionById(normalizedChatId);
     let stored = Boolean(chat);
@@ -2146,30 +2228,32 @@ class PostgresStore extends FileStore {
     if (!resolved || !resolved.chat.participantIds.includes(userId)) {
       return false;
     }
-    const message = await this._selectChatMessageInScope({
-      chatId,
-      resolvedChatId: resolved.chat.id,
-      messageId,
-      nowTimestamp: nowIso(),
+    return this._enqueueChatRowMutation(async () => {
+      const message = await this._selectChatMessageInScope({
+        chatId,
+        resolvedChatId: resolved.chat.id,
+        messageId,
+        nowTimestamp: nowIso(),
+      });
+      if (!message) {
+        return null;
+      }
+      if (message.senderId !== userId) {
+        return undefined;
+      }
+
+      const normalizedText = String(text || "").trim();
+      const attachments = normalizeMessageAttachments(message);
+      if (!normalizedText && attachments.length === 0) {
+        return "EMPTY_MESSAGE";
+      }
+
+      message.text = normalizedText;
+      message.updatedAt = nowIso();
+      await this._updateChatMessageRow(message);
+      const reactions = await this._aggregateReactionsByMessageIds([message.id]);
+      return this._attachTableReactions(message, reactions);
     });
-    if (!message) {
-      return null;
-    }
-    if (message.senderId !== userId) {
-      return undefined;
-    }
-
-    const normalizedText = String(text || "").trim();
-    const attachments = normalizeMessageAttachments(message);
-    if (!normalizedText && attachments.length === 0) {
-      return "EMPTY_MESSAGE";
-    }
-
-    message.text = normalizedText;
-    message.updatedAt = nowIso();
-    await this._updateChatMessageRow(message);
-    const reactions = await this._aggregateReactionsByMessageIds([message.id]);
-    return this._attachTableReactions(message, reactions);
   }
 
   async deleteChatMessage({chatId, messageId, userId}) {
@@ -2280,48 +2364,50 @@ class PostgresStore extends FileStore {
     if (!resolved) {
       return false;
     }
-    const message = await this._selectChatMessageInScope({
-      chatId,
-      resolvedChatId: resolved.chat.id,
-      messageId,
-      nowTimestamp: nowIso(),
-    });
-    if (!message) {
-      return null;
-    }
+    return this._enqueueChatRowMutation(async () => {
+      const message = await this._selectChatMessageInScope({
+        chatId,
+        resolvedChatId: resolved.chat.id,
+        messageId,
+        nowTimestamp: nowIso(),
+      });
+      if (!message) {
+        return null;
+      }
 
-    const participantIds = normalizeParticipantIds(resolved.chat.participantIds);
-    const recipientIds = normalizeParticipantIds(userIds).filter(
-      (userId) => participantIds.includes(userId) && userId !== message.senderId,
-    );
-    if (recipientIds.length === 0) {
+      const participantIds = normalizeParticipantIds(resolved.chat.participantIds);
+      const recipientIds = normalizeParticipantIds(userIds).filter(
+        (userId) => participantIds.includes(userId) && userId !== message.senderId,
+      );
+      if (recipientIds.length === 0) {
+        return {
+          chatId: message.chatId || resolved.chat.id,
+          messageId: message.id,
+          deliveredTo: normalizeParticipantIds(message.deliveredTo),
+          changedUserIds: [],
+        };
+      }
+
+      const deliveredTo = normalizeParticipantIds(message.deliveredTo);
+      let changed = false;
+      for (const userId of recipientIds) {
+        if (!deliveredTo.includes(userId)) {
+          deliveredTo.push(userId);
+          changed = true;
+        }
+      }
+      message.deliveredTo = deliveredTo;
+      if (changed) {
+        await this._updateChatMessageRow(message);
+      }
+
       return {
         chatId: message.chatId || resolved.chat.id,
         messageId: message.id,
         deliveredTo: normalizeParticipantIds(message.deliveredTo),
-        changedUserIds: [],
+        changedUserIds: changed ? recipientIds : [],
       };
-    }
-
-    const deliveredTo = normalizeParticipantIds(message.deliveredTo);
-    let changed = false;
-    for (const userId of recipientIds) {
-      if (!deliveredTo.includes(userId)) {
-        deliveredTo.push(userId);
-        changed = true;
-      }
-    }
-    message.deliveredTo = deliveredTo;
-    if (changed) {
-      await this._updateChatMessageRow(message);
-    }
-
-    return {
-      chatId: message.chatId || resolved.chat.id,
-      messageId: message.id,
-      deliveredTo: normalizeParticipantIds(message.deliveredTo),
-      changedUserIds: changed ? recipientIds : [],
-    };
+    });
   }
 
   async markChatAsRead(chatId, userId) {
@@ -2332,54 +2418,56 @@ class PostgresStore extends FileStore {
       return false;
     }
     const equivalentIds = this._equivalentChatIdList(chatId, resolved.chat.id);
-    const nowTimestamp = nowIso();
-    const placeholders = equivalentIds.map((_, index) => `$${index + 1}`);
-    const result = await this._pool.query(
-      `SELECT message_data
-         FROM ${this._qualifiedChatMessagesTableName}
-        WHERE chat_id IN (${placeholders.join(", ")})
-          AND (expires_at = '' OR expires_at > $${equivalentIds.length + 1})
-          AND sender_id <> $${equivalentIds.length + 2}`,
-      [...equivalentIds, nowTimestamp, userId],
-    );
+    return this._enqueueChatRowMutation(async () => {
+      const nowTimestamp = nowIso();
+      const placeholders = equivalentIds.map((_, index) => `$${index + 1}`);
+      const result = await this._pool.query(
+        `SELECT message_data
+           FROM ${this._qualifiedChatMessagesTableName}
+          WHERE chat_id IN (${placeholders.join(", ")})
+            AND (expires_at = '' OR expires_at > $${equivalentIds.length + 1})
+            AND sender_id <> $${equivalentIds.length + 2}`,
+        [...equivalentIds, nowTimestamp, userId],
+      );
 
-    let changed = false;
-    const readMessageIds = [];
-    for (const row of result.rows) {
-      const message = this._chatMessageFromRow(row);
-      if (!message) {
-        continue;
+      let changed = false;
+      const readMessageIds = [];
+      for (const row of result.rows) {
+        const message = this._chatMessageFromRow(row);
+        if (!message) {
+          continue;
+        }
+        let messageChanged = false;
+        const deliveredTo = normalizeParticipantIds(message.deliveredTo);
+        if (!deliveredTo.includes(userId)) {
+          deliveredTo.push(userId);
+          message.deliveredTo = deliveredTo;
+          messageChanged = true;
+        }
+        const readBy = normalizeParticipantIds(message.readBy);
+        if (!readBy.includes(userId)) {
+          readBy.push(userId);
+          message.readBy = readBy;
+          readMessageIds.push(message.id);
+          messageChanged = true;
+        }
+        if (message.isRead !== true) {
+          message.isRead = true;
+          messageChanged = true;
+        }
+        if (messageChanged) {
+          changed = true;
+          await this._updateChatMessageRow(message);
+        }
       }
-      let messageChanged = false;
-      const deliveredTo = normalizeParticipantIds(message.deliveredTo);
-      if (!deliveredTo.includes(userId)) {
-        deliveredTo.push(userId);
-        message.deliveredTo = deliveredTo;
-        messageChanged = true;
-      }
-      const readBy = normalizeParticipantIds(message.readBy);
-      if (!readBy.includes(userId)) {
-        readBy.push(userId);
-        message.readBy = readBy;
-        readMessageIds.push(message.id);
-        messageChanged = true;
-      }
-      if (message.isRead !== true) {
-        message.isRead = true;
-        messageChanged = true;
-      }
-      if (messageChanged) {
-        changed = true;
-        await this._updateChatMessageRow(message);
-      }
-    }
 
-    return {
-      changed,
-      chatId: resolved.chat.id,
-      userId,
-      messageIds: readMessageIds,
-    };
+      return {
+        changed,
+        chatId: resolved.chat.id,
+        userId,
+        messageIds: readMessageIds,
+      };
+    });
   }
 
   async getChatDraft({userId, chatId}) {
@@ -2700,7 +2788,7 @@ class PostgresStore extends FileStore {
     // содержит userId как первый или второй компонент.
     params.push(`${this._escapeLikePattern(normalizedUserId)}_%`);
     scopeParts.push(`chat_id LIKE $${params.length}`);
-    params.push(`%\\_${this._escapeLikePattern(normalizedUserId)}`);
+    params.push(`%_${this._escapeLikePattern(normalizedUserId)}`);
     scopeParts.push(`chat_id LIKE $${params.length}`);
     params.push(nowIso());
     const result = await this._pool.query(
@@ -2955,18 +3043,13 @@ class PostgresStore extends FileStore {
       );
       collectDeleted(byChat.rows);
     }
-    // Сообщения, где пользователь был участником на момент отправки
-    // (снапшот participants) или стороной виртуального direct-чата.
-    const patterns = [
-      `${this._escapeLikePattern(normalizedUserId)}_%`,
-      `%\\_${this._escapeLikePattern(normalizedUserId)}`,
-    ];
+    // Как FileStore: удаляются ВСЕ сообщения, в чьём participants-снапшоте
+    // есть пользователь (включая чужие сообщения в выживших групповых чатах),
+    // плюс стороны виртуальных direct-чатов. Полный скан — deleteUser редкий
+    // и не на горячем пути; LIKE-эвристика пропускала групповые снапшоты.
     const candidates = await this._pool.query(
       `SELECT id, message_data
-         FROM ${this._qualifiedChatMessagesTableName}
-        WHERE chat_id LIKE $1
-           OR chat_id LIKE $2`,
-      patterns,
+         FROM ${this._qualifiedChatMessagesTableName}`,
     );
     const participantMessageIds = [];
     for (const row of candidates.rows) {
@@ -3205,7 +3288,9 @@ class PostgresStore extends FileStore {
       normalizedState.sessions = await this._selectProjectedSessionsArray();
       this._lastUsersProjectionHash = computeProjectionHash(normalizedState.users);
       this._lastSessionsProjectionHash = computeProjectionHash(normalizedState.sessions);
-      this._lastChatsProjectionHash = computeProjectionHash(normalizedState.chats);
+      // ВАЖНО: _lastChatsProjectionHash здесь НЕ трогаем — _read утверждал
+      // бы синхронность projection, не наблюдая её; после сорванного
+      // _replaceChatProjection это маскировало бы починку на след. _write.
       // Phase 3.1c: keep the unified-graph mirror eventually
       // consistent with the legacy collections. The base FileStore
       // calls this in its own _read; PostgresStore overrides _read

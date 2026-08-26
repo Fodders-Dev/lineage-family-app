@@ -506,14 +506,12 @@ test("chat tables: deleteUser cascades table data", async () => {
 
   await store.deleteUser("user-2");
 
-  // Сообщения директа (user-2 участник) удалены; группа выжила (3→2 участника).
+  // Как в FileStore: удалены и сообщения директа, и групповое сообщение —
+  // user-2 есть в его participants-снапшоте (сам чат выживает: 3→2 участника).
   const messages = await rawPool.query(
     `SELECT chat_id FROM "public"."rodnya_state_chat_messages"`,
   );
-  assert.deepEqual(
-    messages.rows.map((row) => row.chat_id),
-    ["chat_group-1"],
-  );
+  assert.deepEqual(messages.rows, []);
   const drafts = await rawPool.query(
     `SELECT user_id FROM "public"."rodnya_state_chat_drafts"`,
   );
@@ -525,4 +523,128 @@ test("chat tables: deleteUser cascades table data", async () => {
 
   const previews = await store.listChatPreviews("user-1");
   assert.deepEqual(previews.map((p) => p.chatId), ["chat_group-1"]);
+  assert.equal(previews[0].lastMessage, "");
+});
+
+test("chat tables: migration keeps group/branch chat ids intact (chat_<uuid> not reordered)", async () => {
+  // Регрессия P0: id `chat_0...` парсится на 2 части и localeCompare-сортировка
+  // переставляла их ('chat_0abc' -> '0abc_chat'), отрывая сообщения от чата.
+  const trickyGroup = {
+    id: "chat_0b54c9e1-aaaa-bbbb-cccc-000000000001",
+    type: "group",
+    title: "Группа с коварным id",
+    participantIds: ["user-1", "user-2", "user-3"],
+    createdAt: "2026-04-21T10:00:00.000Z",
+    updatedAt: "2026-04-21T11:00:00.000Z",
+  };
+  const {store, rawPool} = buildStore({
+    users: USERS,
+    chats: [trickyGroup],
+    messages: [
+      {
+        id: "m-tricky-1",
+        chatId: trickyGroup.id,
+        senderId: "user-2",
+        text: "Групповое сообщение",
+        timestamp: "2026-04-21T11:00:00.000Z",
+        isRead: false,
+        participants: ["user-1", "user-2", "user-3"],
+      },
+    ],
+    chatDrafts: [
+      {userId: "user-1", chatId: trickyGroup.id, text: "групповой черновик", updatedAt: "2026-04-21T11:05:00.000Z"},
+    ],
+  });
+  await store.initialize();
+
+  const rows = await rawPool.query(
+    `SELECT chat_id FROM "public"."rodnya_state_chat_messages"`,
+  );
+  assert.deepEqual(rows.rows.map((row) => row.chat_id), [trickyGroup.id]);
+
+  const previews = await store.listChatPreviews("user-1");
+  assert.equal(previews.length, 1);
+  assert.equal(previews[0].chatId, trickyGroup.id);
+  assert.equal(previews[0].lastMessage, "Групповое сообщение");
+  assert.equal(previews[0].unreadCount, 1);
+  assert.equal(await store.countUnreadChatMessages("user-1"), 1);
+
+  const draft = await store.getChatDraft({userId: "user-1", chatId: trickyGroup.id});
+  assert.equal(draft?.text, "групповой черновик");
+});
+
+test("chat tables: migration survives legacy dedup_key duplicates", async () => {
+  // Регрессия P1: два легаси-сообщения с одинаковой тройкой (chat, sender,
+  // clientMessageId) под разными id раньше валили бут unique violation'ом.
+  const directChat = {
+    id: "user-1_user-2",
+    type: "direct",
+    title: null,
+    participantIds: ["user-1", "user-2"],
+    createdAt: "2026-04-21T10:00:00.000Z",
+    updatedAt: "2026-04-21T10:00:00.000Z",
+  };
+  const {store, rawPool} = buildStore({
+    users: USERS,
+    chats: [directChat],
+    messages: [
+      {id: "dup-a", chatId: "user-1_user-2", senderId: "user-1", text: "раз", timestamp: "2026-04-21T10:01:00.000Z", clientMessageId: "same-cli", participants: ["user-1", "user-2"]},
+      {id: "dup-b", chatId: "user-2_user-1", senderId: "user-1", text: "два", timestamp: "2026-04-21T10:02:00.000Z", clientMessageId: "same-cli", participants: ["user-1", "user-2"]},
+    ],
+  });
+  await store.initialize();
+  const rows = await rawPool.query(
+    `SELECT id FROM "public"."rodnya_state_chat_messages"`,
+  );
+  assert.equal(rows.rows.length, 1);
+  assert.equal(rows.rows[0].id, "dup-a");
+});
+
+test("chat tables: listOwnedMediaUrls includes sent message media", async () => {
+  const {store} = buildStore({users: USERS, chats: [GROUP_CHAT]});
+  await store.initialize();
+
+  await store.addChatMessage({
+    chatId: "chat_group-1",
+    senderId: "user-1",
+    text: "с фото",
+    attachments: [
+      {type: "image", url: "https://cdn.rodnya-tree.ru/photo-1.jpg"},
+    ],
+  });
+
+  const urls = await store.listOwnedMediaUrls("user-1");
+  assert.ok(urls.includes("https://cdn.rodnya-tree.ru/photo-1.jpg"));
+});
+
+test("chat tables: concurrent delivered/read receipts do not lose updates", async () => {
+  const {store} = buildStore({users: USERS, chats: [GROUP_CHAT]});
+  await store.initialize();
+
+  const message = await store.addChatMessage({
+    chatId: "chat_group-1",
+    senderId: "user-1",
+    text: "Гонка receipt'ов",
+  });
+
+  // Два конкурентных delivered-ack'а от разных получателей + markChatAsRead:
+  // без RMW-очереди один из них терял бы чужую запись.
+  await Promise.all([
+    store.markChatMessageDelivered({
+      chatId: "chat_group-1",
+      messageId: message.id,
+      userIds: ["user-2"],
+    }),
+    store.markChatMessageDelivered({
+      chatId: "chat_group-1",
+      messageId: message.id,
+      userIds: ["user-3"],
+    }),
+    store.markChatAsRead("chat_group-1", "user-2"),
+  ]);
+
+  const [latest] = await store.listChatMessages("chat_group-1", {limit: 1});
+  assert.ok(latest.deliveredTo.includes("user-2"), "user-2 delivered потерян");
+  assert.ok(latest.deliveredTo.includes("user-3"), "user-3 delivered потерян");
+  assert.ok(latest.readBy.includes("user-2"), "user-2 read потерян");
 });
