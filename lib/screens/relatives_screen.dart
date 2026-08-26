@@ -614,6 +614,7 @@ class _RelativesScreenState extends State<RelativesScreen> {
                                               inviteReadyCount:
                                                   inviteReadyCount,
                                               treeName: selectedTreeName,
+                                              isFriendsTree: isFriendsTree,
                                             ),
                                           ),
                                         ],
@@ -648,52 +649,55 @@ class _RelativesScreenState extends State<RelativesScreen> {
                         ),
                       ),
                     ),
-      // Чанк A (P0): экран живёт внутри «Семьи» (IndexedStack), а не
-      // топ-уровневым бранчем — глобальный inset плавающего нав-бара сюда
-      // не доезжает, и FAB рендерился ПОД пилюлей (тап уходил во вкладку).
-      // Тот же механизм, что у home compose-FAB: единый источник правды
-      // AppTheme.bottomNavInset.
-      // F4: на wide-лэйауте FAB прячем целиком — в сайд-панели уже есть
-      // подписанные «Добавить» / «Найти» / «Проверить связь», а второй
-      // «Добавить» только путал (ревью-замечание о дубле на десктопе).
-      floatingActionButton: selectedTreeId == null || isWideLayout
+      // On phones the actions occupy their own row below the list. The old
+      // stacked FABs covered a relative card and competed with the shell nav.
+      // Wide layout keeps using the labelled actions in its side panel.
+      bottomNavigationBar: selectedTreeId == null || isWideLayout
           ? null
-          : Padding(
-              padding: EdgeInsets.only(
-                bottom: AppTheme.bottomNavInset(context),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  // Phase 6 chunk 3: «мы родственники?» discover entry.
-                  // Small FAB stacked above add-relative — secondary
-                  // action в same context («моя родня»).
-                  FloatingActionButton.small(
-                    heroTag: 'discover_relatives_fab',
-                    onPressed: () => context.push('/discover/relatives'),
-                    tooltip: 'Проверить связь с человеком',
-                    child: const Icon(Icons.travel_explore_rounded),
-                  ),
-                  const SizedBox(height: 12),
-                  // 2d (Q4): подписанный вход вместо голого «+» — главный
-                  // сценарий вкладки должен читаться без догадок. Ведёт в
-                  // пикер «Кем приходится?» как и раньше.
-                  // F4: явная пилюля — CircleBorder из FAB-темы клипал
-                  // extended-FAB в круг («Добави…»).
-                  FloatingActionButton.extended(
-                    heroTag: 'add_relative_fab',
-                    shape: const StadiumBorder(),
+          : _buildRelativesPrimaryActionBar(selectedTreeId, treeProvider),
+    );
+  }
+
+  Widget _buildRelativesPrimaryActionBar(
+    String selectedTreeId,
+    TreeProvider treeProvider,
+  ) {
+    final tokens = AppTheme.tokensOf(context);
+    return Material(
+      key: const Key('relatives-primary-action-bar'),
+      color: tokens.surface,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+          child: Row(
+            children: [
+              if (!_isFriendsTree(treeProvider)) ...[
+                IconButton.outlined(
+                  key: const Key('discover-relatives-action'),
+                  onPressed: () => context.push('/discover/relatives'),
+                  tooltip: 'Проверить родство с человеком',
+                  icon: const Icon(Icons.travel_explore_rounded),
+                ),
+                const SizedBox(width: 10),
+              ],
+              Expanded(
+                child: SizedBox(
+                  height: 46,
+                  child: FilledButton.icon(
+                    key: const Key('add-relative-action'),
                     onPressed: () {
                       unawaited(_startAddRelativeFlow(selectedTreeId));
                     },
-                    tooltip: _graphAddLabel(treeProvider),
                     icon: const Icon(Icons.add),
-                    label: const Text('Добавить'),
+                    label: Text(_graphAddLabel(treeProvider)),
                   ),
-                ],
+                ),
               ),
-            ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -706,6 +710,7 @@ class _RelativesScreenState extends State<RelativesScreen> {
   bool _discoverTooltipScheduled = false;
 
   Future<void> _maybeShowDiscoverTooltip(BuildContext outerContext) async {
+    if (_treeProviderInstance?.selectedTreeKind == TreeKind.friends) return;
     if (_discoverTooltipScheduled) return;
     _discoverTooltipScheduled = true;
     final prefs = await SharedPreferences.getInstance();
@@ -715,10 +720,10 @@ class _RelativesScreenState extends State<RelativesScreen> {
       context: outerContext,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Найти родню'),
+          title: const Text('Проверить родство'),
           content: const Text(
-            'Нашли кого-то знакомого? Проверьте, родственники ли '
-            'вы — через значок поиска снизу справа.',
+            'Если у знакомого уже есть аккаунт Родни, отправьте запрос и '
+            'проверьте связь с вашим деревом.',
           ),
           actions: [
             TextButton(
@@ -907,6 +912,7 @@ class _RelativesScreenState extends State<RelativesScreen> {
     required int chatReadyCount,
     required int inviteReadyCount,
     required String treeName,
+    required bool isFriendsTree,
   }) {
     final treeProvider = Provider.of<TreeProvider>(context, listen: false);
     final isFriendsTree = _isFriendsTree(treeProvider);
@@ -972,13 +978,12 @@ class _RelativesScreenState extends State<RelativesScreen> {
                 icon: const Icon(Icons.search),
                 label: const Text('Найти'),
               ),
-              // F4: FAB на wide спрятан — discover-вход переезжает в
-              // панель, чтобы «мы родственники?» не пропал с десктопа.
-              OutlinedButton.icon(
-                onPressed: () => context.push('/discover/relatives'),
-                icon: const Icon(Icons.travel_explore_rounded),
-                label: const Text('Проверить связь'),
-              ),
+              if (!isFriendsTree)
+                OutlinedButton.icon(
+                  onPressed: () => context.push('/discover/relatives'),
+                  icon: const Icon(Icons.travel_explore_rounded),
+                  label: const Text('Проверить родство'),
+                ),
               if (_pendingRequestsCount > 0)
                 OutlinedButton.icon(
                   onPressed: _currentTreeId == null
@@ -1360,12 +1365,7 @@ class _RelativesScreenState extends State<RelativesScreen> {
       child: ListView.builder(
         key: key,
         physics: const AlwaysScrollableScrollPhysics(),
-        // Нижний инсет под плавающий нав-бар — как у FAB (тот же
-        // AppTheme.bottomNavInset). Один список обслуживает «В приложении»,
-        // «Нужно пригласить» и результаты поиска (общий flatList), так что
-        // инсет покрывает все три скролла вкладки «Семья».
-        padding:
-            EdgeInsets.only(top: 4, bottom: AppTheme.bottomNavInset(context)),
+        padding: const EdgeInsets.only(top: 4, bottom: 12),
         itemCount: flatList.length,
         itemBuilder: (context, index) {
           final item = flatList[index];

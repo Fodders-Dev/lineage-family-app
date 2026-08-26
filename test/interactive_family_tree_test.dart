@@ -163,6 +163,14 @@ void main() {
 
     expect(find.byType(Scaffold), findsOneWidget);
     expect(find.byType(InteractiveViewer), findsOneWidget);
+    final viewport = tester.widget<Stack>(
+      find.byKey(const Key('interactive-family-tree-viewport')),
+    );
+    expect(viewport.clipBehavior, Clip.hardEdge);
+    expect(
+      find.byKey(const Key('interactive-family-tree-canvas-clip')),
+      findsOneWidget,
+    );
     // Card now splits the name: 'Иван' (first name, Lora) + 'Петров' (last
     // name, Manrope smaller). Assert both pieces render.
     expect(find.text('Иван'), findsOneWidget);
@@ -983,6 +991,164 @@ void main() {
 
     expect((fatherOffset.dy - motherOffset.dy).abs(), lessThan(0.1));
     expect(childOffset.dy, greaterThan(fatherOffset.dy));
+  });
+
+  testWidgets(
+      'InteractiveFamilyTree keeps a divorced couple adjacent when an in-law '
+      'parent shares their row (no unrelated node between them)',
+      (tester) async {
+    // Repro for the reported bug: Галина÷Владимир are a DIVORCED couple with
+    // children Мария + Николай. Екатерина married Николай (married-in), and
+    // her father Марат gets pulled into the grandparent row through that
+    // marriage — landing BETWEEN Галина and Владимир, so Мария's parent
+    // connector crosses Екатерина's drop line («Екатерина соприкасается
+    // линией с Владимиром»). The divorced couple must stay adjacent.
+    tester.view.physicalSize = const Size(1600, 1000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    FamilyPerson p(String id, String name, Gender gender) => FamilyPerson(
+          id: id,
+          treeId: 'tree-1',
+          name: name,
+          gender: gender,
+          isAlive: true,
+          createdAt: DateTime(2024, 1, 1),
+          updatedAt: DateTime(2024, 1, 1),
+        );
+    final gfather = p('gfather', 'Дед', Gender.male);
+    final gmother = p('gmother', 'Баба', Gender.female);
+    final galina = p('galina', 'Галина', Gender.female);
+    final vladimir = p('vladimir', 'Владимир', Gender.male);
+    final marat = p('marat', 'Марат', Gender.male);
+    final maria = p('maria', 'Мария', Gender.female);
+    final nikolai = p('nikolai', 'Николай', Gender.male);
+    final ekaterina = p('ekaterina', 'Екатерина', Gender.female);
+    final people = [
+      gfather,
+      gmother,
+      galina,
+      vladimir,
+      marat,
+      maria,
+      nikolai,
+      ekaterina,
+    ];
+
+    FamilyRelation rel(
+      String id,
+      String a,
+      String b,
+      RelationType ab,
+      RelationType ba, {
+      String? unionStatus,
+    }) =>
+        FamilyRelation(
+          id: id,
+          treeId: 'tree-1',
+          person1Id: a,
+          person2Id: b,
+          relation1to2: ab,
+          relation2to1: ba,
+          isConfirmed: true,
+          createdAt: DateTime(2024, 1, 1),
+          unionStatus: unionStatus,
+        );
+    final relations = [
+      rel('gf', 'gfather', 'galina', RelationType.parent, RelationType.child),
+      rel('gm', 'gmother', 'galina', RelationType.parent, RelationType.child),
+      // Галина's CURRENT union (remarried) — pulls Марат adjacent.
+      rel('marat-galina', 'marat', 'galina', RelationType.spouse,
+          RelationType.spouse,
+          unionStatus: 'current'),
+      // Галина's PAST union (divorced) — shared child Мария.
+      rel('vladimir-galina', 'vladimir', 'galina', RelationType.spouse,
+          RelationType.spouse,
+          unionStatus: 'past'),
+      rel('g-maria', 'galina', 'maria', RelationType.parent,
+          RelationType.child),
+      rel('v-maria', 'vladimir', 'maria', RelationType.parent,
+          RelationType.child),
+      rel('m-ekat', 'marat', 'ekaterina', RelationType.parent,
+          RelationType.child),
+      rel('nik-maria', 'nikolai', 'maria', RelationType.spouse,
+          RelationType.spouse,
+          unionStatus: 'current'),
+    ];
+
+    final snapshot = TreeGraphSnapshot(
+      treeId: 'tree-1',
+      viewerPersonId: maria.id,
+      people: people,
+      relations: relations,
+      familyUnits: const <TreeGraphFamilyUnit>[],
+      viewerDescriptors: const <TreeGraphViewerDescriptor>[],
+      branchBlocks: const <TreeGraphBranchBlock>[],
+      generationRows: const <TreeGraphGenerationRow>[
+        TreeGraphGenerationRow(
+          row: 0,
+          label: 'Деды',
+          personIds: ['gfather', 'gmother'],
+          familyUnitIds: <String>[],
+        ),
+        TreeGraphGenerationRow(
+          row: 1,
+          label: 'Старшие',
+          personIds: ['galina', 'marat', 'vladimir'],
+          familyUnitIds: <String>[],
+        ),
+        TreeGraphGenerationRow(
+          row: 2,
+          label: 'Дети',
+          personIds: ['maria', 'nikolai', 'ekaterina'],
+          familyUnitIds: <String>[],
+        ),
+      ],
+      warnings: const <TreeGraphWarning>[],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: InteractiveFamilyTree(
+            peopleData: [
+              for (final person in people)
+                {'person': person, 'userProfile': null},
+            ],
+            relations: relations,
+            graphSnapshot: snapshot,
+            onPersonTap: (_) {},
+            onAddRelativeTapWithType: (_, __) {},
+            currentUserIsInTree: true,
+            onAddSelfTapWithType: (_, __) async {},
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    final paint = tester.widget<CustomPaint>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is CustomPaint && widget.painter is FamilyTreePainter,
+      ),
+    );
+    final painter = paint.painter! as FamilyTreePainter;
+    final galinaX = painter.nodePositions[galina.id]!.dx;
+    final vladimirX = painter.nodePositions[vladimir.id]!.dx;
+    final maratX = painter.nodePositions[marat.id]!.dx;
+
+    // The divorced couple must stay contiguous: no unrelated node (Марат)
+    // may sit horizontally between Галина and Владимир.
+    final lo = galinaX < vladimirX ? galinaX : vladimirX;
+    final hi = galinaX < vladimirX ? vladimirX : galinaX;
+    expect(
+      maratX < lo || maratX > hi,
+      isTrue,
+      reason: 'Марат ($maratX) splits the divorced couple '
+          'Галина ($galinaX)–Владимир ($vladimirX)',
+    );
   });
 
   testWidgets(
@@ -3725,44 +3891,64 @@ void main() {
 
     // L0 Козловы. L1 blood children + married-in spouses. L2/L3 grandchildren.
     final ids = <String, Gender>{
-      'kozlovAA': Gender.male, 'kozlovaA': Gender.female,
-      'hodusT': Gender.female, 'hodusA': Gender.male,
-      'suprunovV': Gender.male, 'suprunovaA': Gender.female,
-      'kurbatovaG': Gender.female, 'kurbatovV': Gender.male,
+      'kozlovAA': Gender.male,
+      'kozlovaA': Gender.female,
+      'hodusT': Gender.female,
+      'hodusA': Gender.male,
+      'suprunovV': Gender.male,
+      'suprunovaA': Gender.female,
+      'kurbatovaG': Gender.female,
+      'kurbatovV': Gender.male,
       'nazmutdinovM': Gender.male,
-      'chegodaevaA': Gender.female, 'chegodaevV': Gender.male,
+      'chegodaevaA': Gender.female,
+      'chegodaevV': Gender.male,
       'suprunovAlex': Gender.male,
       'betehtinaM': Gender.female,
-      'dmitrovaT': Gender.female, 'dmitrovE': Gender.male,
+      'dmitrovaT': Gender.female,
+      'dmitrovE': Gender.male,
       'nazmutdinovaE': Gender.female,
-      'chegodaevVen': Gender.male, 'chegodaevaArina': Gender.female,
+      'chegodaevVen': Gender.male,
+      'chegodaevaArina': Gender.female,
       'chegodaevaAlex': Gender.female,
       'dmitrovS': Gender.male,
     };
     final relations = <FamilyRelation>[
       spouseRel('kozlovAA', 'kozlovaA'),
       // Козловы children (blood) + their married-in spouses.
-      for (final c in ['hodusT', 'suprunovV', 'kurbatovaG', 'nazmutdinovM']) ...[
-        parentRel('kozlovAA', c), parentRel('kozlovaA', c),
+      for (final c in [
+        'hodusT',
+        'suprunovV',
+        'kurbatovaG',
+        'nazmutdinovM'
+      ]) ...[
+        parentRel('kozlovAA', c),
+        parentRel('kozlovaA', c),
       ],
       spouseRel('hodusT', 'hodusA'),
       spouseRel('suprunovV', 'suprunovaA'),
       spouseRel('kurbatovaG', 'kurbatovV'),
       // Супруновы grandchildren (a married daughter + a single son).
       for (final c in ['chegodaevaA', 'suprunovAlex']) ...[
-        parentRel('suprunovV', c), parentRel('suprunovaA', c),
+        parentRel('suprunovV', c),
+        parentRel('suprunovaA', c),
       ],
       spouseRel('chegodaevaA', 'chegodaevV'),
       // Курбатовы grandchildren incl. Бетехтина (single) + a married daughter.
       for (final c in ['betehtinaM', 'dmitrovaT']) ...[
-        parentRel('kurbatovaG', c), parentRel('kurbatovV', c),
+        parentRel('kurbatovaG', c),
+        parentRel('kurbatovV', c),
       ],
       spouseRel('dmitrovaT', 'dmitrovE'),
       // Назмутдинов grandchild.
       parentRel('nazmutdinovM', 'nazmutdinovaE'),
       // Great-grandchildren (Чегодаевы wide, Дмитровы narrow).
-      for (final c in ['chegodaevVen', 'chegodaevaArina', 'chegodaevaAlex']) ...[
-        parentRel('chegodaevaA', c), parentRel('chegodaevV', c),
+      for (final c in [
+        'chegodaevVen',
+        'chegodaevaArina',
+        'chegodaevaAlex'
+      ]) ...[
+        parentRel('chegodaevaA', c),
+        parentRel('chegodaevV', c),
       ],
       parentRel('dmitrovaT', 'dmitrovS'), parentRel('dmitrovE', 'dmitrovS'),
     ];

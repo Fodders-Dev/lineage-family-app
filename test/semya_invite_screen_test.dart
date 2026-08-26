@@ -134,8 +134,7 @@ class _FakeService
       const <SemyaInvitation>[];
 
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 SemyaInvitation _invitation() {
@@ -173,8 +172,9 @@ void main() {
     expect(find.text('Пригласить в семью'), findsOneWidget);
     expect(find.byKey(const Key('semya-invite-email')), findsOneWidget);
     expect(find.byKey(const Key('semya-invite-phone')), findsOneWidget);
-    expect(find.text('Зритель'), findsOneWidget);
-    expect(find.text('Редактор'), findsOneWidget);
+    expect(find.text('Просмотр'), findsOneWidget);
+    expect(find.text('Редактирование'), findsOneWidget);
+    expect(find.text('Создать ссылку'), findsOneWidget);
     expect(find.byKey(const Key('semya-invite-submit')), findsOneWidget);
   });
 
@@ -204,7 +204,7 @@ void main() {
     await tester.tap(find.byKey(const Key('semya-invite-submit')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Приглашение создано'), findsOneWidget);
+    expect(find.text('Ссылка для приглашения готова'), findsOneWidget);
     expect(find.textContaining('tok-abc-xyz'), findsOneWidget);
     expect(find.byKey(const Key('semya-invite-copy')), findsOneWidget);
     expect(find.byKey(const Key('semya-invite-share')), findsOneWidget);
@@ -220,7 +220,7 @@ void main() {
       const MaterialApp(home: SemyaInviteScreen(semyaId: 'semya-1')),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Редактор'));
+    await tester.tap(find.text('Редактирование'));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('semya-invite-email')),

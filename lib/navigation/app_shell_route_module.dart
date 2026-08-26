@@ -139,9 +139,13 @@ class AppShellRouteModule {
 
             return Scaffold(
               backgroundColor: Colors.transparent,
-              // extendBody lets the AppBackdrop paint behind the floating
-              // glass nav bar so content scrolls through it seamlessly.
-              extendBody: true,
+              // Content and primary navigation must own separate layout
+              // regions. `extendBody: true` made every branch guess the
+              // floating bar height independently; tree nodes, list rows and
+              // FABs then ended up underneath the navigation pill on real
+              // phones. The backdrop remains visible through the transparent
+              // scaffold, while the body now stops above the nav bar.
+              extendBody: false,
               body: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -292,8 +296,9 @@ class AppShellRouteModule {
                 child: FamilyScreen(
                   initialView: view,
                   treeId: (treeId != null && treeId.isNotEmpty) ? treeId : null,
-                  treeName:
-                      (treeName != null && treeName.isNotEmpty) ? treeName : null,
+                  treeName: (treeName != null && treeName.isNotEmpty)
+                      ? treeName
+                      : null,
                 ),
               );
             },
@@ -624,7 +629,8 @@ class AppShellRouteModule {
             path: 'view/:treeId',
             // The canvas now lives inside «Семья»; carry the tree id (+
             // name) so the merged Дерево view opens that branch.
-            redirect: (context, state) => AppRouterGuards.familyTreeViewRedirect(
+            redirect: (context, state) =>
+                AppRouterGuards.familyTreeViewRedirect(
               treeId: state.pathParameters['treeId'] ?? '',
               treeName: state.uri.queryParameters['name'],
             ),
@@ -674,10 +680,10 @@ class AdaptiveNavigationRail extends StatelessWidget {
                     count: notificationsCount,
                   ),
                   _RailDestinationData(
-                    label: 'Семья',
+                    label: 'Родные',
                     outlinedIcon: Icons.groups_outlined,
                     filledIcon: Icons.groups_rounded,
-                    // Tree invitations now surface on «Семья» (the tree
+                    // Tree invitations now surface on «Родные» (the tree
                     // lives inside this tab).
                     count: invitationsCount,
                   ),

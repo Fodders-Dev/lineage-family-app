@@ -60,6 +60,7 @@ import '../utils/user_facing_error.dart';
 import '../utils/e2e_state_bridge.dart';
 import '../utils/photo_url.dart';
 import '../utils/relative_details_route.dart';
+import '../utils/russian_plural.dart';
 import '../utils/snackbar.dart';
 import '../widgets/dont_fear_breaking_banner.dart';
 
@@ -1003,57 +1004,20 @@ class _TreeViewScreenState extends State<TreeViewScreen>
         ),
       ),
       body: SafeArea(
-        child: Stack(
+        child: Column(
           children: [
-            _wrapWithExtendedNetworkLayout(
-              context,
-              _buildTreeBody(selectedTreeId: selectedTreeId),
-            ),
-            // Phase B polish C: «Не бойся сломать» reassurance, overlaid at
-            // the top (same pattern as the extended empty-state banner).
-            // Dismissible + persisted — disappears once the user closes it.
-            // A-CTA: но не поверх онбординг-гида пустого дерева — там он
-            // бессмыслен и перекрывал крестик «скрыть» и шапку гида.
-            if (!_isGuidedCtaActive)
-              const Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: DontFearBreakingBanner(),
+            // The reassurance banner participates in layout instead of
+            // covering the canvas toolbar and the first visible generation.
+            if (!_isGuidedCtaActive) const DontFearBreakingBanner(),
+            Expanded(
+              child: _wrapWithExtendedNetworkLayout(
+                context,
+                _buildTreeBody(selectedTreeId: selectedTreeId),
               ),
+            ),
           ],
         ),
       ),
-      // 2d (Q4): подписанный вход «Добавить» и в виде Дерева — раньше
-      // добавление здесь жило только icon-only кнопкой тулбара, которую
-      // старшие не находили. Ведёт в тот же пикер «Кем приходится?», что
-      // и FAB Списка. Скрыт в режимах выбора/перемещения карточек — там
-      // свои тулбары и жесты. heroTag отличен от relatives-FAB: оба тела
-      // живут в одном IndexedStack вкладки «Семья».
-      // Чанк A (P0): как и Список, канвас живёт внутри «Семьи» — inset
-      // плавающего нав-бара восстанавливаем тем же единым хелпером, что
-      // у home compose-FAB (FAB обязан плавать НАД пилюлей).
-      floatingActionButton: (_isSelectionMode || _isEditMode)
-          ? null
-          : Padding(
-              padding: EdgeInsets.only(
-                bottom: AppTheme.bottomNavInset(context),
-              ),
-              // F4: явная пилюля — CircleBorder из FAB-темы клипал
-              // extended-FAB в круг с обрезанным «Добави…» (скрины
-              // владельца с web). У дерева подписанной альтернативы на
-              // wide нет, поэтому FAB остаётся, но теперь читается.
-              child: FloatingActionButton.extended(
-                heroTag: 'tree_add_relative_fab',
-                shape: const StadiumBorder(),
-                onPressed: () => _startAddRelativeFlow(selectedTreeId),
-                tooltip: _isFriendsTree
-                    ? 'Добавить человека'
-                    : 'Добавить родственника',
-                icon: const Icon(Icons.add),
-                label: const Text('Добавить'),
-              ),
-            ),
     );
   }
 
@@ -1093,9 +1057,8 @@ class _TreeViewScreenState extends State<TreeViewScreen>
 
   /// Phase 6 chunk 4c (PHASE-6-PROPOSAL.md §2.7): when extended mode
   /// is on + slice loaded + no foreign nodes (`ownerMap.isEmpty`) —
-  /// overlay future-positive empty-state banner above tree canvas.
-  /// Banner stacked, не replaces canvas — user still sees own tree
-  /// behind banner; CTAs route к share-invite либо discover screen.
+  /// show a future-positive empty-state banner before the tree canvas.
+  /// It participates in layout so its CTAs never cover people or controls.
   /// Сессионная память крестика: карточка-заглушка висит ПОВЕРХ канваса
   /// и без дисмисса запирала просмотр дерева (жалоба владельца).
   /// Вернётся после перезапуска приложения — как onboarding-баннер.
@@ -1112,28 +1075,23 @@ class _TreeViewScreenState extends State<TreeViewScreen>
         slice.ownerMap.isEmpty &&
         !_extendedEmptyDismissedThisSession;
     if (!showBanner) return body;
-    return Stack(
+    return Column(
       children: [
-        body,
-        Positioned(
-          top: 4,
-          left: 0,
-          right: 0,
-          child: SafeArea(
-            top: false,
-            bottom: false,
-            child: ExtendedNetworkEmptyState(
-              onShareInvitation: _handleShareInvitation,
-              onFindRelatives: () => context.push('/discover/relatives'),
-              onDismiss: () => setState(
-                () => _extendedEmptyDismissedThisSession = true,
-              ),
-              // Главный «выход»: на телефоне тумблер «Моё дерево|Все»
-              // спрятан в фильтрах — даём прямой путь назад.
-              onBackToMine: () => ctrl.setMode(ExtendedNetworkMode.mine),
+        SafeArea(
+          top: false,
+          bottom: false,
+          child: ExtendedNetworkEmptyState(
+            onShareInvitation: _handleShareInvitation,
+            onFindRelatives: () => context.push('/discover/relatives'),
+            onDismiss: () => setState(
+              () => _extendedEmptyDismissedThisSession = true,
             ),
+            // Главный «выход»: на телефоне тумблер «Моё дерево|Все»
+            // спрятан в фильтрах — даём прямой путь назад.
+            onBackToMine: () => ctrl.setMode(ExtendedNetworkMode.mine),
           ),
         ),
+        Expanded(child: body),
       ],
     );
   }
@@ -1398,7 +1356,7 @@ class _TreeViewScreenState extends State<TreeViewScreen>
                           ChangeNotifierProvider<
                               ExtendedNetworkController>.value(
                             value: _extendedNetworkController!,
-                            child: const ExtendedNetworkToggle(),
+                            child: ExtendedNetworkToggle(compact: isPhone),
                           ),
                         ],
                         // UX-T1.2 FR-c: поиск/фильтры расширенной сети — вторичные,
@@ -1423,6 +1381,24 @@ class _TreeViewScreenState extends State<TreeViewScreen>
                             child: _FiltersButton(
                               tokens: tokens,
                               onTap: () => _openFilterSheet(),
+                            ),
+                          ),
+                        ],
+                        if (selectedTreeId != null &&
+                            !_isViewerOnly &&
+                            !_isSelectionMode &&
+                            !_isEditMode) ...[
+                          const SizedBox(width: 8),
+                          _TreeTopbarPill(
+                            tokens: tokens,
+                            tooltip: _isFriendsTree
+                                ? 'Добавить человека'
+                                : 'Добавить родственника',
+                            onTap: () => _startAddRelativeFlow(selectedTreeId),
+                            child: Icon(
+                              Icons.person_add_alt_1_rounded,
+                              size: 19,
+                              color: tokens.ink,
                             ),
                           ),
                         ],

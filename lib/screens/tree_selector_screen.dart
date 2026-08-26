@@ -14,6 +14,7 @@ import '../backend/models/tree_invitation.dart';
 import '../models/family_tree.dart';
 import '../providers/tree_provider.dart';
 import '../services/public_tree_link_service.dart';
+import '../utils/russian_plural.dart';
 import '../widgets/glass_panel.dart';
 
 /// Canonical tree-selection surface. Lives at `/tree?selector=1` (and
@@ -288,12 +289,12 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
                 children: [
                   FilledButton.icon(
                     icon: const Icon(Icons.add),
-                    label: const Text('Семья'),
+                    label: const Text('Новая семья'),
                     onPressed: _openCreateTree,
                   ),
                   OutlinedButton.icon(
                     icon: const Icon(Icons.diversity_3_outlined),
-                    label: const Text('Круг'),
+                    label: const Text('Новый круг'),
                     onPressed: _openCreateFriendsTree,
                   ),
                 ],
@@ -376,7 +377,12 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
                     if (_userTrees.isNotEmpty)
                       _SelectorChip(
                         icon: Icons.forest_outlined,
-                        label: '${_userTrees.length}',
+                        label: '${_userTrees.length} ${russianPluralForm(
+                          _userTrees.length,
+                          one: 'дерево',
+                          few: 'дерева',
+                          many: 'деревьев',
+                        )}',
                       ),
                     if (_pendingInvitations.isNotEmpty)
                       _SelectorChip(
@@ -394,12 +400,12 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
                     FilledButton.icon(
                       onPressed: _openCreateTree,
                       icon: const Icon(Icons.add),
-                      label: const Text('Семья'),
+                      label: const Text('Новая семья'),
                     ),
                     OutlinedButton.icon(
                       onPressed: _openCreateFriendsTree,
                       icon: const Icon(Icons.diversity_3_outlined),
-                      label: const Text('Круг'),
+                      label: const Text('Новый круг'),
                     ),
                   ],
                 ),
@@ -424,7 +430,7 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
             ..._pendingInvitations.map(_buildInvitationCard),
           ],
           if (currentTree != null) ...[
-            const _SelectorSectionHeader(title: 'Активное'),
+            const _SelectorSectionHeader(title: 'Выбрано'),
             _buildTreeCard(
               tree: currentTree,
               treeProvider: treeProvider,
@@ -433,7 +439,7 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
           ],
           if (ownTrees.isNotEmpty) ...[
             _SelectorSectionHeader(
-              title: ownTrees.length == 1 ? 'Моё дерево' : 'Мои',
+              title: 'Остальные мои',
             ),
             ...ownTrees.map(
               (tree) => _buildTreeCard(
@@ -445,7 +451,7 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
           ],
           if (memberTrees.isNotEmpty) ...[
             _SelectorSectionHeader(
-              title: memberTrees.length == 1 ? 'Приглашение' : 'Другие',
+              title: 'По приглашению',
             ),
             ...memberTrees.map(
               (tree) => _buildTreeCard(
@@ -682,7 +688,7 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
                           if (isSelected)
                             const _SelectorChip(
                               icon: Icons.check_circle_outline,
-                              label: 'Активное',
+                              label: 'Выбрано',
                               highlighted: true,
                             ),
                           if (tree.isCertified)
@@ -701,13 +707,15 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
                             icon: tree.isPrivate
                                 ? Icons.lock_outline
                                 : Icons.public,
-                            label: tree.isPrivate ? 'Приватное' : 'Публичное',
+                            label: tree.isPrivate
+                                ? 'Только участникам'
+                                : 'Публичный доступ',
                           ),
                         ],
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        _formatDate(createdAt),
+                        'Создано ${_formatDate(createdAt)}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: Theme.of(context)
                                   .colorScheme

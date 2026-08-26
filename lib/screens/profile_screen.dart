@@ -39,6 +39,7 @@ import '../services/user_profile_cache.dart';
 import '../services/posts_cache.dart';
 import '../utils/photo_url.dart';
 import '../utils/relative_details_route.dart';
+import '../utils/russian_plural.dart';
 import '../utils/user_facing_error.dart';
 
 part 'profile_screen_sections.dart';
@@ -160,8 +161,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isFriendsTree(BuildContext context) =>
       _selectedTreeKind(context) == TreeKind.friends;
 
-  String _graphStatLabel(BuildContext context) =>
-      _isFriendsTree(context) ? 'Связи' : 'Родственники';
+  String _graphStatLabel(BuildContext context, int count) =>
+      _isFriendsTree(context)
+          ? russianPluralForm(
+              count,
+              one: 'связь',
+              few: 'связи',
+              many: 'связей',
+            )
+          : russianPluralForm(
+              count,
+              one: 'родственник',
+              few: 'родственника',
+              many: 'родственников',
+            );
 
   String _graphProfilesLabel(BuildContext context) =>
       _isFriendsTree(context) ? 'Карточки' : 'Профили';
@@ -859,20 +872,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 stats: [
                   ProfileHeroStat(
                     value: '$_postCount',
-                    label: 'постов',
+                    label: russianPluralForm(
+                      _postCount,
+                      one: 'пост',
+                      few: 'поста',
+                      many: 'постов',
+                    ),
                   ),
                   ProfileHeroStat(
                     value: '$_relativeCount',
-                    label: _graphStatLabel(context).toLowerCase(),
+                    label: _graphStatLabel(context, _relativeCount),
                   ),
                   ProfileHeroStat(
                     value: '$_treeCount',
-                    label: 'деревья',
+                    label: russianPluralForm(
+                      _treeCount,
+                      one: 'дерево',
+                      few: 'дерева',
+                      many: 'деревьев',
+                    ),
                   ),
                 ],
                 actions: [
                   PillButton(
-                    label: 'В дерево',
+                    label: 'Открыть дерево',
                     icon: Icons.account_tree_outlined,
                     onPressed: () {
                       if (selectedTreeId == null) {
@@ -1223,11 +1246,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ),
       ),
-      // Reserve the floating bottom-nav footprint so the last row isn't
-      // tucked under the pill (was a fixed SizedBox(height: 40)).
-      SliverToBoxAdapter(
-        child: SizedBox(height: AppTheme.bottomNavInset(context)),
-      ),
+      // The app shell now reserves the navigation region itself.
+      const SliverToBoxAdapter(child: SizedBox(height: 24)),
     ];
   }
 
@@ -1338,17 +1358,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ),
                 const Spacer(),
-                _ProfileTopbarPill(
-                  tokens: tokens,
-                  tooltip: 'Редактировать',
-                  onTap: () => _openProfileEditSheet(),
-                  child: Icon(
-                    Icons.edit_outlined,
-                    size: 18,
-                    color: tokens.ink,
-                  ),
-                ),
-                const SizedBox(width: 8),
                 PopupMenuButton<String>(
                   tooltip: 'Меню',
                   onSelected: (value) {
@@ -1487,6 +1496,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (profile.languages.trim().isEmpty) {
       chips.add(ProfileCompletionChipData(
         label: 'языки',
+        onTap: () => _openProfileEditSheet(initialStep: 1),
+      ));
+    }
+    if (profile.interests.trim().isEmpty) {
+      chips.add(ProfileCompletionChipData(
+        label: 'интересы',
+        onTap: () => _openProfileEditSheet(initialStep: 1),
+      ));
+    }
+    if (profile.aboutFamily.trim().isEmpty) {
+      chips.add(ProfileCompletionChipData(
+        label: 'о семье',
         onTap: () => _openProfileEditSheet(initialStep: 1),
       ));
     }
@@ -1943,43 +1964,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       debugPrint('Не удалось поделиться профилем: $error');
       return ShareResult('', ShareResultStatus.unavailable);
     });
-  }
-}
-
-class _ProfileTopbarPill extends StatelessWidget {
-  const _ProfileTopbarPill({
-    required this.tokens,
-    required this.child,
-    required this.tooltip,
-    required this.onTap,
-  });
-
-  final RodnyaDesignTokens tokens;
-  final Widget child;
-  final String tooltip;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: tokens.surfaceStrong,
-        shape: RoundedRectangleBorder(
-          side: BorderSide(color: tokens.surfaceLine),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(14),
-          child: SizedBox(
-            width: 38,
-            height: 38,
-            child: Center(child: child),
-          ),
-        ),
-      ),
-    );
   }
 }
 

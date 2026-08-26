@@ -32,8 +32,7 @@ class _FakeFamilyTreeService implements FamilyTreeServiceInterface {
       Stream<List<TreeInvitation>>.value(invitations);
 
   @override
-  Future<void> respondToTreeInvitation(
-      String invitationId, bool accept) async {
+  Future<void> respondToTreeInvitation(String invitationId, bool accept) async {
     invitationResponses.add(MapEntry(invitationId, accept));
   }
 
@@ -138,15 +137,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Создайте дерево'), findsOneWidget);
-    expect(find.text('Семья'), findsOneWidget);
-    expect(find.text('Круг'), findsOneWidget);
+    expect(find.text('Новая семья'), findsOneWidget);
+    expect(find.text('Новый круг'), findsOneWidget);
     // C2: one-line helper clarifies «Семья» vs «Круг».
     expect(
       find.text('Семья — родственники · Круг — близкие без родства'),
       findsOneWidget,
     );
 
-    await tester.tap(find.text('Семья'));
+    await tester.tap(find.text('Новая семья'));
     await tester.pumpAndSettle();
 
     expect(find.text('create screen'), findsOneWidget);
@@ -173,7 +172,7 @@ void main() {
 
     expect(find.text('Деревья'), findsOneWidget);
     expect(find.text('Ваши деревья'), findsOneWidget);
-    expect(find.text('Семья'), findsOneWidget);
+    expect(find.text('Новая семья'), findsOneWidget);
     expect(find.text('Семья Ивановых'), findsOneWidget);
     expect(find.text('Семья Петровых'), findsOneWidget);
     // C2: kind helper present, and long tree names ellipsize (1 line).
@@ -232,10 +231,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // "Активное" appears twice: once as the section header above the
+    // "Выбрано" appears twice: once as the section header above the
     // currently-open tree card, once as a chip inside that card.
-    expect(find.text('Активное'), findsNWidgets(2));
-    expect(find.text('Моё дерево'), findsOneWidget);
+    expect(find.text('Выбрано'), findsNWidgets(2));
+    expect(find.text('Остальные мои'), findsOneWidget);
     expect(find.text('Сейчас открыто'), findsWidgets);
     expect(find.text('Моё второе дерево'), findsOneWidget);
     await tester.dragUntilVisible(
@@ -244,13 +243,12 @@ void main() {
       const Offset(0, -250),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Приглашение'), findsOneWidget);
+    expect(find.text('По приглашению'), findsOneWidget);
     expect(find.text('Дерево родственников'), findsOneWidget);
     expect(find.text('Участник'), findsOneWidget);
   });
 
-  testWidgets(
-      'TreeSelectorScreen показывает счётчик и карточки приглашений',
+  testWidgets('TreeSelectorScreen показывает счётчик и карточки приглашений',
       (tester) async {
     getIt.registerSingleton<FamilyTreeServiceInterface>(
       _FakeFamilyTreeService(

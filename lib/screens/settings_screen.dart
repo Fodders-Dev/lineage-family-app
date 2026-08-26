@@ -1136,12 +1136,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: ConstrainedBox(
                     constraints: BoxConstraints(maxWidth: isWide ? 1100 : 980),
                     child: SingleChildScrollView(
-                      padding: EdgeInsets.fromLTRB(
-                        16,
-                        16,
-                        16,
-                        AppTheme.bottomNavInset(context),
-                      ),
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
@@ -1207,8 +1202,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _buildSwitchRow(
           icon: Icons.lock_outline,
           title: 'Приватный профиль',
-          subtitle:
-              _profilePrivate ? 'Только по приглашению' : 'Обычный доступ',
+          subtitle: _profilePrivate
+              ? 'Профиль доступен только приглашённым'
+              : 'Профиль можно найти в Родне',
           value: _profilePrivate,
           onChanged: (value) {
             setState(() {

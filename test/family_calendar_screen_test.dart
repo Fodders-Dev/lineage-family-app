@@ -329,19 +329,24 @@ void main() {
     expect(pushedLocation, '/gathering/create?date=2026-04-15');
   });
 
-  testWidgets('K2: FAB «Встреча» присутствует и поднят над нав-баром',
-      (tester) async {
+  testWidgets('K2: создание встречи не перекрывает события', (tester) async {
     final service = EventService(
       familyTreeService: _FakeFamilyTreeService(relatives: const []),
     );
     await tester.pumpWidget(host(service));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('calendar-create-fab')), findsOneWidget);
+    final createAction = find.byKey(const Key('calendar-create-gathering'));
+    expect(createAction, findsOneWidget);
+    expect(find.byType(FloatingActionButton), findsNothing);
     expect(
-      find.widgetWithText(FloatingActionButton, 'Встреча'),
+      find.ancestor(of: createAction, matching: find.byType(AppBar)),
       findsOneWidget,
     );
+    final bodyRect = tester.getRect(find.byKey(const Key('calendar-body')));
+    final appBarRect = tester.getRect(find.byType(AppBar));
+    expect(appBarRect.bottom <= bodyRect.top, isTrue);
+    expect(bodyRect.overlaps(appBarRect), isFalse);
   });
 
   testWidgets(

@@ -516,7 +516,8 @@ void main() {
     await tester.pumpWidget(buildApp());
     await tester.pumpAndSettle();
 
-    for (final tip in const ['Поиск', 'Новый чат']) {
+    expect(find.byTooltip('Поиск'), findsNothing);
+    for (final tip in const ['Новый чат']) {
       final size = tester.getSize(find.byTooltip(tip));
       expect(size.width, greaterThanOrEqualTo(48.0), reason: tip);
       expect(size.height, greaterThanOrEqualTo(48.0), reason: tip);
@@ -683,7 +684,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Семья Кузнецовых'), findsAtLeastNWidgets(1));
-    expect(find.text('Прочитано'), findsOneWidget);
+    expect(find.text('Новых нет'), findsOneWidget);
   });
 
   testWidgets('Mobile chat filters stay in one compact row', (tester) async {
@@ -743,6 +744,7 @@ void main() {
       find.text('Черновик: Нужно обсудить встречу в воскресенье'),
       findsOneWidget,
     );
+    expect(find.text('Черновик'), findsNothing);
   });
 
   testWidgets('ChatsListScreen clears visible draft on local send suppression',

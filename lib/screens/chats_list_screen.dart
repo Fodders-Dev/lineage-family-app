@@ -989,17 +989,6 @@ class _ChatsListScreenState extends State<ChatsListScreen>
                 const Spacer(),
                 _buildTopbarPillButton(
                   tokens: tokens,
-                  tooltip: 'Поиск',
-                  onTap: _focusSearch,
-                  child: Icon(
-                    Icons.search_rounded,
-                    size: 19,
-                    color: tokens.ink,
-                  ),
-                ),
-                // Q3: no SizedBox — the 48pt targets carry their own spacing.
-                _buildTopbarPillButton(
-                  tokens: tokens,
                   tooltip: 'Новый чат',
                   onTap: _openChatComposer,
                   child: Icon(
@@ -1072,12 +1061,6 @@ class _ChatsListScreenState extends State<ChatsListScreen>
       return (a + b).toUpperCase();
     }
     return String.fromCharCode(parts.first.runes.first).toUpperCase();
-  }
-
-  void _focusSearch() {
-    if (_searchFocusNode.canRequestFocus) {
-      _searchFocusNode.requestFocus();
-    }
   }
 
   Widget _buildErrorState() {
@@ -1157,8 +1140,7 @@ class _ChatsListScreenState extends State<ChatsListScreen>
     final isFriendsTree =
         context.read<TreeProvider>().selectedTreeKind == TreeKind.friends;
     return SingleChildScrollView(
-      padding:
-          EdgeInsets.fromLTRB(16, 16, 16, AppTheme.bottomNavInset(context)),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 360),
@@ -1434,8 +1416,7 @@ class _ChatsListScreenState extends State<ChatsListScreen>
         await Future<void>.delayed(const Duration(milliseconds: 600));
       },
       child: ListView.builder(
-        padding:
-            EdgeInsets.fromLTRB(10, 2, 10, AppTheme.bottomNavInset(context)),
+        padding: const EdgeInsets.fromLTRB(10, 2, 10, 12),
         itemCount: totalCount,
         // Each tile gets its own RepaintBoundary so repaints triggered by
         // unread-count animation, timestamp ticking, or selection state on
@@ -1643,12 +1624,6 @@ class _ChatsListScreenState extends State<ChatsListScreen>
           theme,
           icon: Icons.notifications_off_outlined,
           label: 'Тихо',
-        ),
-      if (hasDraft)
-        _buildChatMetaPill(
-          theme,
-          icon: Icons.edit_note_outlined,
-          label: 'Черновик',
         ),
     ];
 

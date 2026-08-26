@@ -199,7 +199,6 @@ extension _HomeScreenSections on _HomeScreenState {
         // BranchDigestStrip widget + backend wiring stay parked for
         // a possible later re-introduction in a different shape.
         _buildStoriesSection(),
-        _buildFamilyConnectionPromptCard(),
         // Разгрузка первого вьюпорта (2a): композер сразу после сторис,
         // под ним — строка хабов [Альбом | ближайшее событие] вместо
         // прежней пары «карточка альбома + рельс событий» (~48+~130dp).
@@ -295,7 +294,6 @@ extension _HomeScreenSections on _HomeScreenState {
         // юзер просил полностью снять блок. Backend wiring и сам
         // BranchDigestStrip widget остаются на случай если позже
         // вернёмся к этой идее в другом форм-факторе.
-        _buildFamilyConnectionPromptCard(),
         Padding(
           padding: const EdgeInsets.fromLTRB(18, 6, 18, 12),
           child: _buildComposeTeaser(),
@@ -355,6 +353,10 @@ extension _HomeScreenSections on _HomeScreenState {
               ],
             ),
           ),
+          if (_familyConnectionPrompt != null) ...[
+            const SizedBox(height: 4),
+            _buildFamilyConnectionPromptCard(),
+          ],
           const SizedBox(height: 12),
           GlassPanel(
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
@@ -994,10 +996,9 @@ extension _HomeScreenSections on _HomeScreenState {
   /// [includeEvents] == false на широкой раскладке: там полный стек
   /// событий уже живёт в сайдбаре, дублировать его тайлом не нужно.
   Widget _buildHomeHubTiles({required bool includeEvents}) {
-    final AppEvent? nearest =
-        (!includeEvents || _isLoadingEvents || _upcomingEvents.isEmpty)
-            ? null
-            : _upcomingEvents.first;
+    final AppEvent? nearest = (_isLoadingEvents || _upcomingEvents.isEmpty)
+        ? null
+        : _upcomingEvents.first;
 
     final albumTile = _buildHubTile(
       inkKey: const Key('home-album-entry'),
@@ -1007,19 +1008,18 @@ extension _HomeScreenSections on _HomeScreenState {
       onTap: () => context.push('/post/album'),
     );
 
-    // Нет событий → тайл не рендерим вовсе (без пустых заглушек);
-    // альбом занимает строку целиком.
-    if (nearest == null) {
+    if (!includeEvents) {
       return Padding(
         padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
         child: albumTile,
       );
     }
 
-    final eventLabel =
-        nearest.isLinkedToPerson && nearest.personName.trim().isNotEmpty
+    final eventLabel = nearest == null
+        ? 'Семейный календарь'
+        : (nearest.isLinkedToPerson && nearest.personName.trim().isNotEmpty
             ? nearest.personName
-            : nearest.title;
+            : nearest.title);
     // Коуч-тур «Важные даты рядом» спотлайтит этот тайл (раньше — шапку
     // рельса). Подзаголовок «Все события» сохраняет подписанный вход в
     // календарь, на который завязан S3-тест.
@@ -1028,7 +1028,7 @@ extension _HomeScreenSections on _HomeScreenState {
       child: _buildHubTile(
         inkKey: const Key('home-calendar-entry'),
         icon: Icons.event_outlined,
-        title: '${nearest.status} — $eventLabel',
+        title: nearest == null ? eventLabel : '${nearest.status} — $eventLabel',
         subtitle: 'Все события',
         onTap: () => context.go('/calendar'),
       ),

@@ -48,11 +48,11 @@ class MainNavigationBar extends StatelessWidget {
                     count: unreadNotificationsCount,
                   ),
                   _NavItemData(
-                    label: 'Семья',
+                    label: 'Родные',
                     outlinedIcon: Icons.groups_outlined,
                     filledIcon: Icons.groups_rounded,
                     // The tree (and its invitations) now lives inside the
-                    // «Семья» tab, so the pending-invitations badge rides
+                    // «Родные» tab, so the pending-invitations badge rides
                     // here instead of on a separate «Дерево» tab.
                     count: pendingInvitationsCount,
                   ),
@@ -89,7 +89,7 @@ class MainNavigationBar extends StatelessWidget {
                       // S20 / mid-range phones the SafeArea + outer
                       // 14dp padding pulled effective width to ~330dp
                       // and labels disappeared. The five short labels
-                      // (Лента / Семья / Календарь / Чаты / Профиль) fit
+                      // (Лента / Родные / Календарь / Чаты / Профиль) fit
                       // even at 280dp so we lower the threshold; a 240dp
                       // floor still trips for very narrow tablets in
                       // weird split-screen layouts.
@@ -258,7 +258,6 @@ class MainNavigationBar extends StatelessWidget {
                               offset: const Offset(0, 6),
                             ),
                           ],
-
                         ),
                         child: SizedBox(height: navHeight, child: navInner),
                       );
@@ -391,11 +390,9 @@ class _NavItem extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.visible,
                     style: theme.textTheme.labelSmall?.copyWith(
-                      color: selected
-                          ? tokens.accentInk
-                          : scheme.onSurfaceVariant,
-                      fontWeight:
-                          selected ? FontWeight.w800 : FontWeight.w600,
+                      color:
+                          selected ? tokens.accentInk : scheme.onSurfaceVariant,
+                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                       letterSpacing: -0.1,
                       fontSize: 10.5,
                     ),

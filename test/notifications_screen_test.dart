@@ -126,11 +126,11 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      expect(find.byTooltip('Прочитать всё'), findsOneWidget);
+      expect(find.byTooltip('Отметить всё прочитанным'), findsOneWidget);
       expect(find.text('Приглашение в дерево · 1'), findsOneWidget);
       expect(find.text('Новое сообщение · 1'), findsOneWidget);
 
-      await tester.tap(find.byTooltip('Прочитать всё'));
+      await tester.tap(find.byTooltip('Отметить всё прочитанным'));
       await tester.pumpAndSettle();
 
       expect(markedItems, hasLength(2));
@@ -165,7 +165,7 @@ void main() {
       expect(find.text('Сейчас 5 новых событий'), findsOneWidget);
       expect(
         find.text(
-          'Очередь активности собирается для семейного дерева. Просмотрите сообщения, приглашения и запросы в одном месте.',
+          'Сообщения, приглашения и запросы для семейного дерева — всё в одном месте.',
         ),
         findsOneWidget,
       );
@@ -197,7 +197,7 @@ void main() {
       );
 
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Прочитать всё'));
+      await tester.tap(find.byTooltip('Отметить всё прочитанным'));
       await tester.pump();
 
       expect(
@@ -206,6 +206,43 @@ void main() {
         ),
         findsOneWidget,
       );
+    },
+  );
+
+  testWidgets(
+    'NotificationsScreen объединяет типы звонков в одну понятную категорию',
+    (tester) async {
+      await tester.pumpWidget(
+        await _buildNotificationsApp(
+          NotificationsScreen(
+            notificationLoader: () async => [
+              AppNotificationItem(
+                id: 'call-1',
+                type: 'call',
+                title: 'Звонок от Анны',
+                body: 'Пропущенный звонок',
+                createdAt: DateTime(2026, 4, 3, 12, 30),
+                data: const {},
+                payload: '{}',
+              ),
+              AppNotificationItem(
+                id: 'call-2',
+                type: 'call_invite',
+                title: 'Анна приглашает в звонок',
+                body: 'Входящий звонок',
+                createdAt: DateTime(2026, 4, 3, 12, 31),
+                data: const {},
+                payload: '{}',
+              ),
+            ],
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('Звонок · 2'), findsOneWidget);
+      expect(find.textContaining('Уведомление ·'), findsNothing);
     },
   );
 }

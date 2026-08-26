@@ -1098,7 +1098,7 @@ void main() {
   );
 
   testWidgets(
-    'HomeScreen scroll-aware FAB: скрыт у верха, появляется при скролле (H)',
+    'HomeScreen scroll-aware action does not cover the feed',
     (tester) async {
       tester.view.physicalSize = const Size(800, 900);
       tester.view.devicePixelRatio = 1.0;
@@ -1135,15 +1135,22 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // At the top the inline compose teaser is the CTA — no FAB.
+      // At the top the inline compose teaser is the CTA — no sticky action.
       expect(find.byType(FloatingActionButton), findsNothing);
+      expect(find.byKey(const Key('compose-action-bar')), findsNothing);
 
-      // Scroll the feed past the teaser → the compose FAB takes over.
+      // Scroll past the teaser → a layout-owned action row takes over.
       await tester.drag(find.byType(CustomScrollView), const Offset(0, -400));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('compose-fab')), findsOneWidget);
-      expect(find.byType(FloatingActionButton), findsOneWidget);
+      final actionBar = find.byKey(const Key('compose-action-bar'));
+      expect(actionBar, findsOneWidget);
+      expect(find.byKey(const Key('compose-action')), findsOneWidget);
+      expect(find.byType(FloatingActionButton), findsNothing);
+      final feedRect = tester.getRect(find.byType(CustomScrollView));
+      final actionBarRect = tester.getRect(actionBar);
+      expect(feedRect.bottom <= actionBarRect.top, isTrue);
+      expect(feedRect.overlaps(actionBarRect), isFalse);
     },
   );
 

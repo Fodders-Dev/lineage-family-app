@@ -318,7 +318,12 @@ extension _TreeViewScreenSections on _TreeViewScreenState {
             : RodnyaDesignTokens.light);
     final collapsed = _compactChromeCollapsed;
     final peopleCount = _relativesData.length;
-    final peopleLabel = peopleCount == 1 ? '1 человек' : '$peopleCount людей';
+    final peopleLabel = '$peopleCount ${russianPluralForm(
+      peopleCount,
+      one: 'человек',
+      few: 'человека',
+      many: 'человек',
+    )}';
     final label = collapsed ? '$peopleLabel · подробнее' : 'Свернуть';
 
     return Padding(
@@ -653,7 +658,12 @@ extension _TreeViewScreenSections on _TreeViewScreenState {
 
     if (compact) {
       final stats = <String>[
-        personCount == 1 ? '1 человек' : '$personCount людей',
+        '$personCount ${russianPluralForm(
+          personCount,
+          one: 'человек',
+          few: 'человека',
+          many: 'человек',
+        )}',
         relationCount == 1 ? '1 связь' : '$relationCount связей',
         if (generationCount > 0)
           generationCount == 1 ? '1 поколение' : '$generationCount поколений',
@@ -767,7 +777,12 @@ extension _TreeViewScreenSections on _TreeViewScreenState {
             children: [
               _buildTreeStatChip(
                 icon: Icons.people_outline,
-                label: personCount == 1 ? '1 человек' : '$personCount людей',
+                label: '$personCount ${russianPluralForm(
+                  personCount,
+                  one: 'человек',
+                  few: 'человека',
+                  many: 'человек',
+                )}',
               ),
               _buildTreeStatChip(
                 icon: Icons.alt_route_outlined,

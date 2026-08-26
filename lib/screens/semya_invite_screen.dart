@@ -35,8 +35,7 @@ class _SemyaInviteScreenState extends State<SemyaInviteScreen> {
   @override
   void initState() {
     super.initState();
-    _controller =
-        SemyaInvitationsController(semyaId: widget.semyaId);
+    _controller = SemyaInvitationsController(semyaId: widget.semyaId);
   }
 
   @override
@@ -96,7 +95,8 @@ class _SemyaInviteScreenState extends State<SemyaInviteScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       children: [
         Text(
-          'Отправьте email либо номер телефона.',
+          'Укажите контакт, чтобы подписать приглашение. Родня создаст '
+          'персональную ссылку — отправить её нужно будет самостоятельно.',
           style: theme.textTheme.bodyMedium?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),
@@ -135,12 +135,12 @@ class _SemyaInviteScreenState extends State<SemyaInviteScreen> {
           segments: const [
             ButtonSegment<SemyaRole>(
               value: SemyaRole.viewer,
-              label: Text('Зритель'),
+              label: Text('Просмотр'),
               icon: Icon(Icons.visibility_outlined),
             ),
             ButtonSegment<SemyaRole>(
               value: SemyaRole.editor,
-              label: Text('Редактор'),
+              label: Text('Редактирование'),
               icon: Icon(Icons.edit_outlined),
             ),
           ],
@@ -152,8 +152,8 @@ class _SemyaInviteScreenState extends State<SemyaInviteScreen> {
         const SizedBox(height: 8),
         Text(
           _selectedRole == SemyaRole.editor
-              ? 'Редактор может добавлять и менять людей в дереве.'
-              : 'Зритель только смотрит дерево и переписывается.',
+              ? 'Можно добавлять и менять людей в дереве.'
+              : 'Можно смотреть дерево и переписываться.',
           style: theme.textTheme.bodySmall?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),
@@ -163,8 +163,7 @@ class _SemyaInviteScreenState extends State<SemyaInviteScreen> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: theme.colorScheme.errorContainer
-                  .withValues(alpha: 0.4),
+              color: theme.colorScheme.errorContainer.withValues(alpha: 0.4),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
@@ -187,7 +186,7 @@ class _SemyaInviteScreenState extends State<SemyaInviteScreen> {
                     width: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text('Отправить приглашение'),
+                : const Text('Создать ссылку'),
           ),
         ),
       ],
@@ -215,7 +214,7 @@ class _SuccessView extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         Text(
-          'Приглашение создано',
+          'Ссылка для приглашения готова',
           style: theme.textTheme.headlineSmall?.copyWith(
             fontWeight: FontWeight.w800,
           ),
@@ -223,8 +222,8 @@ class _SuccessView extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          'Отправьте ссылку получателю — после открытия он сможет '
-          'войти и принять приглашение.',
+          'Отправьте ссылку родственнику любым удобным способом — после '
+          'открытия он сможет войти и принять приглашение.',
           style: theme.textTheme.bodyMedium?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),

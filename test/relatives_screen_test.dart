@@ -20,7 +20,6 @@ import 'package:rodnya/providers/tree_provider.dart';
 import 'package:rodnya/screens/family_screen.dart';
 import 'package:rodnya/screens/relatives_screen.dart';
 import 'package:rodnya/services/app_status_service.dart';
-import 'package:rodnya/theme/app_theme.dart';
 import 'package:rodnya/widgets/main_navigation_bar.dart';
 import 'package:rodnya/services/local_storage_service.dart';
 import 'package:provider/provider.dart';
@@ -408,12 +407,15 @@ void main() {
     await getIt.reset();
   });
 
-  Future<void> pumpRelativesScreen(WidgetTester tester) async {
+  Future<void> pumpRelativesScreen(
+    WidgetTester tester, {
+    TreeKind treeKind = TreeKind.family,
+  }) async {
     final treeProvider = TreeProvider();
     await treeProvider.selectTree(
       'tree-1',
       'Семья Кузнецовых',
-      treeKind: TreeKind.family,
+      treeKind: treeKind,
     );
 
     final router = GoRouter(
@@ -503,6 +505,13 @@ void main() {
     expect(find.text('Нужно пригласить'), findsOneWidget);
   });
 
+  testWidgets('Круг друзей не предлагает проверку родства', (tester) async {
+    await pumpRelativesScreen(tester, treeKind: TreeKind.friends);
+
+    expect(find.byKey(const Key('discover-relatives-action')), findsNothing);
+    expect(find.text('Добавить человека'), findsOneWidget);
+  });
+
   testWidgets('На телефоне иконка дерева открывает вид дерева', (tester) async {
     tester.view.physicalSize = const Size(412, 892);
     tester.view.devicePixelRatio = 1.0;
@@ -516,7 +525,7 @@ void main() {
     expect(find.text('family:tree'), findsOneWidget);
   });
 
-  testWidgets('A-list: список «Семья» имеет нижний инсет под плавающий нав-бар',
+  testWidgets('A-list: действие занимает отдельную строку, не инсет списка',
       (tester) async {
     tester.view.physicalSize = const Size(800, 1200);
     tester.view.devicePixelRatio = 1.0;
@@ -527,14 +536,9 @@ void main() {
     final listFinder = find.byKey(const ValueKey('relatives_tree-1'));
     expect(listFinder, findsOneWidget);
     final padding = tester.widget<ListView>(listFinder).padding as EdgeInsets;
-    // Тот же инсет, что у FAB: высота полосы + max(safe,14) + зазор.
-    // В тесте safe-bottom=0 → срабатывает пол 14dp.
+    expect(padding.bottom, 12);
     expect(
-      padding.bottom,
-      AppTheme.bottomNavContentHeight + 14.0 + 8.0,
-    );
-    // Защита от регресса к старым 12dp.
-    expect(padding.bottom, greaterThan(60));
+        find.byKey(const Key('relatives-primary-action-bar')), findsOneWidget);
   });
 
   testWidgets(
@@ -630,12 +634,12 @@ void main() {
     expect(find.byType(FloatingActionButton), findsNothing);
     expect(find.text('Найти'), findsOneWidget);
     // F4: discover-вход переехал с FAB в панель.
-    expect(find.text('Проверить связь'), findsOneWidget);
+    expect(find.text('Проверить родство'), findsOneWidget);
     expect(find.text('3 чата'), findsOneWidget);
     expect(find.text('Пригласить 1'), findsOneWidget);
   });
 
-  testWidgets('F4: на узком лэйауте FAB extended с полным текстом «Добавить»',
+  testWidgets('на узком лэйауте действия не перекрывают список',
       (tester) async {
     tester.view.physicalSize = const Size(412, 892);
     tester.view.devicePixelRatio = 1.0;
@@ -643,26 +647,24 @@ void main() {
 
     await pumpRelativesScreen(tester);
 
-    final fab = find.widgetWithText(FloatingActionButton, 'Добавить');
-    expect(fab, findsOneWidget);
-    // Пилюля (StadiumBorder) вместо CircleBorder темы — текст не клипается.
-    expect(
-      tester.widget<FloatingActionButton>(fab).shape,
-      const StadiumBorder(),
-    );
-    // Ширина заметно больше высоты — кнопка реально extended, не круг.
-    final size = tester.getSize(fab);
-    expect(size.width, greaterThan(size.height + 20));
+    final actionBar = find.byKey(const Key('relatives-primary-action-bar'));
+    expect(actionBar, findsOneWidget);
+    expect(find.byKey(const Key('add-relative-action')), findsOneWidget);
+    expect(find.byKey(const Key('discover-relatives-action')), findsOneWidget);
+    expect(find.byType(FloatingActionButton), findsNothing);
+
+    final listRect =
+        tester.getRect(find.byKey(const ValueKey('relatives_tree-1')));
+    final actionBarRect = tester.getRect(actionBar);
+    expect(listRect.bottom <= actionBarRect.top, isTrue);
+    expect(listRect.overlaps(actionBarRect), isFalse);
   });
 
   testWidgets(
-      'Чанк A (P0): FAB «Добавить» плавает НАД плавающим нав-баром, не под ним',
+      'контент, экранные действия и основная навигация занимают разные зоны',
       (tester) async {
-    // Регресс с Samsung: после слияния в «Семью» экраны перестали быть
-    // топ-уровневыми бранчами и потеряли bottom-inset — FAB рендерился В
-    // полосе пилюли и тап уходил во вкладку «Профиль». Пампим прод-сэндвич:
-    // Scaffold(extendBody) + FamilyScreen (внутри — реальный
-    // RelativesScreen) + MainNavigationBar. Ширина — как у A50 (412dp).
+    // Production sandwich: outer shell nav + FamilyScreen + its local
+    // actions. None of the three layout regions may overlap.
     tester.view.physicalSize = const Size(412, 892);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -680,7 +682,7 @@ void main() {
         GoRoute(
           path: '/family',
           builder: (context, state) => Scaffold(
-            extendBody: true,
+            extendBody: false,
             body: const FamilyScreen(),
             bottomNavigationBar: MainNavigationBar(
               currentIndex: 1,
@@ -702,19 +704,17 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final fabFinder = find.widgetWithText(FloatingActionButton, 'Добавить');
-    expect(fabFinder, findsOneWidget);
-    final fabRect = tester.getRect(fabFinder);
+    final actionBar = find.byKey(const Key('relatives-primary-action-bar'));
+    expect(actionBar, findsOneWidget);
+    final actionBarRect = tester.getRect(actionBar);
     final navRect = tester.getRect(find.byType(MainNavigationBar));
 
-    // FAB целиком НАД баром: низ FAB выше верха пилюли и rect'ы не
-    // пересекаются (раньше FAB лежал ровно в полосе вкладок).
     expect(
-      fabRect.bottom <= navRect.top,
+      actionBarRect.bottom <= navRect.top,
       isTrue,
-      reason: 'FAB (низ ${fabRect.bottom}) должен быть выше нав-бара '
+      reason: 'Action bar (низ ${actionBarRect.bottom}) должен быть выше nav '
           '(верх ${navRect.top})',
     );
-    expect(fabRect.overlaps(navRect), isFalse);
+    expect(actionBarRect.overlaps(navRect), isFalse);
   });
 }

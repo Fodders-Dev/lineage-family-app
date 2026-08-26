@@ -198,13 +198,10 @@ class _FamilyCalendarScreenState extends State<FamilyCalendarScreen> {
       }
       final monthly = await Future.wait(monthFutures);
       if (!mounted) return;
-      final events = monthly
-          .expand((events) => events)
-          .where((event) {
-            final day = _dayKey(event.date);
-            return !day.isBefore(today) && !day.isAfter(horizon);
-          })
-          .toList()
+      final events = monthly.expand((events) => events).where((event) {
+        final day = _dayKey(event.date);
+        return !day.isBefore(today) && !day.isAfter(horizon);
+      }).toList()
         ..sort((a, b) {
           final byDay = _dayKey(a.date).compareTo(_dayKey(b.date));
           if (byDay != 0) return byDay;
@@ -326,30 +323,17 @@ class _FamilyCalendarScreenState extends State<FamilyCalendarScreen> {
                 ),
               ),
             ),
+          if (_hasTree)
+            IconButton(
+              key: const Key('calendar-create-gathering'),
+              tooltip: 'Создать встречу',
+              onPressed: () => _createGatheringFor(_selectedDay),
+              icon: const Icon(Icons.add_rounded),
+            ),
         ],
       ),
-      // K2: создание встречи прямо из календаря — дата = выбранный день.
-      // Календарь живёт внутри шелла с плавающим нав-баром: отступ из
-      // единого источника правды, как у FAB'ов «Семьи».
-      floatingActionButton: !_hasTree
-          ? null
-          : Padding(
-              padding: EdgeInsets.only(
-                bottom: AppTheme.bottomNavInset(context),
-              ),
-              // F4: явная пилюля — CircleBorder из FAB-темы клипал
-              // extended-FAB в круг с обрезанным текстом.
-              child: FloatingActionButton.extended(
-                key: const Key('calendar-create-fab'),
-                heroTag: 'calendar_create_gathering_fab',
-                shape: const StadiumBorder(),
-                onPressed: () => _createGatheringFor(_selectedDay),
-                tooltip: 'Создать встречу',
-                icon: const Icon(Icons.add),
-                label: const Text('Встреча'),
-              ),
-            ),
       body: Column(
+        key: const Key('calendar-body'),
         children: [
           _buildViewToggle(theme, tokens),
           if (isListView)
@@ -541,12 +525,10 @@ class _FamilyCalendarScreenState extends State<FamilyCalendarScreen> {
       items.add(_buildAgendaTile(theme, tokens, event));
     }
 
-    final bottomInset =
-        AppTheme.bottomNavInset(context) + 72; // + место под FAB
     return ListView(
       key: const Key('calendar-agenda-list'),
       controller: _agendaController,
-      padding: EdgeInsets.fromLTRB(14, 6, 14, bottomInset),
+      padding: const EdgeInsets.fromLTRB(14, 6, 14, 16),
       children: items,
     );
   }
@@ -823,27 +805,6 @@ class _FamilyCalendarScreenState extends State<FamilyCalendarScreen> {
     );
   }
 
-  /// K2: вход создания встречи из день-листа — дата уже выбрана тапом
-  /// по сетке, форма откроется с ней.
-  Widget _buildCreateGatheringButton() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-      child: SizedBox(
-        height: 48,
-        child: OutlinedButton.icon(
-          key: const Key('calendar-create-gathering'),
-          onPressed: () => _createGatheringFor(_selectedDay),
-          icon: const Icon(Icons.add),
-          label: Text(
-            'Создать встречу · ${DateFormat('d MMMM', 'ru').format(_selectedDay)}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ),
-    );
-  }
-
   /// Compact warm strip: the selected day's moon phase + a folk gardening
   /// tip (for the dacha crowd). One line — kept deliberately light.
   Widget _buildMoonTip(
@@ -887,16 +848,10 @@ class _FamilyCalendarScreenState extends State<FamilyCalendarScreen> {
   }
 
   Widget _buildDayList(List<AppEvent> events) {
-    // K2: низ резервирует нав-бар + FAB (экран — kept-alive таб шелла).
-    final bottomInset = AppTheme.bottomNavInset(context) + 64;
     return ListView.builder(
-      padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + bottomInset),
-      // K2: последний элемент — кнопка «Создать встречу» с датой дня.
-      itemCount: events.length + 1,
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+      itemCount: events.length,
       itemBuilder: (_, i) {
-        if (i == events.length) {
-          return _buildCreateGatheringButton();
-        }
         return Padding(
           key: Key('calendar-day-event-$i'),
           padding: const EdgeInsets.only(bottom: 8),
@@ -1056,7 +1011,6 @@ class _FamilyCalendarScreenState extends State<FamilyCalendarScreen> {
   }
 
   Widget _buildDayEmpty(ThemeData theme, RodnyaDesignTokens tokens) {
-    // K2: пустой день — тоже вход в создание встречи на эту дату.
     return _scrollSafeCenter(
       Padding(
         padding: const EdgeInsets.all(24),
@@ -1070,8 +1024,6 @@ class _FamilyCalendarScreenState extends State<FamilyCalendarScreen> {
                 color: tokens.inkMuted,
               ),
             ),
-            const SizedBox(height: 12),
-            _buildCreateGatheringButton(),
           ],
         ),
       ),

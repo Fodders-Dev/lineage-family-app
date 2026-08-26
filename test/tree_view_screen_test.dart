@@ -714,13 +714,11 @@ void main() {
       findsNothing,
     );
     expect(find.text('Граф готов к просмотру'), findsNothing);
-    // UX-T1 FR2: на телефоне единственная кнопка добавления — extended-FAB
-    // «Добавить» (дубль-кнопку из тулбара убрали). «•••» — на месте.
-    expect(
-      find.widgetWithText(FloatingActionButton, 'Добавить'),
-      findsOneWidget,
-    );
-    expect(find.byTooltip('Добавить из панели дерева'), findsNothing);
+    // Primary creation lives in the topbar instead of floating over people
+    // and relationship lines or shrinking the canvas with a bottom row.
+    expect(find.byTooltip('Добавить родственника'), findsOneWidget);
+    expect(find.byType(FloatingActionButton), findsNothing);
+    expect(find.byKey(const Key('tree-primary-action-bar')), findsNothing);
     expect(find.byTooltip('Действия дерева'), findsOneWidget);
   });
 
@@ -817,13 +815,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    // UX-T1 FR2: на телефоне дубль-кнопку добавления из тулбара убрали —
-    // вход в добавление только через подписанный extended-FAB «Добавить».
-    expect(find.byTooltip('Добавить из панели дерева'), findsNothing);
-    expect(
-      find.widgetWithText(FloatingActionButton, 'Добавить'),
-      findsOneWidget,
-    );
+    // The action is part of the horizontally scrollable topbar, so it stays
+    // reachable without covering the tree canvas.
+    expect(find.byTooltip('Добавить родственника'), findsOneWidget);
+    expect(find.byType(FloatingActionButton), findsNothing);
   });
 
   testWidgets(

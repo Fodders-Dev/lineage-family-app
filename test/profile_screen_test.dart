@@ -287,13 +287,10 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    // Profile Redesign: ProfileHeroCard now uses lowercase stat
-    // labels («родственники», «деревья», «постов») to match the
-    // design tokens (Lora serif numbers + sans-serif lowercase
-    // labels). The actual numbers remain stats counts.
-    expect(find.text('родственники'), findsOneWidget);
+    // Labels follow the actual counts instead of using one fixed form.
+    expect(find.text('родственника'), findsOneWidget);
     expect(find.text('3'), findsOneWidget);
-    expect(find.text('деревья'), findsOneWidget);
+    expect(find.text('дерева'), findsOneWidget);
     expect(find.text('2'), findsOneWidget);
   });
 

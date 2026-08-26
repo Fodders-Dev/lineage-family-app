@@ -18,12 +18,21 @@ extension _InteractiveFamilyTreeSections on _InteractiveFamilyTreeState {
           _syncViewportSize(Size(constraints.maxWidth, constraints.maxHeight));
 
           return Stack(
-            clipBehavior: Clip.none,
+            key: const Key('interactive-family-tree-viewport'),
+            // The canvas itself may pan beyond its viewport, but it must never
+            // paint over the screen app bar, reassurance banner, or the
+            // List/Tree switcher above this widget. InteractiveViewer keeps
+            // Clip.none so panning remains fluid inside the viewport; this
+            // outer boundary contains the rendered graph to its own surface.
+            clipBehavior: Clip.hardEdge,
             children: [
-              _buildInteractiveCanvas(
-                stackWidth: stackWidth,
-                stackHeight: stackHeight,
-                interactionBoundary: interactionBoundary,
+              ClipRect(
+                key: const Key('interactive-family-tree-canvas-clip'),
+                child: _buildInteractiveCanvas(
+                  stackWidth: stackWidth,
+                  stackHeight: stackHeight,
+                  interactionBoundary: interactionBoundary,
+                ),
               ),
               // Position canvas-internal overlays below the floating chrome
               // (toolbar + sidebar context column on mobile). The chrome

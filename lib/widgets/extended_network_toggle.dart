@@ -13,12 +13,16 @@ import '../providers/extended_network_controller.dart';
 /// делаем, чтобы юзер не видел «фантомный» control'а который не
 /// работает.
 ///
-/// Narrow mobile fallback (Q8.C): на 320dp `SegmentedButton` может
-/// truncate'ить labels. Используем short labels ('Моё' / 'Все')
-/// + Material auto-shrinking, если cramped — fallback на IconButton
-/// + tooltip (см. чек ниже).
+/// In compact toolbars the segmented control competes with add/overflow
+/// actions, so the parent switches this widget to one icon with a tooltip.
+/// The full labels remain available wherever the toolbar has enough room.
 class ExtendedNetworkToggle extends StatelessWidget {
-  const ExtendedNetworkToggle({super.key});
+  const ExtendedNetworkToggle({
+    super.key,
+    this.compact = false,
+  });
+
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -28,9 +32,7 @@ class ExtendedNetworkToggle extends StatelessWidget {
       // скрыт. UI tree_view_screen рендерит legacy view без upset'ов.
       return const SizedBox.shrink();
     }
-    final width = MediaQuery.of(context).size.width;
-    final isNarrow = width < 360;
-    if (isNarrow) {
+    if (compact) {
       return _IconOnlyToggle(controller: controller);
     }
     return _SegmentedToggle(controller: controller);
@@ -81,9 +83,7 @@ class _IconOnlyToggle extends StatelessWidget {
           ? 'Расширенная сеть. Тапнуть → переключиться на «Моё дерево»'
           : 'Моё дерево. Тапнуть → показать расширенную сеть',
       icon: Icon(
-        isExtended
-            ? Icons.hub_outlined
-            : Icons.account_tree_outlined,
+        isExtended ? Icons.hub_outlined : Icons.account_tree_outlined,
       ),
       onPressed: () => controller.setMode(
         isExtended ? ExtendedNetworkMode.mine : ExtendedNetworkMode.extended,

@@ -33,8 +33,7 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
   });
 
-  testWidgets(
-      'ExtendedNetworkToggle: capable + wide → render SegmentedButton',
+  testWidgets('ExtendedNetworkToggle: capable + wide → render SegmentedButton',
       (tester) async {
     final prefs = await SharedPreferences.getInstance();
     final controller = ExtendedNetworkController(
@@ -87,8 +86,7 @@ void main() {
     expect(find.text('Все'), findsNothing);
   });
 
-  testWidgets(
-      'ExtendedNetworkToggle: narrow (< 360dp) → IconButton fallback',
+  testWidgets('ExtendedNetworkToggle: compact toolbar → IconButton fallback',
       (tester) async {
     final prefs = await SharedPreferences.getInstance();
     final controller = ExtendedNetworkController(
@@ -102,7 +100,7 @@ void main() {
       _wrap(
         ChangeNotifierProvider<ExtendedNetworkController>.value(
           value: controller,
-          child: const ExtendedNetworkToggle(),
+          child: const ExtendedNetworkToggle(compact: true),
         ),
         screenSize: const Size(320, 600),
       ),
@@ -142,8 +140,7 @@ void main() {
     expect(controller.mode, ExtendedNetworkMode.extended);
   });
 
-  testWidgets(
-      'ExtendedNetworkToggle: narrow icon-only — tap toggle\'ит mode',
+  testWidgets('ExtendedNetworkToggle: compact icon-only — tap toggle\'ит mode',
       (tester) async {
     final prefs = await SharedPreferences.getInstance();
     final controller = ExtendedNetworkController(
@@ -158,7 +155,7 @@ void main() {
       _wrap(
         ChangeNotifierProvider<ExtendedNetworkController>.value(
           value: controller,
-          child: const ExtendedNetworkToggle(),
+          child: const ExtendedNetworkToggle(compact: true),
         ),
         screenSize: const Size(320, 600),
       ),

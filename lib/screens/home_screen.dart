@@ -87,7 +87,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? _selectedEventCategoryFilter;
   bool _isLoadingEvents = true;
   bool _isLoadingPosts = false;
-  bool _isLoadingStories = false;
   bool _postsUnavailable = false;
   // null = unknown / not yet resolved. Drives the state-aware empty feed
   // CTA: false → tree has nobody but you (guide to add a relative);
@@ -193,7 +192,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _loadEvents(_currentTreeId!);
       } else {
         setState(() {
-          _isLoadingStories = false;
           _isLoadingEvents = false;
           _selectedEventCategoryFilter = null;
         });
@@ -337,7 +335,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         // мамину ветку, потерял пост из папиной" bug.
       } else {
         setState(() {
-          _isLoadingStories = false;
           _isLoadingEvents = false;
           _familyConnectionPrompt = null;
           _stories = [];
@@ -387,7 +384,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _loadStories(String treeId) async {
     if (!mounted) return;
     setState(() {
-      _isLoadingStories = true;
       _storiesUnavailable = false;
     });
     try {
@@ -395,7 +391,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (mounted) {
         setState(() {
           _stories = stories;
-          _isLoadingStories = false;
         });
       }
     } catch (e) {
@@ -407,7 +402,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (mounted) {
         setState(() {
           _storiesUnavailable = true;
-          _isLoadingStories = false;
         });
       }
     }
@@ -862,32 +856,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         preferredSize: Size.fromHeight(AppTheme.topbarHeight(context)),
         child: _buildHomeTopbar(theme: theme, tokens: tokens),
       ),
-      // CTA hierarchy (P4b → H): the inline compose teaser is the
-      // dominant compose CTA at the top of the feed; once it scrolls off
-      // (offset past _composeFabScrollThreshold) this compact «Написать»
-      // FAB takes over so compose stays reachable on a long feed. One
-      // dominant path per state — Scaffold animates the FAB in/out as it
-      // toggles null↔widget. Padded above the floating nav (extendBody).
-      floatingActionButton: (hasSelectedTree && _showComposeFab)
-          ? Padding(
-              padding: EdgeInsets.only(
-                bottom: AppTheme.bottomNavInset(context),
-              ),
-              child: FloatingActionButton(
-                key: const Key('compose-fab'),
-                // FX-C: через общий _openCreatePost (как teaser/меню/«+») —
-                // он await'ит push и обновляет ленту при возврате (pop true),
-                // иначе свой пост появлялся в ленте с задержкой. Раньше FAB
-                // делал fire-and-forget push без рефреша.
-                onPressed: () => _openCreatePost(),
-                backgroundColor: tokens.accent,
-                foregroundColor: tokens.accentInk,
-                elevation: 4,
-                shape: const CircleBorder(),
-                tooltip: 'Написать пост',
-                child: const Icon(Icons.edit_outlined, size: 22),
-              ),
-            )
+      // Once the inline composer scrolls away, keep creation reachable in a
+      // layout-owned action bar. A FAB used to cover the active post and its
+      // reactions while the user read the feed.
+      bottomNavigationBar: (hasSelectedTree && _showComposeFab)
+          ? _buildComposeActionBar(tokens)
           : null,
       body: RefreshIndicator(
         onRefresh: () async {
@@ -931,6 +904,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildComposeActionBar(RodnyaDesignTokens tokens) {
+    return Material(
+      key: const Key('compose-action-bar'),
+      color: tokens.surface,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+          child: SizedBox(
+            height: 44,
+            child: FilledButton.icon(
+              key: const Key('compose-action'),
+              onPressed: () => _openCreatePost(),
+              icon: const Icon(Icons.edit_outlined, size: 20),
+              label: const Text('Написать пост'),
+            ),
+          ),
         ),
       ),
     );
@@ -1179,6 +1174,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               if (hasSelectedTree) ...[
                 SliverToBoxAdapter(child: _buildFeedHeaderSections()),
                 _buildNarrowFeedSliver(),
+                SliverToBoxAdapter(
+                  child: _buildFamilyConnectionPromptCard(),
+                ),
                 const SliverToBoxAdapter(child: SizedBox(height: 80)),
               ] else
                 const SliverToBoxAdapter(child: SizedBox(height: 40)),
@@ -1571,10 +1569,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ? RodnyaDesignTokens.dark
             : RodnyaDesignTokens.light);
     final currentUserId = _authService.currentUserId ?? '';
-    if (_isLoadingStories && _stories.isEmpty) {
-      return const SizedBox(height: 0);
-    }
-
     final byAuthor = <String, Story>{};
     for (final story in _stories) {
       final existing = byAuthor[story.authorId];

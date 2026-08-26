@@ -389,6 +389,45 @@ class _DiscoverRelativesScreenState extends State<DiscoverRelativesScreen> {
           textInputAction: TextInputAction.search,
         ),
         const SizedBox(height: 20),
+        if (_searchController.text.isEmpty && _searchError == null) ...[
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.secondaryContainer.withValues(
+                alpha: 0.55,
+              ),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Как это работает',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Здесь можно найти человека, у которого уже есть аккаунт '
+                  'Родни. Если аккаунта нет, добавьте его в дерево и '
+                  'отправьте приглашение из карточки.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSecondaryContainer,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () => context.go('/family?view=list'),
+                  icon: const Icon(Icons.account_tree_outlined),
+                  label: const Text('Открыть семью'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
         if (_searchError != null)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
@@ -399,16 +438,29 @@ class _DiscoverRelativesScreenState extends State<DiscoverRelativesScreen> {
               ),
             ),
           ),
-        if (_searchResults.isEmpty && _searchController.text.isNotEmpty &&
-            !_isSearching && _searchError == null)
+        if (_searchResults.isEmpty &&
+            _searchController.text.isNotEmpty &&
+            !_isSearching &&
+            _searchError == null)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 16),
-            child: Text(
-              'Никого не нашли. Попробуйте другой запрос — '
-              'имя, @username, телефон.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Никого не нашли. Проверьте запрос или добавьте человека '
+                  'в дерево, а затем отправьте ему приглашение.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () => context.go('/family?view=list'),
+                  icon: const Icon(Icons.person_add_alt_1_outlined),
+                  label: const Text('Добавить человека в дерево'),
+                ),
+              ],
             ),
           ),
         for (final profile in _searchResults)
@@ -647,8 +699,7 @@ class _DiscoverRelativesScreenState extends State<DiscoverRelativesScreen> {
   static String _displayName(UserProfile profile) {
     final name = profile.displayName.trim();
     if (name.isNotEmpty) return name;
-    final composite =
-        '${profile.firstName} ${profile.lastName}'.trim();
+    final composite = '${profile.firstName} ${profile.lastName}'.trim();
     if (composite.isNotEmpty) return composite;
     if (profile.username.isNotEmpty) return '@${profile.username}';
     return 'пользователь';
@@ -958,8 +1009,7 @@ class _RevokeButtonState extends State<_RevokeButton> {
         const SnackBar(content: Text('Запрос отозван')),
       );
     } else {
-      final error =
-          widget.controller.error ?? 'Не удалось отозвать запрос';
+      final error = widget.controller.error ?? 'Не удалось отозвать запрос';
       messenger.showSnackBar(SnackBar(content: Text(error)));
     }
   }

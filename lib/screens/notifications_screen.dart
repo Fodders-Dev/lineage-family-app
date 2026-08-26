@@ -22,6 +22,11 @@ IconData _notificationIconForType(String type) {
       return Icons.chat_bubble_outline;
     case 'tree_invitation':
       return Icons.account_tree_outlined;
+    case 'tree_update':
+      return Icons.account_tree_outlined;
+    case 'call':
+    case 'call_invite':
+      return Icons.call_outlined;
     case 'birthday':
       return Icons.cake_outlined;
     case 'relation_request':
@@ -52,6 +57,9 @@ String _notificationLabelForType(String type) {
       return 'Приглашение в дерево';
     case 'tree_update':
       return 'Обновление дерева';
+    case 'call':
+    case 'call_invite':
+      return 'Звонок';
     case 'birthday':
       return 'Семейное событие';
     case 'relation_request':
@@ -72,6 +80,19 @@ String _notificationLabelForType(String type) {
       return 'Новый пост';
     default:
       return 'Уведомление';
+  }
+}
+
+String _notificationSummaryType(String type) {
+  switch (type) {
+    case 'chat':
+    case 'chat_message':
+      return 'chat_message';
+    case 'call':
+    case 'call_invite':
+      return 'call';
+    default:
+      return type;
   }
 }
 
@@ -316,7 +337,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Map<String, int> _buildTypeSummary() {
     final summary = <String, int>{};
     for (final item in _notifications) {
-      summary.update(item.type, (count) => count + 1, ifAbsent: () => 1);
+      final type = _notificationSummaryType(item.type);
+      summary.update(type, (count) => count + 1, ifAbsent: () => 1);
     }
     return summary;
   }
@@ -355,7 +377,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         actions: [
           if (_notifications.isNotEmpty)
             IconButton(
-              tooltip: 'Прочитать всё',
+              tooltip: 'Отметить всё прочитанным',
               onPressed: _isMutating ? null : _markAllAsRead,
               icon: const Icon(Icons.done_all),
             ),
@@ -575,7 +597,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         FilledButton.icon(
                           onPressed: _isMutating ? null : _markAllAsRead,
                           icon: const Icon(Icons.done_all),
-                          label: const Text('Прочитать всё'),
+                          label: const Text('Отметить всё прочитанным'),
                         ),
                       const SizedBox(height: 14),
                       OutlinedButton.icon(
@@ -721,18 +743,18 @@ class _NotificationCard extends StatelessWidget {
 
     return Material(
       color: theme.colorScheme.surfaceContainerHighest,
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(18),
       child: InkWell(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(18),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(14),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 44,
-                height: 44,
+                width: 40,
+                height: 40,
                 decoration: BoxDecoration(
                   color: theme.colorScheme.primary.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(14),
@@ -742,7 +764,7 @@ class _NotificationCard extends StatelessWidget {
                   color: theme.colorScheme.primary,
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -893,8 +915,7 @@ class _NotificationsMessageState extends StatelessWidget {
                     color: theme.colorScheme.primary.withValues(alpha: 0.12),
                     shape: BoxShape.circle,
                   ),
-                  child:
-                      Icon(icon, size: 34, color: theme.colorScheme.primary),
+                  child: Icon(icon, size: 34, color: theme.colorScheme.primary),
                 ),
                 const SizedBox(height: 20),
                 Text(
@@ -991,7 +1012,7 @@ class _NotificationsOverviewCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Очередь активности собирается для $graphLabel. Просмотрите сообщения, приглашения и запросы в одном месте.',
+                  'Сообщения, приглашения и запросы для $graphLabel — всё в одном месте.',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSecondaryContainer,
                     height: 1.4,

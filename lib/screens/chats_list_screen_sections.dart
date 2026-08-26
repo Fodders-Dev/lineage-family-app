@@ -352,7 +352,7 @@ extension _ChatsListScreenSections on _ChatsListScreenState {
                               few: 'непрочитанных',
                               many: 'непрочитанных',
                             ))
-                      : (compact ? 'Прочитано' : 'Все прочитано'),
+                      : (compact ? 'Новых нет' : 'Нет непрочитанных'),
                   highlighted: unreadCount > 0,
                   compact: compact,
                 ),
