@@ -1,0 +1,56 @@
+name: Prod Connectivity Probe
+
+# Одноразовый диагностический probe: куда указывают деплой-секреты и что
+# из этого достижимо с GitHub-раннера. Ничего не деплоит, ничего не меняет.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe secrets targets
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USERNAME: ${{ secrets.SERVER_USERNAME }}
+          BACKEND_SERVER_USERNAME: ${{ secrets.BACKEND_SERVER_USERNAME }}
+          BACKEND_SERVER_PASSWORD: ${{ secrets.BACKEND_SERVER_PASSWORD }}
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+        run: |
+          set +x
+          probe() {
+            if timeout 8 bash -c "echo > /dev/tcp/$1/$2" 2>/dev/null; then
+              echo "  $3 port $2: OPEN"
+            else
+              echo "  $3 port $2: TIMEOUT/CLOSED"
+            fi
+          }
+          echo "== SERVER_HOST identity =="
+          [ -z "$SERVER_HOST" ] && echo "  SERVER_HOST is EMPTY"
+          [ "$SERVER_HOST" = "77.67.89.164" ] && echo "  SERVER_HOST == CURRENT box (77.67.89.164)"
+          [ "$SERVER_HOST" = "212.69.84.167" ] && echo "  SERVER_HOST == OLD box (212.69.84.167)"
+          [ "$SERVER_HOST" = "api.rodnya-tree.ru" ] && echo "  SERVER_HOST == api.rodnya-tree.ru (DNS)"
+          [ "$SERVER_HOST" = "rodnya-tree.ru" ] && echo "  SERVER_HOST == rodnya-tree.ru (DNS)"
+          echo "== usernames =="
+          for u in root rodnya rodnya-deploy deploy; do
+            [ "$SERVER_USERNAME" = "$u" ] && echo "  SERVER_USERNAME == $u"
+            [ "$BACKEND_SERVER_USERNAME" = "$u" ] && echo "  BACKEND_SERVER_USERNAME == $u"
+          done
+          [ -z "$BACKEND_SERVER_USERNAME" ] && echo "  BACKEND_SERVER_USERNAME is EMPTY"
+          [ -n "$BACKEND_SERVER_PASSWORD" ] && echo "  BACKEND_SERVER_PASSWORD is SET (sshpass path active)" || echo "  BACKEND_SERVER_PASSWORD is EMPTY (key path active)"
+          echo "== SERVER_SSH_KEY fingerprint =="
+          if [ -n "$SERVER_SSH_KEY" ]; then
+            printenv SERVER_SSH_KEY > /tmp/probe_key
+            chmod 600 /tmp/probe_key
+            ssh-keygen -lf /tmp/probe_key || echo "  (не парсится как приватный ключ)"
+            rm -f /tmp/probe_key
+          else
+            echo "  SERVER_SSH_KEY is EMPTY"
+          fi
+          echo "== reachability from this runner =="
+          probe "$SERVER_HOST" 22 "SERVER_HOST"
+          probe 77.67.89.164 22 "current-box"
+          probe 77.67.89.164 443 "current-box"
+          probe 212.69.84.167 22 "old-box"
+          echo "== api /ready =="
+          curl -sS -m 10 https://api.rodnya-tree.ru/ready | head -c 300 || echo "  curl failed"
