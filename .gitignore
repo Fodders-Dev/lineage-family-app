@@ -78,3 +78,14 @@ node_modules
 .claude/
 *.apk
 *.aab
+
+# Dev-scratch: ADB snaps, uiautomator dumps, store-screenshot drafts, handoff archives
+/_*.png
+/s.png
+/s_small.png
+/stt*.png
+/ui.xml
+/_ui.xml
+/test/failures/
+/store_screenshots/
+/*.zip
