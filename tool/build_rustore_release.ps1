@@ -123,7 +123,9 @@ function Assert-ReleaseSigningConfigured {
 function Find-ApkSigner {
   $androidRoots = @(
     (Get-NonEmptyEnv "ANDROID_HOME"),
-    (Get-NonEmptyEnv "ANDROID_SDK_ROOT")
+    (Get-NonEmptyEnv "ANDROID_SDK_ROOT"),
+    $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA "Android\Sdk" }),
+    $(if ($env:HOME) { Join-Path $env:HOME "Android\Sdk" })
   ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique
 
   foreach ($androidRoot in $androidRoots) {
