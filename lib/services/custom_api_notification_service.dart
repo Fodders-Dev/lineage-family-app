@@ -1305,8 +1305,21 @@ class CustomApiNotificationService implements NotificationServiceInterface {
     if (previousDeviceId != null && previousDeviceId.isNotEmpty) {
       try {
         await _deletePushDevice(previousDeviceId);
+      } on CustomApiException catch (error) {
+        if (error.statusCode == 401 || error.statusCode == 403) {
+          rethrow;
+        }
+        debugPrint(
+          'Failed to delete previous push device; '
+          'remote registration deferred: ${error.message}',
+        );
+        return;
       } catch (error) {
-        debugPrint('Failed to delete previous push device: $error');
+        debugPrint(
+          'Failed to delete previous push device; '
+          'remote registration deferred: $error',
+        );
+        return;
       }
     }
 

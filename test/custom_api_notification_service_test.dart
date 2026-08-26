@@ -734,6 +734,120 @@ void main() {
   );
 
   test(
+    'CustomApiNotificationService defers fcm registration when old push device delete fails',
+    () async {
+      var deleteDeviceCalls = 0;
+      var registeredDeviceCalls = 0;
+      final client = MockClient((request) async {
+        if (request.url.path == '/v1/push/devices/device-rustore-old' &&
+            request.method == 'DELETE') {
+          deleteDeviceCalls += 1;
+          return http.Response(
+            jsonEncode({'message': 'temporary backend failure'}),
+            503,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        if (request.url.path == '/v1/push/devices' &&
+            request.method == 'POST') {
+          registeredDeviceCalls += 1;
+          return http.Response(
+            jsonEncode({
+              'device': {
+                'id': 'device-fcm-1',
+                'provider': 'fcm',
+                'platform': 'android',
+              },
+            }),
+            201,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        if (request.url.path == '/v1/notifications' &&
+            request.method == 'GET') {
+          return http.Response(
+            jsonEncode({'notifications': const []}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        if (request.url.path == '/v1/notifications/unread-count' &&
+            request.method == 'GET') {
+          return http.Response(
+            jsonEncode({'totalUnread': 0}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        return http.Response('{"message":"not found"}', 404);
+      });
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'custom_api_session_v1',
+        jsonEncode({
+          'accessToken': 'access-token',
+          'refreshToken': 'refresh-token',
+          'userId': 'user-1',
+          'email': 'dev@rodnya.app',
+          'displayName': 'Dev User',
+          'providerIds': ['password'],
+          'isProfileComplete': true,
+          'missingFields': const [],
+        }),
+      );
+      await prefs.setString(
+        'custom_api_registered_remote_push_device_id_v1',
+        'device-rustore-old',
+      );
+      await prefs.setString(
+        'custom_api_registered_push_token_v1',
+        'rustore::rustore-token-1::user-1',
+      );
+
+      final authService = await CustomApiAuthService.create(
+        httpClient: client,
+        preferences: prefs,
+        runtimeConfig: const BackendRuntimeConfig(
+          apiBaseUrl: 'https://api.example.ru',
+        ),
+        invitationService: InvitationService(),
+      );
+
+      final service = await CustomApiNotificationService.create(
+        preferences: prefs,
+        authService: authService,
+        runtimeConfig: const BackendRuntimeConfig(
+          apiBaseUrl: 'https://api.example.ru',
+        ),
+        httpClient: client,
+        pollInterval: const Duration(hours: 1),
+        remotePushProvider: 'fcm',
+        remotePushTokenProvider: () async => 'fcm-token-1',
+      );
+
+      await service.startForegroundSync();
+
+      expect(deleteDeviceCalls, 1);
+      expect(registeredDeviceCalls, 0);
+      expect(
+        prefs.getString('custom_api_registered_remote_push_device_id_v1'),
+        'device-rustore-old',
+      );
+      expect(
+        prefs.getString('custom_api_registered_push_token_v1'),
+        'rustore::rustore-token-1::user-1',
+      );
+
+      await service.dispose();
+    },
+  );
+
+  test(
     'CustomApiNotificationService registers refreshed rustore push token',
     () async {
       final registeredTokens = <String>[];
