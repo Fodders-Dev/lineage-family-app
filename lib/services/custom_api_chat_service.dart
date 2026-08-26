@@ -492,10 +492,25 @@ class CustomApiChatService
     required String chatId,
     required String messageId,
   }) async {
-    await _requestJson(
-      method: 'DELETE',
-      path: '/v1/chats/$chatId/messages/$messageId',
-    );
+    try {
+      await _requestJson(
+        method: 'DELETE',
+        path: '/v1/chats/$chatId/messages/$messageId',
+      );
+    } on CustomApiException catch (error) {
+      // 404 = the server no longer has this message (already deleted from
+      // another device, a «delete for everyone» we missed, or expired). For a
+      // delete, «already gone» IS success — swallow it and fall through to the
+      // local prune below instead of leaving a stale copy stuck in the cache.
+      if (error.statusCode != 404) {
+        rethrow;
+      }
+    }
+    // Prune locally right away rather than waiting for the realtime
+    // `chat.message.deleted` echo: the echo never arrives on a 404, and can be
+    // missed entirely when realtime is down — which is exactly how a deleted
+    // message used to get stuck in the local cache forever.
+    _pruneLocalMessage(chatId, messageId);
   }
 
   @override
@@ -1476,21 +1491,21 @@ class CustomApiChatService
     }
 
     if (cachedMessages.isNotEmpty) {
+      // Show the cached window instantly (no flash-of-empty), then re-sync it
+      // against the server. This is a full newest-window fetch — NOT an
+      // after-cursor delta — so it can RECONCILE deletions that happened while
+      // this device was away. A delta fetch only ever adds, so a message
+      // deleted elsewhere would otherwise stay cached forever.
       state.messages = cachedMessages;
       if (!state.controller.isClosed) {
         state.controller.add(List<ChatMessage>.unmodifiable(cachedMessages));
       }
-      await _refreshMessageState(state, afterId: cachedMessages.first.id);
-      return;
     }
 
     await _refreshMessageState(state);
   }
 
-  Future<void> _refreshMessageState(
-    _ChatMessageStreamState state, {
-    String? afterId,
-  }) async {
+  Future<void> _refreshMessageState(_ChatMessageStreamState state) async {
     if (state.isFetching) {
       state.hasQueuedRefresh = true;
       return;
@@ -1507,39 +1522,43 @@ class CustomApiChatService
     state.isFetching = true;
     final versionAtRequestStart = state.messagesVersion;
     try {
-      final normalizedAfterId = afterId?.trim();
-      final hasAfterId =
-          normalizedAfterId != null && normalizedAfterId.isNotEmpty;
-      final page = await fetchMessagesPage(
-        state.chatId,
-        limit: hasAfterId ? 200 : 100,
-        afterId: hasAfterId ? normalizedAfterId : null,
-      );
+      // Fetch the authoritative newest window (keepCount-wide) so a single
+      // round-trip re-syncs the whole cached window — including reconciling
+      // deletions we may have missed.
+      final page = await fetchMessagesPage(state.chatId, limit: 200);
       final pageMessages = page.messages;
-      // NEVER destructively replace the local list with a server page.
-      // A no-afterId refresh fetches only the latest 100, and it fires on
-      // every websocket reconnect / app resume. The old `= pageMessages` here
-      // caused data loss two ways: (1) truncation — a chat with up to 200
-      // messages in memory/cache was cut to the newest 100, unrecoverable
-      // (there is no scroll-up pagination); (2) empty-wipe — a transient empty
-      // page (backend listChatMessages returns [] mid group/branch mutation)
-      // erased everything. Always MERGE (union by id): empty/short pages
-      // preserve existing messages; genuine deletions arrive separately via
-      // realtime chat.message.deleted events (_removeRealtimeMessage).
-      state.messages = hasAfterId
-          ? _mergeMessageLists(state.messages, pageMessages)
-          : state.messagesVersion == versionAtRequestStart
-              ? _mergeMessageLists(state.messages, pageMessages)
-              : _mergeMessageListsPreservingExisting(
-                  state.messages,
-                  pageMessages,
-                );
-      state.messagesVersion++;
-      if (!hasAfterId) {
-        _cacheMessages(
-          (cache) => cache.write(state.chatId, state.messages),
+      // NEVER destructively replace the local list with a server page. This
+      // refresh fires on every websocket reconnect / app resume / chat reopen.
+      // A blind `= pageMessages` caused data loss two ways: (1) truncation — a
+      // chat with more messages than the page limit was cut to the newest
+      // page (there is no scroll-up pagination); (2) empty-wipe — a transient
+      // empty page (backend listChatMessages returns [] mid group/branch
+      // mutation) erased everything. So always MERGE (union by id).
+      //
+      // On the CLEAN path (nothing landed locally while this fetch was in
+      // flight) we then reconcile server-side deletions the realtime
+      // `chat.message.deleted` event may have missed (offline, another device,
+      // cold start): a message absent from the page yet strictly inside the
+      // fetched window is a genuine deletion and is pruned. Truncation and
+      // empty/short-page glitches never drop a message because only interior
+      // holes are pruned. On the DIRTY path (a realtime/send update bumped the
+      // version mid-fetch) we skip reconciliation and preserve the local state
+      // so a just-arrived message the stale page can't know about survives.
+      if (state.messagesVersion == versionAtRequestStart) {
+        state.messages = _reconcileWithServerPage(
+          _mergeMessageLists(state.messages, pageMessages),
+          pageMessages,
+        );
+      } else {
+        state.messages = _mergeMessageListsPreservingExisting(
+          state.messages,
+          pageMessages,
         );
       }
+      state.messagesVersion++;
+      _cacheMessages(
+        (cache) => cache.write(state.chatId, state.messages),
+      );
       if (!state.controller.isClosed) {
         state.controller.add(List<ChatMessage>.unmodifiable(state.messages));
       }
@@ -1622,6 +1641,26 @@ class CustomApiChatService
     );
     if (!state.controller.isClosed) {
       state.controller.add(List<ChatMessage>.unmodifiable(nextMessages));
+    }
+  }
+
+  /// Removes a message from the in-memory stream (when the chat is open) and
+  /// from the Hive cache. Idempotent — safe to call when the message is
+  /// already gone. Used by [deleteChatMessage] so a locally-initiated delete
+  /// (including the «already gone» 404 case) prunes the cache without relying
+  /// on the realtime echo.
+  void _pruneLocalMessage(String chatId, String messageId) {
+    final normalizedMessageId = messageId.trim();
+    if (normalizedMessageId.isEmpty) {
+      return;
+    }
+    final state = _messageStates[chatId];
+    if (state != null) {
+      _removeRealtimeMessage(state, normalizedMessageId);
+    } else {
+      _cacheMessages(
+        (cache) => cache.removeOne(chatId, normalizedMessageId),
+      );
     }
   }
 
@@ -1781,6 +1820,56 @@ class CustomApiChatService
     final nextMessages = byId.values.toList();
     nextMessages.sort(_sortMessagesDescending);
     return nextMessages;
+  }
+
+  /// Reconciles server-side deletions that the realtime `chat.message.deleted`
+  /// event may have missed (this device was offline, the delete came from
+  /// another device, or it happened before a cold start). [mergedMessages] is
+  /// the union of the local state and the freshly fetched [serverPage]. A
+  /// message that is absent from [serverPage] yet sits strictly INSIDE the
+  /// page's window — the page returned a still-present message both newer AND
+  /// older than it — is a genuine hole (a deletion) and is dropped.
+  ///
+  /// Only interior holes are pruned; a message at or beyond a window edge is
+  /// always kept. That keeps three things safe:
+  ///  * older-than-window history is never truncated (the page is only the
+  ///    newest N messages);
+  ///  * a transient empty/short page (fewer than two messages — e.g. mid
+  ///    group/branch mutation) can't flank anything, so it prunes nothing;
+  ///  * a just-sent message not yet visible to the read replica lives at the
+  ///    newest edge and is preserved.
+  /// Anything wrongly dropped by a rare partial-page glitch reappears on the
+  /// next refetch (merge re-adds it), so the worst case is a brief flicker,
+  /// never permanent loss.
+  List<ChatMessage> _reconcileWithServerPage(
+    List<ChatMessage> mergedMessages,
+    List<ChatMessage> serverPage,
+  ) {
+    if (serverPage.length < 2) {
+      return mergedMessages;
+    }
+    final serverIds = <String>{};
+    var newest = serverPage.first.timestamp;
+    var oldest = serverPage.first.timestamp;
+    for (final message in serverPage) {
+      if (message.id.trim().isNotEmpty) {
+        serverIds.add(message.id);
+      }
+      if (message.timestamp.isAfter(newest)) {
+        newest = message.timestamp;
+      }
+      if (message.timestamp.isBefore(oldest)) {
+        oldest = message.timestamp;
+      }
+    }
+    return mergedMessages.where((message) {
+      if (serverIds.contains(message.id)) {
+        return true;
+      }
+      final strictlyInsideWindow =
+          message.timestamp.isAfter(oldest) && message.timestamp.isBefore(newest);
+      return !strictlyInsideWindow;
+    }).toList(growable: false);
   }
 
   void _cacheMessages(

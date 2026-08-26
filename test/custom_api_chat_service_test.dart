@@ -853,7 +853,7 @@ void main() {
   });
 
   test(
-    'CustomApiChatService emits cached messages before fetching newer delta',
+    'CustomApiChatService emits cached messages before a full reconcile fetch',
     () async {
       Uri? requestedUri;
       final cachedMessage = ChatMessage(
@@ -959,7 +959,10 @@ void main() {
         ['m-new', 'm-cached'],
       );
       expect(requestedUri?.queryParameters['limit'], '200');
-      expect(requestedUri?.queryParameters['after'], 'm-cached');
+      // The refresh is a full newest-window fetch (no after-cursor delta) so it
+      // can reconcile deletions that happened while this device was away — a
+      // delta fetch only ever adds.
+      expect(requestedUri?.queryParameters.containsKey('after'), isFalse);
       expect(requestedUri?.queryParameters.containsKey('before'), isFalse);
 
       await Future<void>.delayed(Duration.zero);
@@ -1087,6 +1090,128 @@ void main() {
         snapshots.last.map((m) => m.id).toList(),
         ['m-3', 'm-2', 'm-1'],
         reason: 'a latest-only short page must not truncate older messages',
+      );
+    },
+  );
+
+  test(
+    'CustomApiChatService reconciles a server-side deletion within the '
+    'fetched window on refetch',
+    () async {
+      // A message deleted from another device (or a «delete for everyone» this
+      // client missed) used to stay cached forever: the sync only ADDED server
+      // messages. Now a full refetch prunes a locally-cached message that is
+      // absent from the server page yet sits strictly INSIDE the fetched
+      // window — flanked by a still-present message both newer and older.
+      var getCalls = 0;
+      Map<String, dynamic> msg(String id, String ts) => {
+            'id': id,
+            'chatId': 'chat-1',
+            'senderId': 'other-user',
+            'text': id,
+            'timestamp': ts,
+            'isRead': true,
+            'participants': ['user-1', 'other-user'],
+            'senderName': 'Собеседник',
+          };
+      final client = MockClient((request) async {
+        if (request.url.path == '/v1/chats/chat-1/messages' &&
+            request.method == 'GET') {
+          getCalls += 1;
+          final List<Map<String, dynamic>> messages;
+          if (getCalls == 1) {
+            // Newest-first, as the backend returns.
+            messages = [
+              msg('m-5', '2026-04-01T10:04:00.000Z'),
+              msg('m-4', '2026-04-01T10:03:00.000Z'),
+              msg('m-3', '2026-04-01T10:02:00.000Z'),
+              msg('m-2', '2026-04-01T10:01:00.000Z'),
+              msg('m-1', '2026-04-01T10:00:00.000Z'),
+            ];
+          } else {
+            // m-3 has been deleted server-side; m-2/m-4 still flank the hole.
+            messages = [
+              msg('m-5', '2026-04-01T10:04:00.000Z'),
+              msg('m-4', '2026-04-01T10:03:00.000Z'),
+              msg('m-2', '2026-04-01T10:01:00.000Z'),
+              msg('m-1', '2026-04-01T10:00:00.000Z'),
+            ];
+          }
+          return http.Response(
+            jsonEncode({'messages': messages, 'hasMore': false}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('{"message":"not found"}', 404);
+      });
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'custom_api_session_v1',
+        jsonEncode({
+          'accessToken': 'access-token',
+          'refreshToken': 'refresh-token',
+          'userId': 'user-1',
+          'email': 'dev@rodnya.app',
+          'displayName': 'Dev User',
+          'providerIds': ['password'],
+          'isProfileComplete': true,
+          'missingFields': const [],
+        }),
+      );
+
+      final authService = await CustomApiAuthService.create(
+        httpClient: client,
+        preferences: prefs,
+        runtimeConfig: const BackendRuntimeConfig(
+          apiBaseUrl: 'https://api.example.ru',
+        ),
+        invitationService: InvitationService(),
+      );
+
+      final messageCache = _MemoryChatMessageCache();
+      final chatService = CustomApiChatService(
+        authService: authService,
+        runtimeConfig: const BackendRuntimeConfig(
+          apiBaseUrl: 'https://api.example.ru',
+        ),
+        httpClient: client,
+        messageCache: messageCache,
+      );
+
+      final snapshots = <List<ChatMessage>>[];
+      final subscription =
+          chatService.getMessagesStream('chat-1').listen(snapshots.add);
+      addTearDown(subscription.cancel);
+
+      for (var i = 0;
+          i < 50 && !(snapshots.isNotEmpty && snapshots.last.length == 5);
+          i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(
+        snapshots.last.map((m) => m.id).toList(),
+        ['m-5', 'm-4', 'm-3', 'm-2', 'm-1'],
+      );
+
+      await chatService.refreshMessages('chat-1');
+      for (var i = 0;
+          i < 50 && !(snapshots.isNotEmpty && snapshots.last.length == 4);
+          i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(
+        snapshots.last.map((m) => m.id).toList(),
+        ['m-5', 'm-4', 'm-2', 'm-1'],
+        reason: 'an interior server-side deletion must be pruned locally',
+      );
+
+      // The prune is persisted too — the next cold read must not resurrect it.
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(
+        messageCache.snapshot('chat-1').map((m) => m.id).toList(),
+        ['m-5', 'm-4', 'm-2', 'm-1'],
       );
     },
   );
@@ -1284,6 +1409,136 @@ void main() {
 
     expect(deletedMethod, 'DELETE');
     expect(deletedPath, '/v1/chats/chat-1/messages/m-2');
+  });
+
+  test(
+    'CustomApiChatService treats a 404 delete as success and prunes locally',
+    () async {
+      ChatMessage message(String id, String ts) => ChatMessage(
+            id: id,
+            chatId: 'chat-1',
+            senderId: 'user-1',
+            text: id,
+            timestamp: DateTime.parse(ts),
+            isRead: true,
+            participants: const ['user-1', 'other-user'],
+            senderName: 'Dev User',
+          );
+      final messageCache = _MemoryChatMessageCache({
+        'chat-1': [
+          message('m-1', '2026-04-01T10:00:00.000Z'),
+          message('m-2', '2026-04-01T10:01:00.000Z'),
+        ],
+      });
+
+      var deleteCalls = 0;
+      final client = MockClient((request) async {
+        if (request.method == 'DELETE' &&
+            request.url.path == '/v1/chats/chat-1/messages/m-2') {
+          deleteCalls += 1;
+          return http.Response(
+            jsonEncode({'message': 'Сообщение не найдено'}),
+            404,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('{"message":"not found"}', 404);
+      });
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'custom_api_session_v1',
+        jsonEncode({
+          'accessToken': 'access-token',
+          'refreshToken': 'refresh-token',
+          'userId': 'user-1',
+          'email': 'dev@rodnya.app',
+          'displayName': 'Dev User',
+          'providerIds': ['password'],
+          'isProfileComplete': true,
+          'missingFields': const [],
+        }),
+      );
+
+      final authService = await CustomApiAuthService.create(
+        httpClient: client,
+        preferences: prefs,
+        runtimeConfig: const BackendRuntimeConfig(
+          apiBaseUrl: 'https://api.example.ru',
+        ),
+        invitationService: InvitationService(),
+      );
+
+      final chatService = CustomApiChatService(
+        authService: authService,
+        runtimeConfig: const BackendRuntimeConfig(
+          apiBaseUrl: 'https://api.example.ru',
+        ),
+        httpClient: client,
+        messageCache: messageCache,
+      );
+
+      // «Already gone» must NOT throw.
+      await chatService.deleteChatMessage(chatId: 'chat-1', messageId: 'm-2');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(deleteCalls, 1);
+      expect(
+        messageCache.snapshot('chat-1').map((m) => m.id).toList(),
+        ['m-1'],
+        reason: 'a 404 delete must prune the stale local copy',
+      );
+    },
+  );
+
+  test('CustomApiChatService rethrows a non-404 delete error', () async {
+    final client = MockClient((request) async {
+      if (request.method == 'DELETE') {
+        return http.Response(
+          jsonEncode({'message': 'Можно удалять только свои сообщения'}),
+          403,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      return http.Response('{}', 200, headers: {'content-type': 'application/json'});
+    });
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      'custom_api_session_v1',
+      jsonEncode({
+        'accessToken': 'access-token',
+        'refreshToken': 'refresh-token',
+        'userId': 'user-1',
+        'email': 'dev@rodnya.app',
+        'displayName': 'Dev User',
+        'providerIds': ['password'],
+        'isProfileComplete': true,
+        'missingFields': const [],
+      }),
+    );
+
+    final authService = await CustomApiAuthService.create(
+      httpClient: client,
+      preferences: prefs,
+      runtimeConfig: const BackendRuntimeConfig(
+        apiBaseUrl: 'https://api.example.ru',
+      ),
+      invitationService: InvitationService(),
+    );
+
+    final chatService = CustomApiChatService(
+      authService: authService,
+      runtimeConfig: const BackendRuntimeConfig(
+        apiBaseUrl: 'https://api.example.ru',
+      ),
+      httpClient: client,
+    );
+
+    await expectLater(
+      chatService.deleteChatMessage(chatId: 'chat-1', messageId: 'm-2'),
+      throwsA(isA<CustomApiException>()),
+    );
   });
 
   test('CustomApiChatService refreshes message stream on websocket events',
