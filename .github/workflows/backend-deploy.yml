@@ -57,25 +57,27 @@ jobs:
             -czf rodnya-backend.tgz \
             -C backend .
 
-      - name: Setup SSH password helper
+      - name: Setup server auth
+        # Ключевая аутентификация (SERVER_SSH_KEY), как в production-watch:
+        # парольный путь умер вместе со старым сервером (август 2026).
         env:
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
         run: |
           set +x
-          sudo apt-get update
-          sudo apt-get install -y sshpass
           mkdir -p ~/.ssh
+          printenv SERVER_SSH_KEY > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts
 
       - name: Upload backend release archive
         env:
           REMOTE_ARCHIVE: /tmp/rodnya-backend-${{ github.sha }}.tgz
           BACKEND_SERVER_USERNAME: ${{ secrets.BACKEND_SERVER_USERNAME }}
-          SSHPASS: ${{ secrets.BACKEND_SERVER_PASSWORD }}
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
         run: |
           set +x
-          sshpass -e scp -o StrictHostKeyChecking=yes rodnya-backend.tgz \
+          scp -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes rodnya-backend.tgz \
             "${BACKEND_SERVER_USERNAME}@$SERVER_HOST:${REMOTE_ARCHIVE}"
 
       - name: Activate backend release on server
@@ -95,12 +97,11 @@ jobs:
           BACKEND_TARGET_DIR: /opt/rodnya/backend
           BACKEND_SERVICE_NAME: rodnya-backend.service
           BACKEND_SERVER_USERNAME: ${{ secrets.BACKEND_SERVER_USERNAME }}
-          SSHPASS: ${{ secrets.BACKEND_SERVER_PASSWORD }}
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
         run: |
           set +x
           DEPLOY_LABEL="deploy ${GITHUB_SHA::7} / github-actions-backend / $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          sshpass -e ssh -o StrictHostKeyChecking=yes "${BACKEND_SERVER_USERNAME}@$SERVER_HOST" \
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes "${BACKEND_SERVER_USERNAME}@$SERVER_HOST" \
             bash -s -- "${REMOTE_ARCHIVE}" "${BACKEND_TARGET_DIR}" "${BACKEND_SERVICE_NAME}" "${DEPLOY_LABEL}" <<'EOF'
           set -euo pipefail
           archive="$1"
