@@ -262,7 +262,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Пока нет фотографий'), findsOneWidget);
-    expect(find.textContaining('Поделись первым моментом'), findsOneWidget);
+    expect(find.textContaining('Добавьте фото'), findsOneWidget);
     expect(find.byKey(const Key('album-thumb-0')), findsNothing);
   });
 

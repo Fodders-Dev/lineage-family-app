@@ -389,6 +389,10 @@ class _FamilyAlbumScreenState extends State<FamilyAlbumScreen> {
       appBar: AppBar(title: const Text('Альбом семьи')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _uploading ? null : _pickAndUpload,
+        // Глобальная тема задаёт FAB'ам CircleBorder — для extended-варианта
+        // это означает круглый фон, из которого подпись торчит наружу.
+        // Возвращаем «таблетку» точечно, не трогая обычные круглые FAB'ы.
+        shape: const StadiumBorder(),
         icon: _uploading
             ? SizedBox(
                 width: 18,
@@ -814,7 +818,8 @@ class _FamilyAlbumScreenState extends State<FamilyAlbumScreen> {
             ),
             SizedBox(height: tokens.space8),
             Text(
-              'Поделись первым моментом в ленте — фото соберутся здесь.',
+              'Добавьте фото — они соберутся здесь по месяцам. '
+              'Снимки из постов ленты тоже попадают в альбом.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
