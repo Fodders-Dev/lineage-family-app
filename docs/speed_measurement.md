@@ -121,3 +121,19 @@ SPEED-6 on a branch (PostgresStore overrides for addChatMessage + message reads 
 markDelivered + unread + reactions + search + a JSONB→table migration; dedup on
 (chatId, senderId, clientMessageId)); merge = deploy only on an explicit go, with prod
 validation — it can't be fully proven locally (postgres-store tests run on a mock).
+
+---
+
+## RE-MEASURED 2026-08-26 — gate still tripped at a 1 MB blob; SPEED-6 built on a branch
+
+Daily sweep shrank the blob to ~1 MB (441 messages / 41 chats), yet a 20-message
+API burst measured **send-to-ack p50 1533 ms / p95 2031 ms** (server: access
+150–430 ms, persist 670–1720 ms, fanout climbing to 7.4 s). The cost is
+architectural: every send is a whole-blob RMW serialized in the global
+_mutateQueue BEHIND the previous message's fanout writes.
+
+The structural fix is implemented on branch **`speed6-messages-table`**
+(messages/reactions/drafts/pins → tables, send = INSERT; chats stay in the
+blob with a fast projection for the access check). Design, migration,
+rollback script and deploy plan: `docs/speed6_messages_table_design.md`.
+Merge = deploy only on an explicit go.
