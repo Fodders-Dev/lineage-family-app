@@ -160,3 +160,26 @@ Phase 3 squash включая 3.4 UI (05-11 `cb67b0b`) → Phase 4
 
 * НЕ депрекейтить graph-слой (он остаётся).
 * НЕ принимать архитектурные решения без записи в DECISIONS.md.
+
+---
+
+## 2026-08-27 — Phase B ЗАПУЩЕНА В ПРОДЕ ✅
+
+По «го» Артёма («если работает и полезно — го»):
+
+1. **Пре-флип фикс дрейфа**: все 8 легаси-путей вступления (accept
+   tree-инвайта, identity-attach ×3, person-create-with-userId, restore,
+   legacy invitation) теперь dual-write'ят членство семьи
+   (`_ensureSemyaMembershipForLegacyJoin`, role viewer как в миграции Q1) —
+   без этого каждый новый участник ловил бы 403 после флипа.
+2. **Миграция**: репетиция на scratch-копии прод-БД (8/8 проверок ✓,
+   инвариант покрытия memberIds→memberships: 0 непокрытых из 59) →
+   боевой прогон: **24 семьи, 35 членств, 24 привязки, 0 пропусков**.
+   Простой ~90 сек. Pre-image: /opt/rodnya/backups/manual/
+   rodnya_state.pre-semya-20260827-*.json (+ pg_dump'ы).
+3. **Флаг `RODNYA_FEDERATED_SEMYI_ENABLED=true`** в /etc/rodnya-backend.env,
+   рестарт. Смоук: создание семьи 201, me/semya, легаси-инвайт на
+   привязанное дерево при флаге ON → доступ 200 + членство viewer.
+4. Дальше: наблюдение (Production Watch каждые 6ч), owner'ы могут
+   повышать viewer'ов вручную; хвосты — SemyaSwitcher не смонтирован
+   (dead code), доставка инвайтов email/SMS всё ещё ручная.
