@@ -1,0 +1,50 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter analyze*)",
+      "Bash(flutter test*)",
+      "Bash(flutter pub get*)",
+      "Bash(dart format *)",
+      "Bash(npm --prefix backend test*)",
+      "Bash(node --test *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(git branch*)",
+      "Bash(gh run list*)",
+      "Bash(gh run view*)",
+      "Bash(gh workflow view*)"
+    ],
+    "ask": [
+      "Bash(git push*)",
+      "Bash(gh workflow run*)",
+      "Bash(ssh *)",
+      "Bash(scp *)",
+      "Bash(psql *)",
+      "Bash(gh secret *)",
+      "Bash(adb uninstall*)",
+      "Bash(adb shell pm uninstall*)"
+    ],
+    "deny": [
+      "Read(.local_dev_creds)",
+      "Read(**/release-signing.properties)",
+      "Read(**/*.keystore)",
+      "Read(**/*.jks)",
+      "Bash(git push --force*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-bash.js\""
+          }
+        ]
+      }
+    ]
+  }
+}

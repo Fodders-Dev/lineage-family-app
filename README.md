@@ -42,7 +42,9 @@
 - поэтапный уход от Firebase-hosted и hosted Supabase зависимостей, если они мешают доступности в России
 - Android и web как основные релизные платформы; iOS позже
 
-Подробный execution plan зафиксирован в [docs/active_execution_plan.md](docs/active_execution_plan.md).
+Актуальный статус проекта — [docs/connected-trees-refactor/CURRENT-PHASE.md](docs/connected-trees-refactor/CURRENT-PHASE.md)
+(архитектурные решения — append-only [DECISIONS.md](docs/connected-trees-refactor/DECISIONS.md);
+старый [docs/active_execution_plan.md](docs/active_execution_plan.md) заморожен — не следовать).
 
 ## Начало работы
 

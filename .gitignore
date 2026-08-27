@@ -75,7 +75,11 @@ node_modules
 .tmp/
 .local_dev_creds
 
-.claude/
+# Claude Code: командная конфигурация (.claude/settings.json, rules/, skills/,
+# hooks/, launch.json) КОММИТИТСЯ; игнорируем только локальное/машинное.
+.claude/settings.local.json
+.claude/worktrees/
+.claude/design-handoff/
 *.apk
 *.aab
 

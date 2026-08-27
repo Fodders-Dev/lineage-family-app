@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "rodnya-web",
+      "runtimeExecutable": "flutter",
+      "runtimeArgs": [
+        "run",
+        "-d",
+        "web-server",
+        "--web-port",
+        "8090",
+        "--dart-define=RODNYA_RUNTIME_PRESET=prod_custom_api"
+      ],
+      "port": 8090
+    }
+  ]
+}
