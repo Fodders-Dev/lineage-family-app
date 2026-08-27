@@ -1915,7 +1915,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Можно прикрепить до 5 файлов',
+                    'Можно прикрепить до $kMaxPostMedia файлов',
                     style: AppTheme.sans(
                       color: tokens.inkSecondary,
                       fontSize: 12,
