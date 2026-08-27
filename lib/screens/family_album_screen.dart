@@ -16,10 +16,15 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 import '../backend/interfaces/post_service_interface.dart';
+import '../models/media_upload_progress.dart';
 import '../models/post.dart';
+import '../providers/tree_provider.dart';
+import '../services/gallery_media_picker.dart';
 import '../services/posts_cache.dart';
 import '../theme/app_theme.dart';
 import '../utils/image_decode.dart';
@@ -98,6 +103,7 @@ class FamilyAlbumScreen extends StatefulWidget {
     this.serviceOverride,
     this.cacheOverride,
     this.nowProvider,
+    this.mediaPickerOverride,
   });
 
   /// Test seams — production resolves via GetIt.
@@ -106,6 +112,9 @@ class FamilyAlbumScreen extends StatefulWidget {
 
   /// Injectable «today» for the «N лет назад» memory section (tests).
   final DateTime Function()? nowProvider;
+
+  /// Test seam: подменяемый выбор файлов (в тестах платформенного пикера нет).
+  final Future<List<XFile>> Function()? mediaPickerOverride;
 
   @override
   State<FamilyAlbumScreen> createState() => _FamilyAlbumScreenState();
@@ -121,6 +130,8 @@ class _FamilyAlbumScreenState extends State<FamilyAlbumScreen> {
 
   bool _loading = true;
   bool _loadFailed = false;
+  bool _uploading = false;
+  MediaUploadProgress? _uploadProgress;
   List<_AlbumPhoto> _photos = const [];
   String? _authorFilter; // null = все авторы
 
@@ -130,6 +141,118 @@ class _FamilyAlbumScreenState extends State<FamilyAlbumScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  /// Загрузка пачки фото прямо из альбома.
+  ///
+  /// Альбом — производная от постов (агрегат по `imageUrls`), поэтому «плюс»
+  /// здесь публикует обычный пост без подписи, и фото сразу попадают в свой
+  /// месяц. Отдельная модель на бэкенде не нужна.
+  Future<void> _pickAndUpload() async {
+    if (_uploading) {
+      return;
+    }
+    final service = _service();
+    if (service == null) {
+      _showMessage('Сервис недоступен. Попробуйте позже.');
+      return;
+    }
+    final treeId = Provider.of<TreeProvider>(context, listen: false).selectedTreeId;
+    if (treeId == null || treeId.isEmpty) {
+      _showMessage('Сначала выберите дерево.');
+      return;
+    }
+
+    List<XFile> picked;
+    try {
+      picked = widget.mediaPickerOverride != null
+          ? await widget.mediaPickerOverride!()
+          : await const GalleryMediaPicker().pickMultiple();
+    } catch (error) {
+      debugPrint('Album picker failed: $error');
+      _showMessage('Не удалось открыть галерею.');
+      return;
+    }
+    if (picked.isEmpty || !mounted) {
+      return;
+    }
+
+    final trimmed = picked.length > kMaxPostMedia;
+    final files = trimmed ? picked.take(kMaxPostMedia).toList() : picked;
+    if (trimmed) {
+      _showMessage(
+        'Можно добавить до $kMaxPostMedia фото за раз — лишние не поместились.',
+      );
+    }
+
+    setState(() {
+      _uploading = true;
+      _uploadProgress = null;
+    });
+    try {
+      await service.createPost(
+        treeId: treeId,
+        // Подпись пустая: человек пришёл выложить фото, а не писать текст.
+        // Бэкенд разрешает пост без текста, когда есть медиа.
+        content: '',
+        images: files,
+        onProgress: (progress) {
+          if (!mounted) {
+            return;
+          }
+          setState(() => _uploadProgress = progress);
+        },
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _uploading = false;
+        _uploadProgress = null;
+      });
+      _showMessage(
+        files.length == 1
+            ? 'Фото добавлено в альбом.'
+            : '${files.length} фото добавлены в альбом.',
+      );
+      await _load();
+    } catch (error) {
+      debugPrint('Album upload failed: $error');
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _uploading = false;
+        _uploadProgress = null;
+      });
+      _showMessage('Не удалось загрузить фото. Попробуйте ещё раз.');
+    }
+  }
+
+  void _showMessage(String text) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  /// Подпись на кнопке во время загрузки: «Загружено 3 из 8».
+  String get _fabLabel {
+    if (!_uploading) {
+      return 'Добавить фото';
+    }
+    final progress = _uploadProgress;
+    if (progress == null || progress.total <= 1) {
+      return 'Загружаем…';
+    }
+    switch (progress.stage) {
+      case MediaUploadStage.preparing:
+        return 'Готовим ${progress.total} фото';
+      case MediaUploadStage.uploading:
+        return 'Загружено ${progress.completed} из ${progress.total}';
+      case MediaUploadStage.publishing:
+        return 'Сохраняем…';
+    }
   }
 
   PostServiceInterface? _service() {
@@ -264,6 +387,21 @@ class _FamilyAlbumScreenState extends State<FamilyAlbumScreen> {
     final visible = _visiblePhotos;
     return Scaffold(
       appBar: AppBar(title: const Text('Альбом семьи')),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _uploading ? null : _pickAndUpload,
+        icon: _uploading
+            ? SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  value: _uploadProgress?.value,
+                  color: tokens.accentInk,
+                ),
+              )
+            : const Icon(Icons.add_photo_alternate_outlined),
+        label: Text(_fabLabel),
+      ),
       body: _loading && _photos.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : Column(

@@ -4,7 +4,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:get_it/get_it.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
 import 'package:rodnya/backend/interfaces/post_service_interface.dart';
+import 'package:rodnya/models/media_upload_progress.dart';
+import 'package:rodnya/providers/tree_provider.dart';
+import 'package:rodnya/services/local_storage_service.dart';
 import 'package:rodnya/models/post.dart';
 import 'package:rodnya/screens/family_album_screen.dart';
 import 'package:rodnya/theme/app_theme.dart';
@@ -65,9 +71,123 @@ Widget _host(PostServiceInterface svc, {DateTime Function()? now}) =>
       home: FamilyAlbumScreen(serviceOverride: svc, nowProvider: now),
     );
 
+/// Фейк для шага 4: запоминает переданные файлы и, как настоящий сервис,
+/// прокидывает прогресс по мере «загрузки».
+class _UploadingPostService implements PostServiceInterface {
+  _UploadingPostService();
+
+  List<Post> posts = const [];
+  List<XFile>? receivedImages;
+  String? receivedTreeId;
+  String? receivedContent;
+  int getPostsCalls = 0;
+
+  @override
+  Future<List<Post>> getPosts({
+    String? treeId,
+    String? authorId,
+    bool onlyBranches = false,
+  }) async {
+    getPostsCalls += 1;
+    return posts;
+  }
+
+  @override
+  Future<Post> createPost({
+    required String treeId,
+    required String content,
+    List<XFile> images = const [],
+    bool isPublic = false,
+    TreeContentScopeType scopeType = TreeContentScopeType.wholeTree,
+    List<String> anchorPersonIds = const [],
+    String? circleId,
+    List<String>? branchIds,
+    void Function(MediaUploadProgress progress)? onProgress,
+  }) async {
+    receivedTreeId = treeId;
+    receivedContent = content;
+    receivedImages = images;
+    onProgress?.call(MediaUploadProgress(
+      stage: MediaUploadStage.preparing,
+      completed: 0,
+      total: images.length,
+    ));
+    for (var i = 1; i <= images.length; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      onProgress?.call(MediaUploadProgress(
+        stage: MediaUploadStage.uploading,
+        completed: i,
+        total: images.length,
+      ));
+    }
+    // После публикации альбом перечитывает посты — отдадим новый пост.
+    posts = [
+      ...posts,
+      _post(
+        id: 'new-post',
+        authorId: 'me',
+        authorName: 'Я',
+        imageUrls: List<String>.generate(
+          images.length,
+          (i) => 'https://cdn/new-$i.jpg',
+        ),
+        createdAt: DateTime(2026, 8, 27),
+      ),
+    ];
+    return posts.last;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// TreeProvider резолвит LocalStorageService в конструкторе через GetIt,
+/// хотя альбому нужен только id дерева — отдаём пустышку.
+class _FakeLocalStorageService implements LocalStorageService {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// TreeProvider с фиксированным выбором: настоящий тянет GetIt-зависимости
+/// и SharedPreferences, а тесту альбома нужен только id дерева.
+class _FixedTreeProvider extends TreeProvider {
+  _FixedTreeProvider(this._treeId);
+
+  final String? _treeId;
+
+  @override
+  String? get selectedTreeId => _treeId;
+}
+
+Widget _hostWithTree(
+  PostServiceInterface svc, {
+  Future<List<XFile>> Function()? picker,
+  String? treeId = 'tree-1',
+}) {
+  return ChangeNotifierProvider<TreeProvider>.value(
+    value: _FixedTreeProvider(treeId),
+    child: MaterialApp(
+      theme: AppTheme.lightTheme,
+      home: FamilyAlbumScreen(
+        serviceOverride: svc,
+        mediaPickerOverride: picker,
+      ),
+    ),
+  );
+}
+
 void main() {
   setUpAll(() async {
     await initializeDateFormatting('ru');
+    if (!GetIt.I.isRegistered<LocalStorageService>()) {
+      GetIt.I.registerSingleton<LocalStorageService>(_FakeLocalStorageService());
+    }
+  });
+
+  tearDownAll(() {
+    if (GetIt.I.isRegistered<LocalStorageService>()) {
+      GetIt.I.unregister<LocalStorageService>();
+    }
   });
 
   testWidgets('renders photos from all posts in a grid (newest-first)',
@@ -305,4 +425,66 @@ void main() {
 
     expect(find.byType(MediaLightbox), findsOneWidget);
   });
+
+  testWidgets('шаг 4: «+» в альбоме грузит пачку фото и обновляет альбом',
+      (tester) async {
+    // Раньше альбом был только для чтения: чтобы фото туда попали, надо было
+    // идти в ленту и создавать пост. Теперь загрузка живёт прямо в альбоме.
+    final svc = _UploadingPostService();
+    final files = List<XFile>.generate(4, (i) => XFile('/tmp/p$i.jpg'));
+
+    await tester.pumpWidget(_hostWithTree(svc, picker: () async => files));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Добавить фото'), findsOneWidget);
+    final callsBefore = svc.getPostsCalls;
+
+    await tester.tap(find.text('Добавить фото'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 8));
+
+    // Во время загрузки кнопка показывает живой счётчик, а не застывший спиннер.
+    expect(find.textContaining('Загружено'), findsOneWidget);
+
+    await tester.pumpAndSettle();
+
+    expect(svc.receivedImages, hasLength(4));
+    expect(svc.receivedTreeId, 'tree-1');
+    expect(svc.receivedContent, '', reason: 'подпись пустая — пришли за фото');
+    expect(find.text('4 фото добавлены в альбом.'), findsOneWidget);
+    expect(svc.getPostsCalls, greaterThan(callsBefore),
+        reason: 'альбом должен перечитаться, чтобы фото появились сразу');
+  });
+
+  testWidgets('шаг 4: без выбранного дерева «+» не публикует пустоту',
+      (tester) async {
+    final svc = _UploadingPostService();
+    await tester.pumpWidget(_hostWithTree(
+      svc,
+      picker: () async => [XFile('/tmp/p0.jpg')],
+      treeId: null,
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Добавить фото'));
+    await tester.pumpAndSettle();
+
+    expect(svc.receivedImages, isNull);
+    expect(find.text('Сначала выберите дерево.'), findsOneWidget);
+  });
+
+  testWidgets('шаг 4: отменённый выбор ничего не публикует', (tester) async {
+    final svc = _UploadingPostService();
+    await tester.pumpWidget(
+      _hostWithTree(svc, picker: () async => const <XFile>[]),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Добавить фото'));
+    await tester.pumpAndSettle();
+
+    expect(svc.receivedImages, isNull);
+    expect(find.text('Добавить фото'), findsOneWidget);
+  });
+
 }

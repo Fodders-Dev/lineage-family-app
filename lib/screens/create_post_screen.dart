@@ -29,14 +29,8 @@ import '../utils/user_facing_error.dart';
 import '../widgets/audience_picker.dart';
 import '../widgets/glass_panel.dart';
 import '../models/media_upload_progress.dart';
+import '../services/gallery_media_picker.dart';
 import '../widgets/person_multi_picker_sheet.dart';
-
-/// Сколько медиа влезает в один пост. Ровно столько же принимает бэкенд
-/// (`enforceArrayCap(imageUrls, max: 30)` в routes/post-routes.js) — клиент
-/// раньше резал на 5 и заставлял разбивать поездку на восемь постов.
-/// Каждый файл уходит своим запросом `/v1/media/upload`, поэтому лимит тела
-/// (50 МБ) считается ПОФАЙЛОВО и пачкой не набирается.
-const int kMaxPostMedia = 30;
 
 class CreatePostScreen extends StatefulWidget {
   const CreatePostScreen({super.key, this.initialAction});
@@ -468,25 +462,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
   Future<void> _pickImages() async {
     try {
-      // pickMultipleMedia lets the user pick photos AND videos in one
-      // gallery pass — closer to what Telegram / Instagram do. Falls
-      // back to image-only on platforms where the API isn't available
-      // (currently macOS, web).
-      List<XFile> picked;
-      try {
-        picked = await _picker.pickMultipleMedia(
-          imageQuality: 80,
-          maxWidth: 1080,
-        );
-      } on UnsupportedError {
-        // pickMultipleMedia is unsupported on macOS / web — fall back
-        // to the image-only path. Catches MissingPluginException too
-        // (it's a subtype on platforms that haven't wired the channel).
-        picked = await _picker.pickMultiImage(
-          imageQuality: 80,
-          maxWidth: 1080,
-        );
-      }
+      final picked = await const GalleryMediaPicker().pickMultiple();
       if (picked.isEmpty || !mounted) {
         return;
       }
