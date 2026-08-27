@@ -1826,7 +1826,10 @@ class PostgresStore extends FileStore {
 
   async findChat(chatId) {
     await this.initialize();
-    await this._awaitReadConsistency();
+    // Барьер write-queue тут не нужен: данные живут в чат-таблицах, чьи
+    // писатели — прямой SQL, а не блоб-очередь; HTTP-порядок запросов даёт
+    // нужную последовательность. Ожидание блоб-очереди (нотификации/пуш-логи
+    // фан-аута) добавляло до ~300мс на access под бёрстом.
     try {
       const resolved = await this._resolveChatFromTables(chatId);
       return resolved ? structuredClone(resolved.chat) : null;
@@ -1843,7 +1846,10 @@ class PostgresStore extends FileStore {
 
   async isUserBlockedBetween(userIdA, userIdB) {
     await this.initialize();
-    await this._awaitReadConsistency();
+    // Барьер write-queue тут не нужен: данные живут в чат-таблицах, чьи
+    // писатели — прямой SQL, а не блоб-очередь; HTTP-порядок запросов даёт
+    // нужную последовательность. Ожидание блоб-очереди (нотификации/пуш-логи
+    // фан-аута) добавляло до ~300мс на access под бёрстом.
     try {
       const result = await this._pool.query(
         `SELECT 1 AS blocked
@@ -2020,7 +2026,10 @@ class PostgresStore extends FileStore {
     call = null,
   }) {
     await this.initialize();
-    await this._awaitReadConsistency();
+    // Барьер write-queue тут не нужен: данные живут в чат-таблицах, чьи
+    // писатели — прямой SQL, а не блоб-очередь; HTTP-порядок запросов даёт
+    // нужную последовательность. Ожидание блоб-очереди (нотификации/пуш-логи
+    // фан-аута) добавляло до ~300мс на access под бёрстом.
     const resolved = await this._resolveChatFromTables(chatId);
     if (!resolved) {
       return null;
@@ -2139,7 +2148,10 @@ class PostgresStore extends FileStore {
 
   async listChatMessages(chatId, {limit = null, beforeId = null, afterId = null} = {}) {
     await this.initialize();
-    await this._awaitReadConsistency();
+    // Барьер write-queue тут не нужен: данные живут в чат-таблицах, чьи
+    // писатели — прямой SQL, а не блоб-очередь; HTTP-порядок запросов даёт
+    // нужную последовательность. Ожидание блоб-очереди (нотификации/пуш-логи
+    // фан-аута) добавляло до ~300мс на access под бёрстом.
     const resolved = await this._resolveChatFromTables(chatId);
     if (!resolved) {
       return [];
@@ -2223,7 +2235,10 @@ class PostgresStore extends FileStore {
 
   async updateChatMessage({chatId, messageId, userId, text}) {
     await this.initialize();
-    await this._awaitReadConsistency();
+    // Барьер write-queue тут не нужен: данные живут в чат-таблицах, чьи
+    // писатели — прямой SQL, а не блоб-очередь; HTTP-порядок запросов даёт
+    // нужную последовательность. Ожидание блоб-очереди (нотификации/пуш-логи
+    // фан-аута) добавляло до ~300мс на access под бёрстом.
     const resolved = await this._resolveChatFromTables(chatId);
     if (!resolved || !resolved.chat.participantIds.includes(userId)) {
       return false;
@@ -2258,7 +2273,10 @@ class PostgresStore extends FileStore {
 
   async deleteChatMessage({chatId, messageId, userId}) {
     await this.initialize();
-    await this._awaitReadConsistency();
+    // Барьер write-queue тут не нужен: данные живут в чат-таблицах, чьи
+    // писатели — прямой SQL, а не блоб-очередь; HTTP-порядок запросов даёт
+    // нужную последовательность. Ожидание блоб-очереди (нотификации/пуш-логи
+    // фан-аута) добавляло до ~300мс на access под бёрстом.
     const resolved = await this._resolveChatFromTables(chatId);
     if (!resolved || !resolved.chat.participantIds.includes(userId)) {
       return false;
@@ -2303,7 +2321,10 @@ class PostgresStore extends FileStore {
 
   async toggleChatMessageReaction({chatId, messageId, userId, emoji}) {
     await this.initialize();
-    await this._awaitReadConsistency();
+    // Барьер write-queue тут не нужен: данные живут в чат-таблицах, чьи
+    // писатели — прямой SQL, а не блоб-очередь; HTTP-порядок запросов даёт
+    // нужную последовательность. Ожидание блоб-очереди (нотификации/пуш-логи
+    // фан-аута) добавляло до ~300мс на access под бёрстом.
     const resolved = await this._resolveChatFromTables(chatId);
     if (!resolved || !resolved.chat.participantIds.includes(userId)) {
       return false;
@@ -2359,7 +2380,10 @@ class PostgresStore extends FileStore {
 
   async markChatMessageDelivered({chatId, messageId, userIds = []}) {
     await this.initialize();
-    await this._awaitReadConsistency();
+    // Барьер write-queue тут не нужен: данные живут в чат-таблицах, чьи
+    // писатели — прямой SQL, а не блоб-очередь; HTTP-порядок запросов даёт
+    // нужную последовательность. Ожидание блоб-очереди (нотификации/пуш-логи
+    // фан-аута) добавляло до ~300мс на access под бёрстом.
     const resolved = await this._resolveChatFromTables(chatId);
     if (!resolved) {
       return false;
@@ -2412,7 +2436,10 @@ class PostgresStore extends FileStore {
 
   async markChatAsRead(chatId, userId) {
     await this.initialize();
-    await this._awaitReadConsistency();
+    // Барьер write-queue тут не нужен: данные живут в чат-таблицах, чьи
+    // писатели — прямой SQL, а не блоб-очередь; HTTP-порядок запросов даёт
+    // нужную последовательность. Ожидание блоб-очереди (нотификации/пуш-логи
+    // фан-аута) добавляло до ~300мс на access под бёрстом.
     const resolved = await this._resolveChatFromTables(chatId);
     if (!resolved || !resolved.chat.participantIds.includes(userId)) {
       return false;
@@ -2472,7 +2499,10 @@ class PostgresStore extends FileStore {
 
   async getChatDraft({userId, chatId}) {
     await this.initialize();
-    await this._awaitReadConsistency();
+    // Барьер write-queue тут не нужен: данные живут в чат-таблицах, чьи
+    // писатели — прямой SQL, а не блоб-очередь; HTTP-порядок запросов даёт
+    // нужную последовательность. Ожидание блоб-очереди (нотификации/пуш-логи
+    // фан-аута) добавляло до ~300мс на access под бёрстом.
     const resolved = await this._resolveChatFromTables(chatId);
     if (!resolved || !this._canAccessChatDraft(resolved.chat, userId)) {
       return null;
@@ -2490,7 +2520,10 @@ class PostgresStore extends FileStore {
 
   async listChatDrafts(userId) {
     await this.initialize();
-    await this._awaitReadConsistency();
+    // Барьер write-queue тут не нужен: данные живут в чат-таблицах, чьи
+    // писатели — прямой SQL, а не блоб-очередь; HTTP-порядок запросов даёт
+    // нужную последовательность. Ожидание блоб-очереди (нотификации/пуш-логи
+    // фан-аута) добавляло до ~300мс на access под бёрстом.
     const normalizedUserId = String(userId || "").trim();
     if (!normalizedUserId) {
       return [];
@@ -2522,7 +2555,10 @@ class PostgresStore extends FileStore {
 
   async saveChatDraft({userId, chatId, text}) {
     await this.initialize();
-    await this._awaitReadConsistency();
+    // Барьер write-queue тут не нужен: данные живут в чат-таблицах, чьи
+    // писатели — прямой SQL, а не блоб-очередь; HTTP-порядок запросов даёт
+    // нужную последовательность. Ожидание блоб-очереди (нотификации/пуш-логи
+    // фан-аута) добавляло до ~300мс на access под бёрстом.
     const resolved = await this._resolveChatFromTables(chatId);
     if (!resolved || !this._canAccessChatDraft(resolved.chat, userId)) {
       return null;
@@ -2569,7 +2605,10 @@ class PostgresStore extends FileStore {
 
   async getChatPinnedMessage({userId, chatId}) {
     await this.initialize();
-    await this._awaitReadConsistency();
+    // Барьер write-queue тут не нужен: данные живут в чат-таблицах, чьи
+    // писатели — прямой SQL, а не блоб-очередь; HTTP-порядок запросов даёт
+    // нужную последовательность. Ожидание блоб-очереди (нотификации/пуш-логи
+    // фан-аута) добавляло до ~300мс на access под бёрстом.
     const resolved = await this._resolveChatFromTables(chatId);
     if (!resolved || !this._canAccessChatPin(resolved.chat, userId)) {
       return null;
@@ -2606,7 +2645,10 @@ class PostgresStore extends FileStore {
 
   async pinChatMessage({userId, chatId, messageId}) {
     await this.initialize();
-    await this._awaitReadConsistency();
+    // Барьер write-queue тут не нужен: данные живут в чат-таблицах, чьи
+    // писатели — прямой SQL, а не блоб-очередь; HTTP-порядок запросов даёт
+    // нужную последовательность. Ожидание блоб-очереди (нотификации/пуш-логи
+    // фан-аута) добавляло до ~300мс на access под бёрстом.
     const resolved = await this._resolveChatFromTables(chatId);
     if (!resolved || !this._canAccessChatPin(resolved.chat, userId)) {
       return false;
@@ -2645,7 +2687,10 @@ class PostgresStore extends FileStore {
 
   async clearChatPinnedMessage({userId, chatId}) {
     await this.initialize();
-    await this._awaitReadConsistency();
+    // Барьер write-queue тут не нужен: данные живут в чат-таблицах, чьи
+    // писатели — прямой SQL, а не блоб-очередь; HTTP-порядок запросов даёт
+    // нужную последовательность. Ожидание блоб-очереди (нотификации/пуш-логи
+    // фан-аута) добавляло до ~300мс на access под бёрстом.
     const resolved = await this._resolveChatFromTables(chatId);
     if (!resolved || !this._canAccessChatPin(resolved.chat, userId)) {
       return false;
@@ -2667,7 +2712,10 @@ class PostgresStore extends FileStore {
     limit = 50,
   } = {}) {
     await this.initialize();
-    await this._awaitReadConsistency();
+    // Барьер write-queue тут не нужен: данные живут в чат-таблицах, чьи
+    // писатели — прямой SQL, а не блоб-очередь; HTTP-порядок запросов даёт
+    // нужную последовательность. Ожидание блоб-очереди (нотификации/пуш-логи
+    // фан-аута) добавляло до ~300мс на access под бёрстом.
     const normalizedUserId = String(userId || "").trim();
     const terms = normalizeChatSearchQuery(query);
     if (!normalizedUserId || terms.length === 0) {
@@ -2810,7 +2858,10 @@ class PostgresStore extends FileStore {
       return [];
     }
     await this.initialize();
-    await this._awaitReadConsistency();
+    // Барьер write-queue тут не нужен: данные живут в чат-таблицах, чьи
+    // писатели — прямой SQL, а не блоб-очередь; HTTP-порядок запросов даёт
+    // нужную последовательность. Ожидание блоб-очереди (нотификации/пуш-логи
+    // фан-аута) добавляло до ~300мс на access под бёрстом.
     const storedChats = await this._selectChatsForUserFromTables(normalizedUserId);
     const relatedChats = new Map();
     for (const chat of storedChats) {
@@ -2941,7 +2992,10 @@ class PostgresStore extends FileStore {
       return 0;
     }
     await this.initialize();
-    await this._awaitReadConsistency();
+    // Барьер write-queue тут не нужен: данные живут в чат-таблицах, чьи
+    // писатели — прямой SQL, а не блоб-очередь; HTTP-порядок запросов даёт
+    // нужную последовательность. Ожидание блоб-очереди (нотификации/пуш-логи
+    // фан-аута) добавляло до ~300мс на access под бёрстом.
     const storedChats = await this._selectChatsForUserFromTables(normalizedUserId);
     const chatIds = storedChats.map((chat) => String(chat.id).trim());
     const messages = await this._selectChatMessagesForPreviews(
