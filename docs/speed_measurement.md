@@ -137,3 +137,26 @@ The structural fix is implemented on branch **`speed6-messages-table`**
 blob with a fast projection for the access check). Design, migration,
 rollback script and deploy plan: `docs/speed6_messages_table_design.md`.
 Merge = deploy only on an explicit go.
+
+### DEPLOYED + PROVEN 2026-08-27 — SPEED-6 live: send-to-ack p50 74 ms (was 1533)
+
+Squash-merged and deployed on Артём's go. Boot migration moved 441 messages /
+3 reactions / 2 drafts to tables (0 skipped), blob marker set. A follow-up fix
+removed the write-queue barrier from chat-table methods (it made access wait up
+to ~300 ms for fanout blob writes).
+
+| metric (20-msg burst, prod, same client) | before SPEED-6 | after |
+|---|---|---|
+| client send-to-ack p50 | 1533 ms | **74 ms** |
+| client send-to-ack p95 | 2031 ms | **250 ms** |
+| server access | 150–430 ms | **1–3 ms** |
+| server persist | 670–1720 ms | **8–11 ms** |
+
+Functional sanity on prod tables: history/pagination/dedup/previews/unread/
+search/reactions/mark-read — all pass. Rollback stays available via
+backend/scripts/restore-chat-collections-to-blob.js + the pre-deploy dump
+(/opt/rodnya/backups/manual/pre-speed6-20260827-0916.dump).
+
+Remaining background inefficiency (does NOT block acks anymore): notifications
+and pushDeliveries still do whole-blob writes on the fanout — next candidate
+if background load ever matters.
