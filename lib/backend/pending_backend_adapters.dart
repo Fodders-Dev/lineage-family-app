@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:image_picker/image_picker.dart';
 
+import '../models/media_upload_progress.dart';
 import '../models/chat_attachment.dart';
 import '../models/call_event.dart';
 import '../models/call_invite.dart';
@@ -904,6 +905,7 @@ class PendingBackendPostService implements PostServiceInterface {
     List<String> anchorPersonIds = const [],
     String? circleId,
     List<String>? branchIds,
+    void Function(MediaUploadProgress progress)? onProgress,
   }) {
     throw UnsupportedError(_pendingProviderMessage('post'));
   }

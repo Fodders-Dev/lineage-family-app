@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:rodnya/models/media_upload_progress.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:rodnya/backend/interfaces/auth_service_interface.dart';
 import 'package:rodnya/backend/interfaces/circle_service_interface.dart';
@@ -111,6 +112,7 @@ class _FakePostService implements PostServiceInterface {
     List<String> anchorPersonIds = const [],
     String? circleId,
     List<String>? branchIds,
+    void Function(MediaUploadProgress progress)? onProgress,
   }) async =>
       Post(
         id: 'post-1',

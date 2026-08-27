@@ -8,6 +8,7 @@ import '../backend/backend_runtime_config.dart';
 import '../backend/interfaces/post_service_interface.dart';
 import '../backend/interfaces/storage_service_interface.dart';
 import '../models/comment.dart';
+import '../models/media_upload_progress.dart';
 import '../models/post.dart';
 import '../models/reaction_summary.dart';
 import 'custom_api_auth_service.dart';
@@ -104,6 +105,96 @@ class CustomApiPostService implements PostServiceInterface {
     }
   }
 
+  /// Сколько файлов грузится одновременно.
+  ///
+  /// Больше — не быстрее, а опаснее: `readAsBytes()` + `base64Encode()` в
+  /// storage-сервисе блокирующие, и каждый файл в полёте держит в памяти
+  /// исходник плюс раздутую на треть base64-строку. Четыре — предел, за
+  /// которым 30 фото начинают грозить ANR/OOM на телефоне, а не ускорением.
+  static const int _uploadConcurrency = 4;
+
+  /// Грузит медиа пулом ограниченной конкурентности, СОХРАНЯЯ порядок выбора.
+  ///
+  /// Порядок обязателен: карусель поста и альбом рисуют `imageUrls` как
+  /// массив, поэтому раскладываем результаты по исходному индексу, а не по
+  /// порядку завершения (быстрые мелкие фото иначе выпрыгивают вперёд).
+  ///
+  /// Любая неудача файла валит весь пост осознанно: раньше `if (url != null)`
+  /// молча выбрасывал непрогрузившееся фото — человек публиковал 30 снимков и
+  /// получал 27, ничего об этом не узнав. Автоповтор — шаг 5 плана.
+  Future<List<String>> _uploadPostMedia(
+    List<XFile> images, {
+    void Function(MediaUploadProgress progress)? onProgress,
+  }) async {
+    if (images.isEmpty) {
+      return const <String>[];
+    }
+
+    final total = images.length;
+    final urls = List<String?>.filled(total, null);
+    var nextIndex = 0;
+    var completed = 0;
+    Object? failure;
+    StackTrace? failureStack;
+
+    onProgress?.call(
+      MediaUploadProgress(
+        stage: MediaUploadStage.preparing,
+        completed: 0,
+        total: total,
+      ),
+    );
+
+    // Изолят однопоточный: инкремент nextIndex между await'ами атомарен,
+    // так что курсор задач без мьютекса корректен.
+    Future<void> worker() async {
+      while (failure == null) {
+        final index = nextIndex;
+        if (index >= total) {
+          return;
+        }
+        nextIndex = index + 1;
+        try {
+          final url = await _storageService.uploadImage(images[index], 'posts');
+          if (url == null) {
+            failure ??= const CustomApiPostException(
+              'Не удалось загрузить одно из фото. Проверьте связь и '
+              'попробуйте опубликовать ещё раз.',
+            );
+            return;
+          }
+          urls[index] = url;
+          completed += 1;
+          onProgress?.call(
+            MediaUploadProgress(
+              stage: MediaUploadStage.uploading,
+              completed: completed,
+              total: total,
+            ),
+          );
+        } catch (error, stack) {
+          // Первая ошибка побеждает; флаг гасит остальных воркеров, чтобы не
+          // жечь трафик на заведомо проваленную публикацию.
+          failure ??= error;
+          failureStack ??= stack;
+          return;
+        }
+      }
+    }
+
+    final workerCount = total < _uploadConcurrency ? total : _uploadConcurrency;
+    await Future.wait(
+      List<Future<void>>.generate(workerCount, (_) => worker()),
+    );
+
+    final error = failure;
+    if (error != null) {
+      Error.throwWithStackTrace(error, failureStack ?? StackTrace.current);
+    }
+
+    return urls.whereType<String>().toList(growable: false);
+  }
+
   @override
   Future<Post> createPost({
     required String treeId,
@@ -114,11 +205,17 @@ class CustomApiPostService implements PostServiceInterface {
     List<String> anchorPersonIds = const [],
     String? circleId,
     List<String>? branchIds,
+    void Function(MediaUploadProgress progress)? onProgress,
   }) async {
-    final imageUrls = <String>[];
-    for (final image in images) {
-      final url = await _storageService.uploadImage(image, 'posts');
-      if (url != null) imageUrls.add(url);
+    final imageUrls = await _uploadPostMedia(images, onProgress: onProgress);
+    if (images.isNotEmpty) {
+      onProgress?.call(
+        MediaUploadProgress(
+          stage: MediaUploadStage.publishing,
+          completed: imageUrls.length,
+          total: images.length,
+        ),
+      );
     }
 
     // Phase 3.4: only send branchIds if the caller passed a non-

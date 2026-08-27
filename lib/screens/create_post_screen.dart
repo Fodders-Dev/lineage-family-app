@@ -28,6 +28,7 @@ import '../theme/app_theme.dart';
 import '../utils/user_facing_error.dart';
 import '../widgets/audience_picker.dart';
 import '../widgets/glass_panel.dart';
+import '../models/media_upload_progress.dart';
 import '../widgets/person_multi_picker_sheet.dart';
 
 /// Сколько медиа влезает в один пост. Ровно столько же принимает бэкенд
@@ -67,6 +68,28 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
   bool _isPublic = false;
   bool _isLoading = false;
+
+  /// Прогресс загрузки медиа во время публикации (шаг 3 плана массовой
+  /// загрузки): 30 фото едут не мгновенно, и замерший спиннер читается как
+  /// «приложение зависло». Null — пока публикация не идёт.
+  MediaUploadProgress? _uploadProgress;
+
+  /// Подпись рядом со спиннером публикации: «Загружено 18 из 30».
+  /// Для одного файла счётчик не нужен — он не несёт информации.
+  String? get _uploadProgressLabel {
+    final progress = _uploadProgress;
+    if (progress == null || progress.total <= 1) {
+      return null;
+    }
+    switch (progress.stage) {
+      case MediaUploadStage.preparing:
+        return 'Готовим ${progress.total} фото';
+      case MediaUploadStage.uploading:
+        return 'Загружено ${progress.completed} из ${progress.total}';
+      case MediaUploadStage.publishing:
+        return 'Публикуем…';
+    }
+  }
   bool _isLoadingCircles = false;
   bool _isLoadingPeople = false;
   bool _circlesUnavailable = false;
@@ -574,7 +597,10 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
     if (_currentTreeId == null) return;
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _uploadProgress = null;
+    });
 
     try {
       // Phase 3.4: when the user picked one or more "Опубликовать
@@ -598,6 +624,12 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         anchorPersonIds: _selectedBranchPersonIds.toList(),
         circleId: _selectedCircleId,
         branchIds: branchIdsForRequest,
+        onProgress: (progress) {
+          if (!mounted) {
+            return;
+          }
+          setState(() => _uploadProgress = progress);
+        },
       );
 
       if (mounted) {
@@ -610,7 +642,10 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         fallbackMessage: 'Не удалось опубликовать запись.',
       );
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _uploadProgress = null;
+        });
         _showMessage(
           describeUserFacingError(
             authService: _authService,
@@ -2007,13 +2042,33 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                     vertical: 9,
                   ),
                   child: _isLoading
-                      ? SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: tokens.accentInk,
-                          ),
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                // Детерминированный бар, когда файлов
+                                // несколько и хоть один уже долетел; иначе
+                                // честнее крутилка, чем застывший 0%.
+                                value: _uploadProgress?.value,
+                                color: tokens.accentInk,
+                              ),
+                            ),
+                            if (_uploadProgressLabel != null) ...[
+                              const SizedBox(width: 8),
+                              Text(
+                                _uploadProgressLabel!,
+                                style: AppTheme.sans(
+                                  color: tokens.accentInk,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ],
                         )
                       : Text(
                           'Опубликовать',

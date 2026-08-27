@@ -1,4 +1,5 @@
 import 'package:image_picker/image_picker.dart';
+import '../../models/media_upload_progress.dart';
 import '../../models/post.dart';
 import '../../models/comment.dart';
 import '../../models/reaction_summary.dart';
@@ -38,6 +39,11 @@ abstract class PostServiceInterface {
   /// server validates every entry against the trees the author
   /// can access and silently drops the rest. When omitted/null,
   /// backend defaults to a single-branch publish (`[treeId]`).
+  ///
+  /// [onProgress] (необязательный) вызывается по мере загрузки медиа —
+  /// экран composer'а показывает «Загружено N из M» вместо замершего
+  /// спиннера. Файлы грузятся пулом ограниченной конкурентности, но в
+  /// `imageUrls` попадают строго в порядке выбора.
   Future<Post> createPost({
     required String treeId,
     required String content,
@@ -47,6 +53,7 @@ abstract class PostServiceInterface {
     List<String> anchorPersonIds = const [],
     String? circleId,
     List<String>? branchIds,
+    void Function(MediaUploadProgress progress)? onProgress,
   });
 
   /// Delete a post by ID.
