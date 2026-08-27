@@ -30,6 +30,13 @@ import '../widgets/audience_picker.dart';
 import '../widgets/glass_panel.dart';
 import '../widgets/person_multi_picker_sheet.dart';
 
+/// Сколько медиа влезает в один пост. Ровно столько же принимает бэкенд
+/// (`enforceArrayCap(imageUrls, max: 30)` в routes/post-routes.js) — клиент
+/// раньше резал на 5 и заставлял разбивать поездку на восемь постов.
+/// Каждый файл уходит своим запросом `/v1/media/upload`, поэтому лимит тела
+/// (50 МБ) считается ПОФАЙЛОВО и пачкой не набирается.
+const int kMaxPostMedia = 30;
+
 class CreatePostScreen extends StatefulWidget {
   const CreatePostScreen({super.key, this.initialAction});
 
@@ -505,10 +512,10 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     }
   }
 
-  /// Push one media item, respecting the 5-item cap.
+  /// Push one media item, respecting [kMaxPostMedia].
   void _appendMedia(_PostMedia media) {
-    if (_selectedMedia.length >= 5) {
-      _showMessage('Можно прикрепить не более 5 файлов.');
+    if (_selectedMedia.length >= kMaxPostMedia) {
+      _showMessage('Можно прикрепить не более $kMaxPostMedia файлов.');
       return;
     }
     setState(() {
@@ -516,18 +523,21 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     });
   }
 
-  /// Push a batch (gallery multi-pick), capping at 5 with a snackbar
-  /// notice if it had to trim.
+  /// Push a batch (gallery multi-pick), capping at [kMaxPostMedia] with a
+  /// snackbar notice if it had to trim.
   void _appendMediaBatch(List<_PostMedia> batch) {
-    final willBeTrimmed = _selectedMedia.length + batch.length > 5;
+    final willBeTrimmed = _selectedMedia.length + batch.length > kMaxPostMedia;
     setState(() {
       final next = <_PostMedia>[..._selectedMedia, ...batch];
-      _selectedMedia = next.take(5).toList();
+      _selectedMedia = next.take(kMaxPostMedia).toList();
     });
     if (willBeTrimmed && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Можно прикрепить не более 5 файлов.'),
+        SnackBar(
+          content: Text(
+            'Можно добавить до $kMaxPostMedia фото за один пост — '
+            'лишние не поместились.',
+          ),
         ),
       );
     }
@@ -735,7 +745,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 icon: Icons.add_photo_alternate_outlined,
                 label: _selectedMedia.isEmpty
                     ? 'Медиа'
-                    : '${_selectedMedia.length}/5',
+                    : '${_selectedMedia.length}/$kMaxPostMedia',
                 active: _selectedMedia.isNotEmpty,
                 onPressed: _openMediaPicker,
               ),
