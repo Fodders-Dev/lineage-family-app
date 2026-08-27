@@ -8299,6 +8299,45 @@ class FileStore {
     return structuredClone(semya);
   }
 
+  // Phase B: легаси-пути вступления в дерево (accept tree-инвайта,
+  // identity-attach, person-create-with-userId, restore из корзины)
+  // писали только tree.memberIds. Для дерева, привязанного к семье,
+  // этого мало: с RODNYA_FEDERATED_SEMYI_ENABLED=true доступ решает
+  // ИСКЛЮЧИТЕЛЬНО членство в семье — без dual-write новый участник
+  // ловил бы 403 сразу после флипа. Роль viewer — как в миграции
+  // (решение Q1: безопасный дефолт, owner повышает вручную).
+  _ensureSemyaMembershipForLegacyJoin(db, tree, userId) {
+    const normalizedUserId = String(userId || "").trim();
+    const semyaId = String(tree?.semyaId || "").trim();
+    if (!normalizedUserId || !semyaId) {
+      return;
+    }
+    const semya = (db.semyi || []).find((entry) => entry.id === semyaId);
+    if (!semya || semya.deletedAt) {
+      return;
+    }
+    db.semyaMembers = Array.isArray(db.semyaMembers) ? db.semyaMembers : [];
+    const existing = db.semyaMembers.find(
+      (entry) =>
+        entry.semyaId === semyaId && entry.userId === normalizedUserId,
+    );
+    if (existing) {
+      // Явное повторное вступление снимает скрытие (kick) — как re-invite.
+      existing.hiddenAt = null;
+      return;
+    }
+    db.semyaMembers.push({
+      id: crypto.randomUUID(),
+      semyaId,
+      userId: normalizedUserId,
+      role: "viewer",
+      joinedAt: nowIso(),
+      invitedByUserId: null,
+      hasInviteGrant: false,
+      hiddenAt: null,
+    });
+  }
+
   async findSemyaById(semyaId) {
     if (!semyaId || typeof semyaId !== "string") {
       return null;
@@ -9620,6 +9659,7 @@ class FileStore {
       tree.members.push(userId);
       changed = true;
     }
+    this._ensureSemyaMembershipForLegacyJoin(db, tree, userId);
 
     if (changed) {
       tree.updatedAt = nowIso();
@@ -9697,6 +9737,7 @@ class FileStore {
     if (!tree.members.includes(userId)) {
       tree.members.push(userId);
     }
+    this._ensureSemyaMembershipForLegacyJoin(db, tree, userId);
     tree.updatedAt = nowIso();
     this._reconcilePersonIdentities(db);
 
@@ -9799,6 +9840,7 @@ class FileStore {
       if (!tree.members.includes(userId)) {
         tree.members.push(userId);
       }
+      this._ensureSemyaMembershipForLegacyJoin(db, tree, userId);
       tree.updatedAt = nowIso();
       this._reconcilePersonIdentities(db);
       await this._write(db);
@@ -9829,6 +9871,7 @@ class FileStore {
       if (!tree.members.includes(userId)) {
         tree.members.push(userId);
       }
+      this._ensureSemyaMembershipForLegacyJoin(db, tree, userId);
       tree.updatedAt = nowIso();
       this._reconcilePersonIdentities(db);
       await this._write(db);
@@ -9869,6 +9912,7 @@ class FileStore {
     if (!tree.members.includes(userId)) {
       tree.members.push(userId);
     }
+    this._ensureSemyaMembershipForLegacyJoin(db, tree, userId);
     tree.updatedAt = nowIso();
     this._attachPersonToIdentity(db, person, canonicalIdentity, userId);
     this._reconcilePersonIdentities(db);
@@ -11403,6 +11447,7 @@ class FileStore {
       if (!tree.members.includes(userId)) {
         tree.members.push(userId);
       }
+      this._ensureSemyaMembershipForLegacyJoin(db, tree, userId);
     }
     tree.updatedAt = nowIso();
     if (canonicalIdentity) {
@@ -14038,6 +14083,7 @@ class FileStore {
         if (!tree.members.includes(row.snapshot.userId)) {
           tree.members.push(row.snapshot.userId);
         }
+        this._ensureSemyaMembershipForLegacyJoin(db, tree, row.snapshot.userId);
         tree.updatedAt = nowIso();
       }
     }
@@ -15493,6 +15539,7 @@ class FileStore {
       if (!tree.members.includes(invitation.userId)) {
         tree.members.push(invitation.userId);
       }
+      this._ensureSemyaMembershipForLegacyJoin(db, tree, invitation.userId);
       tree.updatedAt = nowIso();
     }
 

@@ -381,3 +381,101 @@ test("Ship 5: feature flag ON — семья member without legacy tree.memberId
     await shutdown(ctx);
   }
 });
+
+test("Drift fix: legacy tree-invitation accept dual-writes семья membership (flag ON keeps access)", async () => {
+  const ctx = await startTestServer({useSemyaModel: true});
+  try {
+    const owner = await makeUser(ctx.store, ctx.baseUrl, "drift-owner@example.com");
+    const invitee = await makeUser(ctx.store, ctx.baseUrl, "drift-invitee@example.com");
+    const tree = await ctx.store.createTree({
+      creatorId: owner.userId,
+      name: "Дерево",
+      description: "",
+      isPrivate: true,
+      kind: "family",
+    });
+    await ctx.store.createSemya({
+      ownerId: owner.userId,
+      name: "Семья",
+      treeId: tree.id,
+    });
+
+    const invitation = await ctx.store.createTreeInvitation({
+      treeId: tree.id,
+      userId: invitee.userId,
+      invitedByUserId: owner.userId,
+    });
+    await ctx.store.respondToTreeInvitation(invitation.id, true);
+
+    // Легаси-accept обязан создать членство в семье (роль viewer, как в
+    // миграции), иначе с флагом ON invitee ловил бы 403 на все роуты дерева.
+    const semyaAfter = await ctx.store.findSemyaByTreeId?.(tree.id);
+    const state = JSON.parse(
+      await fs.readFile(path.join(ctx.tempDir, "dev-db.json"), "utf8"),
+    );
+    const membership = (state.semyaMembers || []).find(
+      (entry) => entry.userId === invitee.userId,
+    );
+    assert.ok(membership, "membership not created by legacy accept");
+    assert.equal(membership.role, "viewer");
+    assert.equal(membership.hiddenAt, null);
+
+    // И реальный HTTP-доступ с флагом ON: дерево открывается, не 403.
+    const res = await fetch(`${ctx.baseUrl}/v1/trees/${tree.id}/persons`, {
+      headers: {authorization: `Bearer ${invitee.token}`},
+    });
+    assert.equal(res.status, 200);
+    void semyaAfter;
+  } finally {
+    await shutdown(ctx);
+  }
+});
+
+test("Drift fix: legacy re-join после kick снимает hiddenAt (re-invite семантика)", async () => {
+  const ctx = await startTestServer({useSemyaModel: true});
+  try {
+    const owner = await makeUser(ctx.store, ctx.baseUrl, "rejoin-owner@example.com");
+    const member = await makeUser(ctx.store, ctx.baseUrl, "rejoin-member@example.com");
+    const tree = await ctx.store.createTree({
+      creatorId: owner.userId,
+      name: "Дерево",
+      description: "",
+      isPrivate: true,
+      kind: "family",
+    });
+    const semya = await ctx.store.createSemya({
+      ownerId: owner.userId,
+      name: "Семья",
+      treeId: tree.id,
+    });
+    await ctx.store.addMembership({
+      semyaId: semya.id,
+      userId: member.userId,
+      role: "viewer",
+      invitedByUserId: owner.userId,
+    });
+    await ctx.store.removeMembership({
+      semyaId: semya.id,
+      targetUserId: member.userId,
+      actorUserId: owner.userId,
+    });
+
+    const invitation = await ctx.store.createTreeInvitation({
+      treeId: tree.id,
+      userId: member.userId,
+      invitedByUserId: owner.userId,
+    });
+    await ctx.store.respondToTreeInvitation(invitation.id, true);
+
+    const state = JSON.parse(
+      await fs.readFile(path.join(ctx.tempDir, "dev-db.json"), "utf8"),
+    );
+    const membership = (state.semyaMembers || []).find(
+      (entry) => entry.userId === member.userId,
+    );
+    assert.ok(membership);
+    assert.equal(membership.hiddenAt, null, "kick не снят при re-join");
+  } finally {
+    await shutdown(ctx);
+  }
+});
