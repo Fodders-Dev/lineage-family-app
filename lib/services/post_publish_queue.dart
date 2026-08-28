@@ -8,6 +8,7 @@ import '../models/pending_post_publish.dart';
 import '../models/post.dart';
 import 'custom_api_auth_service.dart';
 import 'pending_send_queue.dart';
+import 'posts_refresh_coordinator.dart';
 
 /// Фоновая очередь публикации постов (шаг 5 bulk-upload): «Опубликовать»
 /// ставит пост сюда и сразу отпускает человека; пачка грузится в фоне
@@ -224,5 +225,8 @@ class PostPublishQueue extends PendingSendQueue<PendingPostPublish> {
     // removeItem сам делает notify+persist — слушатели увидят и рост
     // publishedCount, и опустевшую очередь одним кадром.
     unawaited(removeItem(_bucket, item.localId));
+    // Тот же канал, которым ленту будят realtime/пуши: свежий пост должен
+    // появиться сразу, без pull-to-refresh (no-op, если ленты нет на экране).
+    PostsRefreshCoordinator.instance.requestRefresh();
   }
 }

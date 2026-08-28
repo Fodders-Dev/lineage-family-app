@@ -46,6 +46,7 @@ import 'chat_message_cache.dart';
 import 'chat_details_cache.dart';
 import 'chat_preview_cache.dart';
 import 'notifications_cache.dart';
+import 'post_publish_queue.dart';
 import 'posts_cache.dart';
 import 'tree_graph_cache.dart';
 import 'user_profile_cache.dart';
@@ -352,6 +353,15 @@ class AppStartupService implements AppStartupServiceInterface {
     );
     _registerOrReplaceSingleton<CustomApiPostService>(customApiPostService);
     _registerOrReplaceSingleton<PostServiceInterface>(customApiPostService);
+    // Шаг 5 bulk-upload: фоновая очередь публикации. Как и у чата,
+    // appStatusService даёт автоповтор при возврате сети; restore досылает
+    // посты, пережившие kill приложения, не дожидаясь открытия ленты.
+    final postPublishQueue = PostPublishQueue(
+      postService: customApiPostService,
+      appStatusService: appStatusService,
+    );
+    _registerOrReplaceSingleton<PostPublishQueue>(postPublishQueue);
+    unawaited(postPublishQueue.restore());
 
     final customApiGatheringService = CustomApiGatheringService(
       authService: customApiAuthService,

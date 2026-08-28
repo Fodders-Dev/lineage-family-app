@@ -42,6 +42,7 @@ import '../widgets/app_update_ui.dart';
 import '../widgets/main_navigation_bar.dart';
 import '../widgets/notification_permission_banner.dart';
 import '../widgets/offline_indicator.dart';
+import '../widgets/post_publish_status_chip.dart';
 import 'app_router_guards.dart';
 import 'app_router_shared.dart';
 
@@ -132,6 +133,10 @@ class AppShellRouteModule {
                         ),
                       ],
                     ),
+                    // Шаг 5 bulk-upload: фоновая публикация видна с любого
+                    // таба — composer отпускает человека сразу после
+                    // «Опубликовать», судьбу пачки показывает этот чип.
+                    const PostPublishStatusChip(),
                   ],
                 ),
               );
@@ -151,6 +156,8 @@ class AppShellRouteModule {
                 children: [
                   const AppBackdrop(),
                   bodyContent,
+                  // Шаг 5 bulk-upload: см. комментарий в desktop-ветке.
+                  const PostPublishStatusChip(),
                 ],
               ),
               bottomNavigationBar: MainNavigationBar(

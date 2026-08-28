@@ -34,6 +34,8 @@ import 'package:rodnya/services/local_storage_service.dart';
 import 'package:rodnya/services/rustore_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
+import 'package:rodnya/services/post_publish_queue.dart';
 
 class _FakeFamilyTreeService implements FamilyTreeServiceInterface {
   @override
@@ -267,6 +269,41 @@ class _FakeProfileService implements ProfileServiceInterface {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+/// Шаг 5 bulk-upload: createPost, которым управляет тест — завершается
+/// только по gate. Нужен, чтобы доказать: composer отпускает человека ДО
+/// того, как публикация завершилась.
+class _GatedPostService implements PostServiceInterface {
+  final Completer<void> gate = Completer<void>();
+  final List<String> contents = <String>[];
+
+  @override
+  Future<Post> createPost({
+    required String treeId,
+    required String content,
+    List<XFile> images = const [],
+    bool isPublic = false,
+    TreeContentScopeType scopeType = TreeContentScopeType.wholeTree,
+    List<String> anchorPersonIds = const [],
+    String? circleId,
+    List<String>? branchIds,
+    void Function(MediaUploadProgress progress)? onProgress,
+  }) async {
+    contents.add(content);
+    await gate.future;
+    return Post(
+      id: 'post-${contents.length}',
+      treeId: treeId,
+      authorId: 'user-1',
+      authorName: 'Автор',
+      content: content,
+      createdAt: DateTime(2026, 6, 1),
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 Widget _withTree(Widget child) {
   final treeProvider = TreeProvider();
   treeProvider.selectTree('tree-1', 'Локальная семья');
@@ -371,6 +408,60 @@ void main() {
     await tester.enterText(find.byType(TextField).first, '   ');
     await tester.pump();
     expect(publishButton().onTap, isNull);
+  });
+
+  testWidgets(
+      'шаг 5: с очередью «Опубликовать» отпускает сразу — composer закрыт '
+      'до завершения createPost, пост доходит в фоне', (tester) async {
+    final gated = _GatedPostService();
+    final queue = PostPublishQueue.memory(postService: gated);
+    GetIt.I.registerSingleton<PostPublishQueue>(queue);
+    addTearDown(() {
+      queue.dispose();
+      GetIt.I.unregister<PostPublishQueue>();
+    });
+
+    final treeProvider = TreeProvider();
+    treeProvider.selectTree('tree-1', 'Локальная семья');
+    final router = GoRouter(
+      initialLocation: '/compose',
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, __) => const Scaffold(body: Text('Лента')),
+          routes: [
+            GoRoute(
+              path: 'compose',
+              builder: (_, __) => const CreatePostScreen(),
+            ),
+          ],
+        ),
+      ],
+    );
+    await tester.pumpWidget(ChangeNotifierProvider<TreeProvider>.value(
+      value: treeProvider,
+      child: MaterialApp.router(routerConfig: router),
+    ));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    await tester.enterText(find.byType(TextField).first, 'Фоновая запись');
+    await tester.pump();
+    await tester.tap(find.text('Опубликовать'));
+    await tester.pump();
+    // Дать pop-анимации дожить (публикация всё ещё висит на gate).
+    await tester.pump(const Duration(milliseconds: 600));
+
+    // Composer закрыт, хотя createPost ещё не завершился.
+    expect(find.text('Лента'), findsOneWidget);
+    expect(find.byType(CreatePostScreen), findsNothing);
+    expect(gated.contents, ['Фоновая запись'],
+        reason: 'публикация стартовала в фоне');
+    expect(queue.hasWork, isTrue);
+
+    gated.gate.complete();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(queue.publishedCount, 1);
+    expect(queue.items, isEmpty);
   });
 
   testWidgets(

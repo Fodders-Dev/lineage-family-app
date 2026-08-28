@@ -30,6 +30,7 @@ import '../widgets/audience_picker.dart';
 import '../widgets/glass_panel.dart';
 import '../models/media_upload_progress.dart';
 import '../services/gallery_media_picker.dart';
+import '../services/post_publish_queue.dart';
 import '../widgets/person_multi_picker_sheet.dart';
 
 class CreatePostScreen extends StatefulWidget {
@@ -573,20 +574,53 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
     if (_currentTreeId == null) return;
 
+    // Phase 3.4: when the user picked one or more "Опубликовать
+    // также в" chips, the post fans out to the primary tree
+    // PLUS those branches. When nothing's picked, send `null`
+    // so the backend keeps the legacy single-branch default.
+    final List<String>? branchIdsForRequest = _additionalBranchIds.isEmpty
+        ? null
+        : <String>{_currentTreeId!, ..._additionalBranchIds}.toList();
+
+    // Шаг 5 bulk-upload: очередь публикации есть → «Опубликовать» отпускает
+    // человека сразу. Пачка грузится в фоне (чип в shell показывает ход),
+    // упавшая публикация переживает офлайн и kill приложения и уходит сама.
+    // Рефреш ленты придёт через PostsRefreshCoordinator после ACK сервера,
+    // поэтому pop без сигнала «обнови сейчас».
+    if (GetIt.I.isRegistered<PostPublishQueue>()) {
+      try {
+        await GetIt.I<PostPublishQueue>().enqueue(
+          treeId: _currentTreeId!,
+          content: content,
+          files: _selectedMedia.map((m) => m.file).toList(),
+          isPublic: _isPublic,
+          scopeType: _scopeType,
+          anchorPersonIds: _selectedBranchPersonIds.toList(),
+          circleId: _selectedCircleId,
+          branchIds: branchIdsForRequest,
+        );
+      } catch (error) {
+        _appStatusService.reportError(
+          error,
+          fallbackMessage: 'Не удалось опубликовать запись.',
+        );
+        _showMessage('Не удалось опубликовать запись. Попробуйте ещё раз.');
+        return;
+      }
+      if (mounted) {
+        context.pop();
+      }
+      return;
+    }
+
+    // Очереди нет (тестовый или деградированный контекст) — публикуем на
+    // месте, как раньше: блокирующий прогресс на кнопке.
     setState(() {
       _isLoading = true;
       _uploadProgress = null;
     });
 
     try {
-      // Phase 3.4: when the user picked one or more "Опубликовать
-      // также в" chips, the post fans out to the primary tree
-      // PLUS those branches. When nothing's picked, send `null`
-      // so the backend keeps the legacy single-branch default.
-      final List<String>? branchIdsForRequest =
-          _additionalBranchIds.isEmpty
-              ? null
-              : <String>{_currentTreeId!, ..._additionalBranchIds}.toList();
       await _postService.createPost(
         treeId: _currentTreeId!,
         content: content,
