@@ -98,6 +98,13 @@ abstract class PendingSendQueue<T> extends ChangeNotifier {
   @protected
   String get perfTraceLabel;
 
+  /// Хук после успешной отправки (элемент уже помечен sent, notify и
+  /// persist сделаны). База — no-op: чат держит sent-элементы до серверного
+  /// echo (confirmRemoteMessages); очередь постов, где echo нет, убирает
+  /// элемент сразу.
+  @protected
+  void onItemSent(T item) {}
+
   // ---- связь с сетевым статусом ------------------------------------------
 
   /// Binds to [AppStatusService] (when supplied) so we can auto-retry
@@ -271,6 +278,7 @@ abstract class PendingSendQueue<T> extends ChangeNotifier {
       _upsert(markItemSent(item));
       _notify();
       unawaited(_persistKeySafely(key));
+      onItemSent(item);
     } catch (error) {
       sendTrace.cancel();
       if (!itemExists(key, id)) {
