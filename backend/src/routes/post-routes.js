@@ -176,6 +176,10 @@ function registerPostRoutes(
     const isPublic = req.body?.isPublic === true;
     const scopeType = String(req.body?.scopeType || "wholeTree").trim();
     const circleId = String(req.body?.circleId || "").trim() || null;
+    // Идемпотентный ключ от клиента (очередь фоновой публикации шлёт свой
+    // стабильный localId): повтор после таймаута/обрыва не задваивает пост.
+    const clientRequestId =
+      String(req.body?.clientRequestId || "").trim().slice(0, 120) || null;
 
     // Phase 3.4 multi-branch posts. Optional `branchIds: [string]`
     // on the body lets the author publish a post into several
@@ -265,6 +269,7 @@ function registerPostRoutes(
       scopeType,
       anchorPersonIds: normalizedAnchorPersonIds,
       circleId,
+      clientRequestId,
     });
 
     if (post === false) {
@@ -283,7 +288,10 @@ function registerPostRoutes(
     // delivery (RuStore on Android, web-push on browsers) is no
     // longer skipped. Without this the inbox row was created but
     // the phone never beeped, which was the user-reported bug.
-    if (typeof createAndDispatchNotification === "function") {
+    if (
+      typeof createAndDispatchNotification === "function" &&
+      post._deduplicated !== true
+    ) {
       try {
         const audienceUserIds = await store.resolvePostAudienceUserIds(
           post.id,

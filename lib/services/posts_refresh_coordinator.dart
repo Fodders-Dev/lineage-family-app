@@ -14,9 +14,10 @@ import 'dart:async';
 /// 4. Coordinator debounces requests (500ms) — burst of N pushes
 ///    coalesces в один refresh call.
 ///
-/// Singleton — single feed surface на этот ship. Future: if second
-/// feed surface появится (e.g. notifications screen), promote к
-/// id-keyed map.
+/// Singleton. Изначально был single-subscriber (одна лента); с шага 5
+/// bulk-upload подписчиков двое — home-лента и профиль «Мои записи»
+/// (фоновая публикация закрывает composer до ACK, и pop(true) больше
+/// не сигналит экранам об успехе).
 class PostsRefreshCoordinator {
   PostsRefreshCoordinator._();
 
@@ -24,49 +25,54 @@ class PostsRefreshCoordinator {
 
   static const Duration _debounceWindow = Duration(milliseconds: 500);
 
-  Future<void> Function()? _callback;
+  // Вторая feed-поверхность появилась (профиль «Мои записи» после фоновой
+  // публикации шага 5) — single-subscriber повышен до множества, как и
+  // предвещал комментарий выше. LinkedHashSet держит порядок регистрации;
+  // сравнение — по identity колбэка, как раньше.
+  final Set<Future<void> Function()> _callbacks = <Future<void> Function()>{};
   Timer? _debounceTimer;
 
-  /// `true` если у coordinator есть subscriber, который примет
-  /// refresh request. False — pending requests дропаются (no-op),
+  /// `true` если у coordinator есть хотя бы один subscriber, который
+  /// примет refresh request. False — pending requests дропаются (no-op),
   /// потому что нет UI surface чтобы refetch'ить.
-  bool get hasSubscriber => _callback != null;
+  bool get hasSubscriber => _callbacks.isNotEmpty;
 
-  /// Register the refresh callback. Single subscriber pattern —
-  /// последний registered wins (typical когда HomeScreen rebuilds).
+  /// Register a refresh callback. Каждая поверхность регистрирует свой
+  /// identity-stable колбэк; повторная регистрация того же — no-op.
   void register(Future<void> Function() callback) {
-    _callback = callback;
+    _callbacks.add(callback);
   }
 
-  /// Unregister callback (на dispose of subscriber). Cancels pending
-  /// debounce timer чтобы dangling callback не вызвался.
+  /// Unregister callback (на dispose of subscriber). Последний ушедший
+  /// гасит pending debounce timer, чтобы dangling callback не вызвался.
   void unregister(Future<void> Function() callback) {
-    if (identical(_callback, callback)) {
-      _callback = null;
+    _callbacks.remove(callback);
+    if (_callbacks.isEmpty) {
       _debounceTimer?.cancel();
       _debounceTimer = null;
     }
   }
 
   /// Request a refresh. Debounced — multiple requests within
-  /// [_debounceWindow] collapse в один callback call.
-  /// No-op если нет subscriber'а — refresh would have nothing to do.
+  /// [_debounceWindow] collapse в один общий залп по всем subscribers.
+  /// No-op если нет ни одного — refresh would have nothing to do.
   void requestRefresh() {
-    if (_callback == null) return;
+    if (_callbacks.isEmpty) return;
     _debounceTimer?.cancel();
     _debounceTimer = Timer(_debounceWindow, _fire);
   }
 
   Future<void> _fire() async {
     _debounceTimer = null;
-    final callback = _callback;
-    if (callback == null) return;
-    try {
-      await callback();
-    } catch (_) {
-      // Refresh callbacks should swallow their own errors; coordinator
-      // не должен крашить от UI-level failures. Silent — каждый
-      // refresh is best-effort, next push triggers retry.
+    // Копия: колбэк может отписаться прямо из своего же вызова.
+    for (final callback in List<Future<void> Function()>.of(_callbacks)) {
+      try {
+        await callback();
+      } catch (_) {
+        // Refresh callbacks should swallow their own errors; coordinator
+        // не должен крашить от UI-level failures. Silent — каждый
+        // refresh is best-effort, next push triggers retry.
+      }
     }
   }
 }

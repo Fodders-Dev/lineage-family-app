@@ -30,6 +30,7 @@ class _GatedPostService implements PostServiceInterface {
     List<String> anchorPersonIds = const [],
     String? circleId,
     List<String>? branchIds,
+    String? clientRequestId,
     void Function(MediaUploadProgress progress)? onProgress,
   }) async {
     calls += 1;
@@ -78,7 +79,8 @@ void main() {
       (tester) async {
     final service = _GatedPostService()
       ..nextError = const CustomApiException('Сеть недоступна');
-    final queue = PostPublishQueue.memory(postService: service);
+    final queue = PostPublishQueue.memory(
+        postService: service, currentUserId: () => 'user-1');
     GetIt.I.registerSingleton<PostPublishQueue>(queue);
 
     await tester.pumpWidget(host());
@@ -106,7 +108,8 @@ void main() {
   testWidgets('«Убрать» отпускает упавшую публикацию', (tester) async {
     final service = _GatedPostService()
       ..nextError = const CustomApiException('Сеть недоступна');
-    final queue = PostPublishQueue.memory(postService: service);
+    final queue = PostPublishQueue.memory(
+        postService: service, currentUserId: () => 'user-1');
     GetIt.I.registerSingleton<PostPublishQueue>(queue);
 
     await tester.pumpWidget(host());

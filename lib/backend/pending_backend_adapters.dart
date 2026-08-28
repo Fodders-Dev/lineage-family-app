@@ -905,6 +905,7 @@ class PendingBackendPostService implements PostServiceInterface {
     List<String> anchorPersonIds = const [],
     String? circleId,
     List<String>? branchIds,
+    String? clientRequestId,
     void Function(MediaUploadProgress progress)? onProgress,
   }) {
     throw UnsupportedError(_pendingProviderMessage('post'));

@@ -358,6 +358,9 @@ class AppStartupService implements AppStartupServiceInterface {
     // посты, пережившие kill приложения, не дожидаясь открытия ленты.
     final postPublishQueue = PostPublishQueue(
       postService: customApiPostService,
+      // Очередь общая на устройство: элементы скоупятся по автору, чтобы
+      // после смены аккаунта черновики A не публиковались под токеном B.
+      currentUserId: () => customApiAuthService.currentUserId,
       appStatusService: appStatusService,
     );
     _registerOrReplaceSingleton<PostPublishQueue>(postPublishQueue);

@@ -24,15 +24,19 @@ import 'posts_refresh_coordinator.dart';
 class PostPublishQueue extends PendingSendQueue<PendingPostPublish> {
   PostPublishQueue({
     required PostServiceInterface postService,
+    required String? Function() currentUserId,
     super.appStatusService,
     String boxName = 'post_publish_queue_v1',
   })  : _postService = postService,
+        _currentUserId = currentUserId,
         super(boxName: boxName);
 
   PostPublishQueue.memory({
     required PostServiceInterface postService,
+    required String? Function() currentUserId,
     super.appStatusService,
   })  : _postService = postService,
+        _currentUserId = currentUserId,
         super(boxName: null);
 
   /// Посты не шардируются по чатам — одна корзина на всё приложение.
@@ -40,13 +44,27 @@ class PostPublishQueue extends PendingSendQueue<PendingPostPublish> {
 
   final PostServiceInterface _postService;
 
+  /// Кто сейчас залогинен. Очередь и её Hive-box общие на устройство,
+  /// поэтому всё пользовательское (показ, отправка, авто-ретрай)
+  /// фильтруется по автору элемента.
+  final String? Function() _currentUserId;
+
+  String get _ownUserId => (_currentUserId() ?? '').trim();
+
   /// Сколько постов дошло до сервера за сессию — слушатели ленты
   /// перечитывают её, когда счётчик растёт (сам элемент к этому моменту
   /// уже убран из очереди).
   int get publishedCount => _publishedCount;
   int _publishedCount = 0;
 
-  List<PendingPostPublish> get items => itemsFor(_bucket);
+  /// Элементы ТЕКУЩЕГО пользователя — чип и ретраи не должны показывать
+  /// (и тем более публиковать) черновики другого аккаунта этого устройства.
+  List<PendingPostPublish> get items {
+    final ownUserId = _ownUserId;
+    return itemsFor(_bucket)
+        .where((item) => item.userId == ownUserId)
+        .toList(growable: false);
+  }
 
   bool get hasWork => items.isNotEmpty;
 
@@ -79,11 +97,16 @@ class PostPublishQueue extends PendingSendQueue<PendingPostPublish> {
     if (content.trim().isEmpty && files.isEmpty) {
       throw StateError('Запись не должна быть пустой');
     }
+    final ownUserId = _ownUserId;
+    if (ownUserId.isEmpty) {
+      throw StateError('Нет активной сессии');
+    }
 
     await restore();
 
     final post = PendingPostPublish(
       localId: newLocalId(),
+      userId: ownUserId,
       treeId: normalizedTreeId,
       content: content,
       timestamp: DateTime.now(),
@@ -109,6 +132,24 @@ class PostPublishQueue extends PendingSendQueue<PendingPostPublish> {
     addAndSend(post);
     return post;
   }
+
+  /// Посты отправляются строго по одному: внутри createPost уже пул из
+  /// 4 воркеров, и это документированный потолок памяти (ANR/OOM на 30
+  /// фото). Два конкурентных поста удвоили бы его и поделили полосу,
+  /// провоцируя ложные таймауты. Цепочка вместо параллели.
+  Future<void> _sendChain = Future<void>.value();
+
+  @override
+  Future<void> sendItem(PendingPostPublish item) {
+    final task = _sendChain.then((_) => super.sendItem(item));
+    // super.sendItem не бросает (всё ловит внутрь item'а), но цепочку
+    // страхуем, чтобы одна ошибка не заморозила очередь навсегда.
+    _sendChain = task.catchError((_) {});
+    return task;
+  }
+
+  @override
+  bool shouldSendItem(PendingPostPublish item) => item.userId == _ownUserId;
 
   Future<void> retry(String localId) => retryItem(_bucket, localId);
 
@@ -183,11 +224,20 @@ class PostPublishQueue extends PendingSendQueue<PendingPostPublish> {
       anchorPersonIds: item.anchorPersonIds,
       circleId: item.circleId,
       branchIds: item.branchIds,
+      // localId стабилен между ретраями → сервер дедупит по нему: таймаут
+      // не отменяет уже летящий createPost (зомби-запрос), и без ключа
+      // ретрай (ручной или сетевой) публиковал бы пост вторым экземпляром.
+      clientRequestId: item.localId,
       onProgress: (progress) {
         transformItem(
           _bucket,
           item.localId,
-          (post) => post.copyWith(progress: progress),
+          // Прогресс применяем только к pending: зомби-createPost после
+          // таймаута продолжает слать onProgress и иначе стирал бы
+          // errorText у failed-элемента (copyWith присваивает напрямую).
+          (post) => post.status == PendingPostPublishStatus.pending
+              ? post.copyWith(progress: progress)
+              : post,
         );
       },
     );

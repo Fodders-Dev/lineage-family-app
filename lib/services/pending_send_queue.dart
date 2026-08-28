@@ -38,7 +38,7 @@ abstract class PendingSendQueue<T> extends ChangeNotifier {
   final AppStatusService? _appStatusService;
 
   final Map<String, List<T>> _itemsByKey = <String, List<T>>{};
-  final Set<String> _loadedKeys = <String>{};
+  final Map<String, Future<void>> _restoreTasks = <String, Future<void>>{};
   final Set<String> _inFlightIds = <String>{};
   Future<Box<String>>? _openTask;
   int _localCounter = 0;
@@ -105,6 +105,13 @@ abstract class PendingSendQueue<T> extends ChangeNotifier {
   @protected
   void onItemSent(T item) {}
 
+  /// Пропускать ли элемент в отправку. База — всегда да; очередь постов
+  /// отвечает «нет» для элементов чужого пользователя (общее устройство:
+  /// A вышел, B вошёл — черновики A молча ждут возвращения A, авто-ретраи
+  /// и restore не должны публиковать их под токеном B).
+  @protected
+  bool shouldSendItem(T item) => true;
+
   // ---- связь с сетевым статусом ------------------------------------------
 
   /// Binds to [AppStatusService] (when supplied) so we can auto-retry
@@ -159,14 +166,35 @@ abstract class PendingSendQueue<T> extends ChangeNotifier {
   }
 
   /// Восстановить корзину из Hive (однократно на ключ) и досослать pending.
-  Future<void> restoreKey(String key) async {
+  ///
+  /// Возвращает Future ПЕРВОЙ загрузки ключа: повторный вызов ждёт её
+  /// завершения, а не выходит сразу. Иначе гонка: enqueue во время
+  /// незавершённого restore добавлял элемент в память, а догнавшая загрузка
+  /// присваивала список из Hive поверх — свежий элемент терялся из памяти и
+  /// из следующего персиста (латентно жило и в чате с самого начала).
+  Future<void> restoreKey(String key) {
     final normalizedKey = key.trim();
-    if (normalizedKey.isEmpty || _loadedKeys.contains(normalizedKey)) {
+    if (normalizedKey.isEmpty) {
+      return Future<void>.value();
+    }
+    return _restoreTasks.putIfAbsent(
+      normalizedKey,
+      () => _restoreKeyOnce(normalizedKey),
+    );
+  }
+
+  Future<void> _restoreKeyOnce(String normalizedKey) async {
+    Box<String>? box;
+    try {
+      box = await _box();
+    } catch (_) {
+      // Битый box-файл или недоступное хранилище (web в приватном режиме):
+      // очередь честно деградирует в memory-only. Ошибку не пробрасываем —
+      // restore зовут и unawaited на старте, необработанный reject уронил бы
+      // zone; персисты и так best-effort (_persistKeySafely).
+      _itemsByKey.putIfAbsent(normalizedKey, () => <T>[]);
       return;
     }
-    _loadedKeys.add(normalizedKey);
-
-    final box = await _box();
     final rawValue = box?.get(normalizedKey);
     if (rawValue == null || rawValue.trim().isEmpty) {
       _itemsByKey.putIfAbsent(normalizedKey, () => <T>[]);
@@ -219,7 +247,10 @@ abstract class PendingSendQueue<T> extends ChangeNotifier {
 
   Future<void> retryItem(String key, String id) async {
     final item = findItem(key, id);
-    if (item == null) {
+    if (item == null || !shouldSendItem(item)) {
+      // Чужой элемент не переводим в pending: авто-ретрай при возврате
+      // сети не должен ни отправлять его, ни маскировать failed-статус —
+      // автор вернётся и увидит честное «Повторить».
       return;
     }
     final nextItem = prepareItemForRetry(item);
@@ -263,7 +294,9 @@ abstract class PendingSendQueue<T> extends ChangeNotifier {
   Future<void> sendItem(T item) async {
     final key = itemKey(item);
     final id = itemId(item);
-    if (!itemExists(key, id) || !_inFlightIds.add(id)) {
+    if (!itemExists(key, id) ||
+        !shouldSendItem(item) ||
+        !_inFlightIds.add(id)) {
       return;
     }
 

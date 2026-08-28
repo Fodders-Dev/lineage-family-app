@@ -114,6 +114,7 @@ class _FakePostService implements PostServiceInterface {
     List<String> anchorPersonIds = const [],
     String? circleId,
     List<String>? branchIds,
+    String? clientRequestId,
     void Function(MediaUploadProgress progress)? onProgress,
   }) async =>
       Post(
@@ -286,6 +287,7 @@ class _GatedPostService implements PostServiceInterface {
     List<String> anchorPersonIds = const [],
     String? circleId,
     List<String>? branchIds,
+    String? clientRequestId,
     void Function(MediaUploadProgress progress)? onProgress,
   }) async {
     contents.add(content);
@@ -414,7 +416,8 @@ void main() {
       'шаг 5: с очередью «Опубликовать» отпускает сразу — composer закрыт '
       'до завершения createPost, пост доходит в фоне', (tester) async {
     final gated = _GatedPostService();
-    final queue = PostPublishQueue.memory(postService: gated);
+    final queue = PostPublishQueue.memory(
+        postService: gated, currentUserId: () => 'user-1');
     GetIt.I.registerSingleton<PostPublishQueue>(queue);
     addTearDown(() {
       queue.dispose();
@@ -462,6 +465,60 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
     expect(queue.publishedCount, 1);
     expect(queue.items, isEmpty);
+  });
+
+  testWidgets(
+      'шаг 5: двойной тап по «Опубликовать» = ОДИН пост '
+      '(кнопка гаснет синхронно)', (tester) async {
+    final gated = _GatedPostService();
+    final queue = PostPublishQueue.memory(
+        postService: gated, currentUserId: () => 'user-1');
+    GetIt.I.registerSingleton<PostPublishQueue>(queue);
+    addTearDown(() {
+      queue.dispose();
+      GetIt.I.unregister<PostPublishQueue>();
+    });
+
+    final treeProvider = TreeProvider();
+    treeProvider.selectTree('tree-1', 'Локальная семья');
+    final router = GoRouter(
+      initialLocation: '/compose',
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, __) => const Scaffold(body: Text('Лента')),
+          routes: [
+            GoRoute(
+              path: 'compose',
+              builder: (_, __) => const CreatePostScreen(),
+            ),
+          ],
+        ),
+      ],
+    );
+    await tester.pumpWidget(ChangeNotifierProvider<TreeProvider>.value(
+      value: treeProvider,
+      child: MaterialApp.router(routerConfig: router),
+    ));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    await tester.enterText(find.byType(TextField).first, 'Один раз');
+    await tester.pump();
+
+    // Два тапа подряд, без pump между ними — как палец, дрогнувший на
+    // кнопке. enqueue асинхронный, и без синхронного _isLoading-гварда
+    // второй тап успевал создать второй пост.
+    await tester.tap(find.text('Опубликовать'));
+    await tester.tap(find.text('Опубликовать'), warnIfMissed: false);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+
+    gated.gate.complete();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(gated.contents, ['Один раз'],
+        reason: 'двойной тап не должен публиковать дважды');
+    expect(queue.publishedCount, 1);
   });
 
   testWidgets(

@@ -649,6 +649,7 @@ function createPostRecord({
   scopeType = "wholeTree",
   anchorPersonIds = [],
   circleId = null,
+  clientRequestId = null,
 }) {
   const timestamp = nowIso();
   // Phase 3.4: a post lives in one or more branches. Default is
@@ -691,6 +692,9 @@ function createPostRecord({
     scopeType: scopeType === "branches" ? "branches" : "wholeTree",
     anchorPersonIds: normalizeParticipantIds(anchorPersonIds),
     circleId: normalizeNullableString(circleId),
+    // Идемпотентный ключ публикации (см. createPost): по нему повтор того
+    // же запроса от того же автора схлопывается в уже созданный пост.
+    clientRequestId: normalizeNullableString(clientRequestId),
   };
 }
 
@@ -16718,12 +16722,30 @@ class FileStore {
     scopeType = "wholeTree",
     anchorPersonIds = [],
     circleId = null,
+    clientRequestId = null,
   }) {
     const db = await this._read();
     const tree = db.trees.find((entry) => entry.id === treeId);
     const user = db.users.find((entry) => entry.id === authorId);
     if (!tree || !user) {
       return null;
+    }
+
+    // Идемпотентность как у sendMessage (clientMessageId): клиентский
+    // таймаут НЕ отменяет уже летящий запрос, и ретрай без ключа
+    // публиковал бы второй экземпляр поста. Повтор от того же автора
+    // возвращает уже созданный пост; _deduplicated подсказывает роуту
+    // не рассылать уведомления второй раз.
+    const normalizedClientRequestId = normalizeNullableString(clientRequestId);
+    if (normalizedClientRequestId) {
+      const existing = db.posts.find(
+        (entry) =>
+          entry.authorId === authorId &&
+          entry.clientRequestId === normalizedClientRequestId,
+      );
+      if (existing) {
+        return {...attachPostReactions(db, existing), _deduplicated: true};
+      }
     }
     const {allTreeCircle} = ensureCirclesForTree(db, tree);
     const normalizedCircleId = normalizeNullableString(circleId) || allTreeCircle?.id;
@@ -16774,6 +16796,7 @@ class FileStore {
       scopeType,
       anchorPersonIds,
       circleId: targetCircle.id,
+      clientRequestId: normalizedClientRequestId,
     });
     if (!post.content && post.imageUrls.length === 0) {
       return false;

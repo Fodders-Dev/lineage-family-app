@@ -37,6 +37,7 @@ import '../services/app_status_service.dart';
 import '../services/custom_api_post_service.dart';
 import '../services/user_profile_cache.dart';
 import '../services/posts_cache.dart';
+import '../services/posts_refresh_coordinator.dart';
 import '../utils/photo_url.dart';
 import '../utils/relative_details_route.dart';
 import '../utils/russian_plural.dart';
@@ -197,10 +198,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
   /// dismisses.
   bool _autoEditConsumed = false;
 
+  /// Шаг 5 bulk-upload: composer закрывается ДО публикации, pop(true)
+  /// больше не сигналит об успехе — «Мои записи» узнают о новом посте тем
+  /// же каналом, что и лента (координатор дёргается очередью после ACK).
+  /// Identity-stable, как у home_screen: unregister по identity.
+  // ignore: prefer_function_declarations_over_variables
+  late final Future<void> Function() _postsRefreshCallback =
+      () => _loadUserData();
+
   @override
   void initState() {
     super.initState();
+    PostsRefreshCoordinator.instance.register(_postsRefreshCallback);
     _loadUserData();
+  }
+
+  @override
+  void dispose() {
+    PostsRefreshCoordinator.instance.unregister(_postsRefreshCallback);
+    super.dispose();
   }
 
   @override

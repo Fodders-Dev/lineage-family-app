@@ -40,6 +40,12 @@ abstract class PostServiceInterface {
   /// can access and silently drops the rest. When omitted/null,
   /// backend defaults to a single-branch publish (`[treeId]`).
   ///
+  /// [clientRequestId] (необязательный) — идемпотентный ключ публикации:
+  /// сервер, увидев повтор от того же автора, возвращает уже созданный
+  /// пост вместо второго экземпляра. Очередь фоновой публикации передаёт
+  /// сюда стабильный localId — ретрай после таймаута (когда первый запрос
+  /// «зомби» и мог дойти) не задваивает пост.
+  ///
   /// [onProgress] (необязательный) вызывается по мере загрузки медиа —
   /// экран composer'а показывает «Загружено N из M» вместо замершего
   /// спиннера. Файлы грузятся пулом ограниченной конкурентности, но в
@@ -53,6 +59,7 @@ abstract class PostServiceInterface {
     List<String> anchorPersonIds = const [],
     String? circleId,
     List<String>? branchIds,
+    String? clientRequestId,
     void Function(MediaUploadProgress progress)? onProgress,
   });
 

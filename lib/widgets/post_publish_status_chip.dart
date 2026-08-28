@@ -5,6 +5,7 @@ import '../models/media_upload_progress.dart';
 import '../models/pending_post_publish.dart';
 import '../services/post_publish_queue.dart';
 import '../theme/app_theme.dart';
+import '../utils/russian_plural.dart';
 
 /// Глобальный чип фоновой публикации (шаг 5 bulk-upload): «Опубликовать»
 /// отпускает человека с composer'а, а этот чип — единственное окно в судьбу
@@ -57,18 +58,22 @@ class PostPublishStatusChip extends StatelessWidget {
     if (items.length > 1) {
       label = '$label · ещё ${items.length - 1}';
     }
-    return _chipShell(
-      context,
-      leading: SizedBox(
-        width: 16,
-        height: 16,
-        child: CircularProgressIndicator(
-          strokeWidth: 2,
-          value: progress?.value,
-          color: tokens?.accent ?? theme.colorScheme.primary,
+    // Кнопок нет — чип чисто информационный, тапы уходят сквозь него:
+    // иначе он закрывал compose-бар ленты (mobile) и композер чата (desktop).
+    return IgnorePointer(
+      child: _chipShell(
+        context,
+        leading: SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            value: progress?.value,
+            color: tokens?.accent ?? theme.colorScheme.primary,
+          ),
         ),
+        label: label,
       ),
-      label: label,
     );
   }
 
@@ -85,9 +90,14 @@ class PostPublishStatusChip extends StatelessWidget {
         size: 18,
         color: theme.colorScheme.error,
       ),
-      label: failed.first.errorText?.trim().isNotEmpty == true
-          ? failed.first.errorText!.trim()
-          : 'Не удалось опубликовать запись.',
+      // «Повторить»/«Убрать» действуют на ВСЕ упавшие публикации — при
+      // нескольких метка обязана говорить про все, а не цитировать первую.
+      label: failed.length > 1
+          ? 'Не удалось опубликовать: ${failed.length} '
+              '${russianPluralForm(failed.length, one: 'запись', few: 'записи', many: 'записей')}.'
+          : (failed.first.errorText?.trim().isNotEmpty == true
+              ? failed.first.errorText!.trim()
+              : 'Не удалось опубликовать запись.'),
       actions: [
         TextButton(
           onPressed: () {
@@ -122,7 +132,10 @@ class PostPublishStatusChip extends StatelessWidget {
     return Align(
       alignment: Alignment.bottomCenter,
       child: SafeArea(
-        minimum: const EdgeInsets.only(bottom: 12),
+        // 88 — выше compose-бара ленты (mobile) и композера чата в
+        // master-detail (desktop): failed-чип с кнопками не должен
+        // ложиться на управляющие элементы под ним.
+        minimum: const EdgeInsets.only(bottom: 88),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
           child: Material(
@@ -154,3 +167,4 @@ class PostPublishStatusChip extends StatelessWidget {
     );
   }
 }
+

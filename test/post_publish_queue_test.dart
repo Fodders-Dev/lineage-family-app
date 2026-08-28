@@ -40,8 +40,12 @@ class _CreatePostRequest {
 
 class _FakePostService implements PostServiceInterface {
   final List<_CreatePostRequest> requests = <_CreatePostRequest>[];
+  final List<String?> clientRequestIds = <String?>[];
   Object? nextError;
   int progressSteps = 0;
+  Duration delay = Duration.zero;
+  int inFlight = 0;
+  int maxInFlight = 0;
 
   @override
   Future<Post> createPost({
@@ -53,6 +57,7 @@ class _FakePostService implements PostServiceInterface {
     List<String> anchorPersonIds = const [],
     String? circleId,
     List<String>? branchIds,
+    String? clientRequestId,
     void Function(MediaUploadProgress progress)? onProgress,
   }) async {
     requests.add(_CreatePostRequest(
@@ -65,6 +70,14 @@ class _FakePostService implements PostServiceInterface {
       circleId: circleId,
       branchIds: branchIds,
     ));
+    clientRequestIds.add(clientRequestId);
+    inFlight += 1;
+    if (inFlight > maxInFlight) {
+      maxInFlight = inFlight;
+    }
+    if (delay > Duration.zero) {
+      await Future<void>.delayed(delay);
+    }
     for (var i = 1; i <= progressSteps; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 2));
       onProgress?.call(MediaUploadProgress(
@@ -74,6 +87,7 @@ class _FakePostService implements PostServiceInterface {
       ));
     }
     final error = nextError;
+    inFlight -= 1;
     if (error != null) {
       throw error;
     }
@@ -142,7 +156,8 @@ void main() {
   test('успешная публикация: полный снимок composer\'а доходит до createPost, '
       'элемент убирается, publishedCount растёт', () async {
     final service = _FakePostService();
-    final queue = PostPublishQueue.memory(postService: service);
+    final queue = PostPublishQueue.memory(
+        postService: service, currentUserId: () => 'user-1');
     addTearDown(queue.dispose);
 
     final post = await queue.enqueue(
@@ -174,7 +189,8 @@ void main() {
 
   test('прогресс из createPost виден на элементе очереди', () async {
     final service = _FakePostService()..progressSteps = 3;
-    final queue = PostPublishQueue.memory(postService: service);
+    final queue = PostPublishQueue.memory(
+        postService: service, currentUserId: () => 'user-1');
     addTearDown(queue.dispose);
 
     final seen = <int>[];
@@ -199,7 +215,8 @@ void main() {
       () async {
     final service = _FakePostService()
       ..nextError = const CustomApiException('Сеть недоступна');
-    final queue = PostPublishQueue.memory(postService: service);
+    final queue = PostPublishQueue.memory(
+        postService: service, currentUserId: () => 'user-1');
     addTearDown(queue.dispose);
 
     final post = await queue.enqueue(
@@ -233,6 +250,7 @@ void main() {
       ..nextError = const CustomApiException('Сеть недоступна');
     final queue = PostPublishQueue.memory(
       postService: service,
+      currentUserId: () => 'user-1',
       appStatusService: appStatus,
     );
     addTearDown(queue.dispose);
@@ -259,6 +277,7 @@ void main() {
       ..nextError = const CustomApiException('offline');
     final firstQueue = PostPublishQueue(
       postService: failingService,
+      currentUserId: () => 'user-1',
       boxName: boxName,
     );
 
@@ -283,7 +302,8 @@ void main() {
     // «Перезапуск»: новая очередь над тем же box'ом. failed не автостартует
     // (нет pending и нет события сети) — но retry доступен и доносит пост.
     final service = _FakePostService();
-    final queue = PostPublishQueue(postService: service, boxName: boxName);
+    final queue = PostPublishQueue(
+        postService: service, currentUserId: () => 'user-1', boxName: boxName);
     addTearDown(queue.dispose);
     await queue.restore();
 
@@ -298,4 +318,125 @@ void main() {
     expect(service.requests.single.content, 'Переживу перезапуск');
     expect(queue.items, isEmpty);
   });
+
+  test('идемпотентный ключ: createPost получает localId, ретрай — ТОТ ЖЕ',
+      () async {
+    final service = _FakePostService()
+      ..nextError = const CustomApiException('Сеть недоступна');
+    final queue = PostPublishQueue.memory(
+        postService: service, currentUserId: () => 'user-1');
+    addTearDown(queue.dispose);
+
+    final post = await queue.enqueue(treeId: 'tree-1', content: 'Ключ');
+    await _waitUntil(
+      () =>
+          queue.items.isNotEmpty &&
+          queue.items.single.status == PendingPostPublishStatus.failed,
+    );
+    service.nextError = null;
+    await queue.retry(post.localId);
+    await _waitUntil(() => queue.publishedCount == 1);
+
+    expect(service.clientRequestIds, hasLength(2));
+    expect(service.clientRequestIds.first, post.localId);
+    expect(service.clientRequestIds.toSet(), {post.localId},
+        reason: 'сервер дедупит только при СТАБИЛЬНОМ ключе между ретраями');
+  });
+
+  test('посты уходят строго по одному: пул воркеров не удваивается',
+      () async {
+    final service = _FakePostService()
+      ..delay = const Duration(milliseconds: 25);
+    final queue = PostPublishQueue.memory(
+        postService: service, currentUserId: () => 'user-1');
+    addTearDown(queue.dispose);
+
+    await queue.enqueue(treeId: 'tree-1', content: 'Первый');
+    await queue.enqueue(treeId: 'tree-1', content: 'Второй');
+    await _waitUntil(() => queue.publishedCount == 2);
+
+    expect(service.maxInFlight, 1,
+        reason: 'внутри createPost уже пул из 4 воркеров — параллельные '
+            'посты удвоили бы документированный потолок памяти');
+  });
+
+  test('смена аккаунта: чужие элементы не видны, не ретраятся и ждут автора',
+      () async {
+    var currentUser = 'user-a';
+    final appStatus = AppStatusService();
+    addTearDown(appStatus.dispose);
+    final service = _FakePostService()
+      ..nextError = const CustomApiException('Сеть недоступна');
+    final queue = PostPublishQueue.memory(
+      postService: service,
+      currentUserId: () => currentUser,
+      appStatusService: appStatus,
+    );
+    addTearDown(queue.dispose);
+
+    await queue.enqueue(treeId: 'tree-a', content: 'Черновик A');
+    await _waitUntil(
+      () =>
+          queue.items.isNotEmpty &&
+          queue.items.single.status == PendingPostPublishStatus.failed,
+    );
+    expect(service.requests, hasLength(1));
+
+    // Вошёл B: чип чист, возврат сети НЕ публикует чужой черновик.
+    currentUser = 'user-b';
+    expect(queue.items, isEmpty);
+    service.nextError = null;
+    appStatus.debugSetOffline(true);
+    appStatus.debugSetOffline(false);
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    expect(service.requests, hasLength(1),
+        reason: 'пост A не должен уйти под токеном B');
+
+    // A вернулся: черновик на месте, «Повторить» доносит его.
+    currentUser = 'user-a';
+    expect(queue.items, hasLength(1));
+    expect(queue.items.single.status, PendingPostPublishStatus.failed);
+    await queue.retry(queue.items.single.localId);
+    await _waitUntil(() => queue.publishedCount == 1);
+    expect(service.requests.last.content, 'Черновик A');
+  });
+
+  test('enqueue во время незавершённого restore не теряет пост', () async {
+    final boxName = nextBoxName();
+    final failingService = _FakePostService()
+      ..nextError = const CustomApiException('offline');
+    final firstQueue = PostPublishQueue(
+      postService: failingService,
+      currentUserId: () => 'user-1',
+      boxName: boxName,
+    );
+    await firstQueue.enqueue(treeId: 'tree-1', content: 'Из прошлой сессии');
+    await _waitUntil(
+      () =>
+          Hive.isBoxOpen(boxName) &&
+          (Hive.box<String>(boxName).get('posts') ?? '').contains('failed'),
+    );
+    firstQueue.dispose();
+    await Hive.box<String>(boxName).close();
+
+    // «Перезапуск»: restore стартует fire-and-forget (как на старте
+    // приложения), enqueue летит следом, не дожидаясь его руками.
+    final service = _FakePostService();
+    final queue = PostPublishQueue(
+      postService: service,
+      currentUserId: () => 'user-1',
+      boxName: boxName,
+    );
+    addTearDown(queue.dispose);
+    final restoreTask = queue.restore();
+    final enqueueTask = queue.enqueue(treeId: 'tree-1', content: 'Свежий');
+    await restoreTask;
+    await enqueueTask;
+
+    final contents = queue.items.map((item) => item.content).toSet();
+    expect(contents, {'Из прошлой сессии', 'Свежий'},
+        reason: 'загрузка из Hive не должна затирать только что '
+            'поставленный пост (гонка присваивания списка)');
+  });
+
 }

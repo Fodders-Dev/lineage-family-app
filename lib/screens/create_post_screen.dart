@@ -588,6 +588,13 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     // Рефреш ленты придёт через PostsRefreshCoordinator после ACK сервера,
     // поэтому pop без сигнала «обнови сейчас».
     if (GetIt.I.isRegistered<PostPublishQueue>()) {
+      // Двойной тап по «Опубликовать» без этого гварда создавал ДВА поста:
+      // enqueue асинхронный (Hive-restore внутри), и второй тап успевал
+      // пройти валидацию до pop. _isLoading гасит кнопку синхронно.
+      setState(() {
+        _isLoading = true;
+        _uploadProgress = null;
+      });
       try {
         await GetIt.I<PostPublishQueue>().enqueue(
           treeId: _currentTreeId!,
@@ -604,6 +611,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           error,
           fallbackMessage: 'Не удалось опубликовать запись.',
         );
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
         _showMessage('Не удалось опубликовать запись. Попробуйте ещё раз.');
         return;
       }

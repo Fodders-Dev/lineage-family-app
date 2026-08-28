@@ -12,6 +12,7 @@ enum PendingPostPublishStatus { pending, sent, failed }
 class PendingPostPublish {
   const PendingPostPublish({
     required this.localId,
+    required this.userId,
     required this.treeId,
     required this.content,
     required this.timestamp,
@@ -27,6 +28,12 @@ class PendingPostPublish {
   });
 
   final String localId;
+
+  /// Кто ставил в очередь. Очередь общая на устройство, а публикация идёт
+  /// под текущим токеном — без этого поля пост юзера A мог уйти под B
+  /// после смены аккаунта (авто-ретрай/restore). Чужие элементы не
+  /// отправляются и не показываются, пока их автор не вернётся.
+  final String userId;
   final String treeId;
   final String content;
   final DateTime timestamp;
@@ -51,6 +58,7 @@ class PendingPostPublish {
   }) {
     return PendingPostPublish(
       localId: localId,
+      userId: userId,
       treeId: treeId,
       content: content,
       timestamp: timestamp,
@@ -69,6 +77,7 @@ class PendingPostPublish {
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'localId': localId,
+      'userId': userId,
       'treeId': treeId,
       'content': content,
       'timestamp': timestamp.toIso8601String(),
@@ -96,6 +105,7 @@ class PendingPostPublish {
     );
     return PendingPostPublish(
       localId: json['localId']?.toString() ?? '',
+      userId: json['userId']?.toString() ?? '',
       treeId: json['treeId']?.toString() ?? '',
       content: json['content']?.toString() ?? '',
       timestamp: DateTime.tryParse(json['timestamp']?.toString() ?? '') ??

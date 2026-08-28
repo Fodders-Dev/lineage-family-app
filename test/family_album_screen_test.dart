@@ -102,6 +102,7 @@ class _UploadingPostService implements PostServiceInterface {
     List<String> anchorPersonIds = const [],
     String? circleId,
     List<String>? branchIds,
+    String? clientRequestId,
     void Function(MediaUploadProgress progress)? onProgress,
   }) async {
     receivedTreeId = treeId;

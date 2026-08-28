@@ -69,8 +69,11 @@ void main() {
     });
 
     test(
-        'register replaces previous callback — last writer wins '
-        '(triggers when HomeScreen rebuilds)', () async {
+        'несколько подписчиков (лента + профиль) получают один общий залп; '
+        'повторная регистрация того же колбэка не задваивает', () async {
+      // Шаг 5 bulk-upload: single-subscriber повышен до множества — после
+      // фоновой публикации обновляться должны и home-лента, и профиль
+      // «Мои записи». Прежний контракт «last writer wins» упразднён.
       final coordinator = PostsRefreshCoordinator.instance;
       var cb1Count = 0;
       var cb2Count = 0;
@@ -84,13 +87,24 @@ void main() {
 
       coordinator.register(cb1);
       coordinator.register(cb2);
+      // Rebuild экрана регистрирует тот же identity-stable колбэк ещё раз —
+      // это no-op, а не второй вызов.
+      coordinator.register(cb1);
+      addTearDown(() => coordinator.unregister(cb1));
       addTearDown(() => coordinator.unregister(cb2));
 
       coordinator.requestRefresh();
       await Future<void>.delayed(const Duration(milliseconds: 700));
 
-      expect(cb1Count, 0);
+      expect(cb1Count, 1);
       expect(cb2Count, 1);
+
+      // Отписавшийся больше не получает залпов, оставшийся — получает.
+      coordinator.unregister(cb1);
+      coordinator.requestRefresh();
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      expect(cb1Count, 1);
+      expect(cb2Count, 2);
     });
 
     test('callback exception is swallowed — coordinator survives',

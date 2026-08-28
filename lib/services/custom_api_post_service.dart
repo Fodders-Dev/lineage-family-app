@@ -205,6 +205,7 @@ class CustomApiPostService implements PostServiceInterface {
     List<String> anchorPersonIds = const [],
     String? circleId,
     List<String>? branchIds,
+    String? clientRequestId,
     void Function(MediaUploadProgress progress)? onProgress,
   }) async {
     final imageUrls = await _uploadPostMedia(images, onProgress: onProgress);
@@ -243,6 +244,8 @@ class CustomApiPostService implements PostServiceInterface {
           'circleId': circleId.trim(),
         if (cleanBranchIds != null && cleanBranchIds.isNotEmpty)
           'branchIds': cleanBranchIds,
+        if (clientRequestId != null && clientRequestId.trim().isNotEmpty)
+          'clientRequestId': clientRequestId.trim(),
       },
     );
 
