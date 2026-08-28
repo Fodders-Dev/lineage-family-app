@@ -1,17 +1,13 @@
 import 'dart:async';
-import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
-import 'package:hive/hive.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../backend/interfaces/chat_service_interface.dart';
 import '../models/chat_attachment.dart';
 import '../models/chat_message.dart';
 import '../models/chat_send_progress.dart';
-import 'app_status_service.dart';
-import '../utils/perf_log.dart';
 import 'custom_api_auth_service.dart';
+import 'pending_send_queue.dart';
 
 enum ChatPendingMessageStatus { pending, sent, failed }
 
@@ -254,131 +250,30 @@ class ChatPendingMessage {
   }
 }
 
-class ChatSendQueue extends ChangeNotifier {
+/// Очередь исходящих сообщений чата. Вся механика (Hive-recovery, дедуп
+/// in-flight, автоповтор при возврате сети, notify-до-persist) живёт в
+/// [PendingSendQueue] — она извлечена ОТСЮДА без изменения поведения, чат
+/// остаётся её эталонным потребителем. Здесь — только модель сообщения,
+/// таймауты и серверный echo-дедуп.
+class ChatSendQueue extends PendingSendQueue<ChatPendingMessage> {
   ChatSendQueue({
     required ChatServiceInterface chatService,
-    AppStatusService? appStatusService,
-    this.boxName = 'chat_send_queue_v1',
+    super.appStatusService,
+    String boxName = 'chat_send_queue_v1',
   })  : _chatService = chatService,
-        _appStatusService = appStatusService {
-    _bindAppStatusService();
-  }
+        super(boxName: boxName);
 
   ChatSendQueue.memory({
     required ChatServiceInterface chatService,
-    AppStatusService? appStatusService,
+    super.appStatusService,
   })  : _chatService = chatService,
-        _appStatusService = appStatusService,
-        boxName = null {
-    _bindAppStatusService();
-  }
+        super(boxName: null);
 
   final ChatServiceInterface _chatService;
-  final AppStatusService? _appStatusService;
-  final String? boxName;
-  final Map<String, List<ChatPendingMessage>> _messagesByChat =
-      <String, List<ChatPendingMessage>>{};
-  final Set<String> _loadedChatIds = <String>{};
-  final Set<String> _inFlightMessageIds = <String>{};
-  Future<Box<String>>? _openTask;
-  int _localCounter = 0;
-  bool _isDisposed = false;
-  bool _wasOffline = false;
 
-  /// Binds to [AppStatusService] (when supplied) so we can auto-retry
-  /// failed messages the moment connectivity is restored. Without this
-  /// the user has to manually tap "Повторить" on each failed bubble
-  /// after the network returns — which is what the user noticed
-  /// during the offline test.
-  void _bindAppStatusService() {
-    final svc = _appStatusService;
-    if (svc == null) return;
-    _wasOffline = svc.isOffline;
-    svc.addListener(_handleAppStatusChanged);
-  }
+  List<ChatPendingMessage> messagesFor(String chatId) => itemsFor(chatId);
 
-  void _handleAppStatusChanged() {
-    final svc = _appStatusService;
-    if (svc == null || _isDisposed) return;
-    final isOffline = svc.isOffline;
-    final cameBackOnline = _wasOffline && !isOffline;
-    _wasOffline = isOffline;
-    if (cameBackOnline) {
-      // Connectivity restored — retry every failed message across
-      // every chat we've touched in this session. _send() handles
-      // the in-flight de-dup, so racing this with a manual retry
-      // is safe.
-      for (final entry in _messagesByChat.entries) {
-        for (final message in entry.value) {
-          if (message.status == ChatPendingMessageStatus.failed) {
-            unawaited(retry(message.chatId, message.localId));
-          }
-        }
-      }
-    }
-  }
-
-  Future<Box<String>?> _box() {
-    final resolvedBoxName = boxName;
-    if (resolvedBoxName == null) {
-      return Future<Box<String>?>.value(null);
-    }
-    if (Hive.isBoxOpen(resolvedBoxName)) {
-      return Future<Box<String>?>.value(Hive.box<String>(resolvedBoxName));
-    }
-    return (_openTask ??= Hive.openBox<String>(resolvedBoxName))
-        .then<Box<String>?>((box) => box);
-  }
-
-  List<ChatPendingMessage> messagesFor(String chatId) {
-    return List<ChatPendingMessage>.unmodifiable(
-      _messagesByChat[chatId] ?? const <ChatPendingMessage>[],
-    );
-  }
-
-  Future<void> restoreChat(String chatId) async {
-    final normalizedChatId = chatId.trim();
-    if (normalizedChatId.isEmpty || _loadedChatIds.contains(normalizedChatId)) {
-      return;
-    }
-    _loadedChatIds.add(normalizedChatId);
-
-    final box = await _box();
-    final rawValue = box?.get(normalizedChatId);
-    if (rawValue == null || rawValue.trim().isEmpty) {
-      _messagesByChat.putIfAbsent(
-        normalizedChatId,
-        () => const <ChatPendingMessage>[],
-      );
-      return;
-    }
-
-    try {
-      final decoded = jsonDecode(rawValue);
-      if (decoded is List<dynamic>) {
-        final messages = _sortedMessages(
-          decoded
-              .whereType<Map>()
-              .map((entry) => ChatPendingMessage.fromJson(
-                    Map<String, dynamic>.from(entry),
-                  ))
-              .where((message) =>
-                  message.chatId == normalizedChatId &&
-                  message.localId.trim().isNotEmpty)
-              .toList(growable: false),
-        );
-        _messagesByChat[normalizedChatId] = messages;
-        _notify();
-        for (final message in messages) {
-          if (message.status == ChatPendingMessageStatus.pending) {
-            unawaited(_send(message));
-          }
-        }
-      }
-    } catch (_) {
-      _messagesByChat[normalizedChatId] = const <ChatPendingMessage>[];
-    }
-  }
+  Future<void> restoreChat(String chatId) => restoreKey(chatId);
 
   Future<ChatPendingMessage> enqueue({
     required String chatId,
@@ -402,7 +297,7 @@ class ChatSendQueue extends ChangeNotifier {
     await restoreChat(normalizedChatId);
 
     final message = ChatPendingMessage(
-      localId: _newClientMessageId(),
+      localId: newLocalId(),
       chatId: normalizedChatId,
       senderId: senderId,
       text: text,
@@ -424,52 +319,15 @@ class ChatSendQueue extends ChangeNotifier {
             ),
       expiresInSeconds: expiresInSeconds,
     );
-    _upsert(message);
-    // SPEED-1: пузырь должен появиться в кадре тапа — notify ДО дисковой
-    // записи. Hive здесь — только recovery-файл (переживает kill приложения),
-    // не источник правды для UI: in-memory состояние уже консистентно, а
-    // _persistChat кодирует свежайшее состояние в момент выполнения, так что
-    // unawaited-персисты безопасны (last-write-wins).
-    _notify();
-    unawaited(_persistChatSafely(normalizedChatId));
-    unawaited(_send(message));
+    addAndSend(message);
     return message;
   }
 
-  Future<void> retry(String chatId, String clientMessageId) async {
-    final message = _findMessage(chatId, clientMessageId);
-    if (message == null) {
-      return;
-    }
-    final nextMessage = message.copyWith(
-      status: ChatPendingMessageStatus.pending,
-      progress: message.attachments.isNotEmpty
-          ? ChatSendProgress(
-              stage: ChatSendProgressStage.preparing,
-              completed: 0,
-              total: message.attachments.length,
-            )
-          : const ChatSendProgress(
-              stage: ChatSendProgressStage.sending,
-              completed: 1,
-              total: 1,
-            ),
-      errorText: null,
-    );
-    _upsert(nextMessage);
-    _notify();
-    unawaited(_persistChatSafely(chatId));
-    await _send(nextMessage);
-  }
+  Future<void> retry(String chatId, String clientMessageId) =>
+      retryItem(chatId, clientMessageId);
 
-  Future<void> remove(String chatId, String clientMessageId) async {
-    final messages = List<ChatPendingMessage>.from(
-      _messagesByChat[chatId] ?? const <ChatPendingMessage>[],
-    )..removeWhere((message) => message.localId == clientMessageId);
-    _messagesByChat[chatId] = _sortedMessages(messages);
-    _notify();
-    unawaited(_persistChatSafely(chatId));
-  }
+  Future<void> remove(String chatId, String clientMessageId) =>
+      removeItem(chatId, clientMessageId);
 
   Future<void> confirmRemoteMessages(
     String chatId,
@@ -484,17 +342,14 @@ class ChatSendQueue extends ChangeNotifier {
       return;
     }
 
-    final currentMessages =
-        _messagesByChat[chatId] ?? const <ChatPendingMessage>[];
+    final currentMessages = itemsFor(chatId);
     final nextMessages = currentMessages
         .where((message) => !confirmedIds.contains(message.localId))
         .toList(growable: false);
     if (nextMessages.length == currentMessages.length) {
       return;
     }
-    _messagesByChat[chatId] = nextMessages;
-    _notify();
-    unawaited(_persistChatSafely(chatId));
+    replaceItems(chatId, nextMessages);
   }
 
   /// S4: явный потолок ожидания ACK — дольше держать «отправляется»
@@ -503,140 +358,93 @@ class ChatSendQueue extends ChangeNotifier {
   static const Duration _sendTimeout = Duration(seconds: 10);
   static const Duration _sendTimeoutWithAttachments = Duration(seconds: 45);
 
-  Future<void> _send(ChatPendingMessage message) async {
-    if (!_messageExists(message.chatId, message.localId) ||
-        !_inFlightMessageIds.add(message.localId)) {
-      return;
-    }
+  @override
+  String itemKey(ChatPendingMessage item) => item.chatId;
 
-    // S1: отправка до ACK сервера.
-    final sendTrace = PerfTrace('chat.send-to-ack');
-    try {
-      await _chatService
-          .sendMessageToChat(
-            chatId: message.chatId,
-            text: message.text,
-            attachments: message.attachments,
-            forwardedAttachments: message.forwardedAttachments,
-            replyTo: message.replyTo,
-            clientMessageId: message.localId,
-            expiresInSeconds: message.expiresInSeconds,
-            onProgress: (progress) {
-              _updateProgress(message.chatId, message.localId, progress);
-            },
-          )
-          .timeout(
-            message.attachments.isEmpty
-                ? _sendTimeout
-                : _sendTimeoutWithAttachments,
-          );
-      sendTrace.finish();
-      if (!_messageExists(message.chatId, message.localId)) {
-        return;
-      }
-      _upsert(
-        message.copyWith(
-          status: ChatPendingMessageStatus.sent,
-          errorText: null,
-        ),
+  @override
+  String itemId(ChatPendingMessage item) => item.localId;
+
+  @override
+  DateTime itemTimestamp(ChatPendingMessage item) => item.timestamp;
+
+  @override
+  bool isItemPending(ChatPendingMessage item) =>
+      item.status == ChatPendingMessageStatus.pending;
+
+  @override
+  bool isItemFailed(ChatPendingMessage item) =>
+      item.status == ChatPendingMessageStatus.failed;
+
+  @override
+  ChatPendingMessage markItemSent(ChatPendingMessage item) => item.copyWith(
+        status: ChatPendingMessageStatus.sent,
+        errorText: null,
       );
-      _notify();
-      unawaited(_persistChatSafely(message.chatId));
-    } catch (error) {
-      sendTrace.cancel();
-      if (!_messageExists(message.chatId, message.localId)) {
-        return;
-      }
-      _upsert(
-        message.copyWith(
-          status: ChatPendingMessageStatus.failed,
-          errorText: error is TimeoutException
-              ? 'Не дождались ответа сервера. Нажмите, чтобы повторить.'
-              : _messageErrorText(error),
-        ),
+
+  @override
+  ChatPendingMessage markItemFailed(
+    ChatPendingMessage item,
+    String errorText,
+  ) =>
+      item.copyWith(
+        status: ChatPendingMessageStatus.failed,
+        errorText: errorText,
       );
-      _notify();
-      unawaited(_persistChatSafely(message.chatId));
-    } finally {
-      _inFlightMessageIds.remove(message.localId);
-    }
-  }
 
-  void _updateProgress(
-    String chatId,
-    String clientMessageId,
-    ChatSendProgress progress,
-  ) {
-    final message = _findMessage(chatId, clientMessageId);
-    if (message == null) {
-      return;
-    }
-    _upsert(message.copyWith(progress: progress));
-    _notify();
-    unawaited(_persistChatSafely(chatId));
-  }
+  @override
+  ChatPendingMessage prepareItemForRetry(ChatPendingMessage item) =>
+      item.copyWith(
+        status: ChatPendingMessageStatus.pending,
+        progress: item.attachments.isNotEmpty
+            ? ChatSendProgress(
+                stage: ChatSendProgressStage.preparing,
+                completed: 0,
+                total: item.attachments.length,
+              )
+            : const ChatSendProgress(
+                stage: ChatSendProgressStage.sending,
+                completed: 1,
+                total: 1,
+              ),
+        errorText: null,
+      );
 
-  ChatPendingMessage? _findMessage(String chatId, String clientMessageId) {
-    for (final message
-        in _messagesByChat[chatId] ?? const <ChatPendingMessage>[]) {
-      if (message.localId == clientMessageId) {
-        return message;
-      }
-    }
-    return null;
-  }
+  @override
+  Map<String, dynamic> itemToJson(ChatPendingMessage item) => item.toJson();
 
-  bool _messageExists(String chatId, String clientMessageId) {
-    return _findMessage(chatId, clientMessageId) != null;
-  }
+  @override
+  ChatPendingMessage itemFromJson(Map<String, dynamic> json) =>
+      ChatPendingMessage.fromJson(json);
 
-  void _upsert(ChatPendingMessage message) {
-    final messages = List<ChatPendingMessage>.from(
-      _messagesByChat[message.chatId] ?? const <ChatPendingMessage>[],
-    );
-    final index =
-        messages.indexWhere((item) => item.localId == message.localId);
-    if (index == -1) {
-      messages.add(message);
-    } else {
-      messages[index] = message;
-    }
-    _messagesByChat[message.chatId] = _sortedMessages(messages);
-  }
-
-  /// SPEED-1: обёртка для unawaited-персистов — ошибка диска не должна
-  /// уронить zone (Hive тут recovery-файл, не источник правды для UI).
-  Future<void> _persistChatSafely(String chatId) async {
-    try {
-      await _persistChat(chatId);
-    } catch (_) {
-      // Best-effort: очередь уже консистентна в памяти; recovery-файл
-      // догонит на следующем персисте.
-    }
-  }
-
-  Future<void> _persistChat(String chatId) async {
-    final box = await _box();
-    if (box == null) {
-      return;
-    }
-    final messages = _messagesByChat[chatId] ?? const <ChatPendingMessage>[];
-    if (messages.isEmpty) {
-      await box.delete(chatId);
-      return;
-    }
-    await box.put(
-      chatId,
-      jsonEncode(messages.map((message) => message.toJson()).toList()),
+  @override
+  Future<void> performSend(ChatPendingMessage item) {
+    return _chatService.sendMessageToChat(
+      chatId: item.chatId,
+      text: item.text,
+      attachments: item.attachments,
+      forwardedAttachments: item.forwardedAttachments,
+      replyTo: item.replyTo,
+      clientMessageId: item.localId,
+      expiresInSeconds: item.expiresInSeconds,
+      onProgress: (progress) {
+        transformItem(
+          item.chatId,
+          item.localId,
+          (message) => message.copyWith(progress: progress),
+        );
+      },
     );
   }
 
-  String _newClientMessageId() {
-    _localCounter += 1;
-    return 'local-${DateTime.now().microsecondsSinceEpoch}-$_localCounter';
-  }
+  @override
+  Duration sendTimeoutFor(ChatPendingMessage item) =>
+      item.attachments.isEmpty ? _sendTimeout : _sendTimeoutWithAttachments;
 
-  String _messageErrorText(Object error) {
+  @override
+  String errorTextFor(Object error) {
+    if (error is TimeoutException) {
+      return 'Не дождались ответа сервера. Нажмите, чтобы повторить.';
+    }
     if (error is CustomApiException && error.message.trim().isNotEmpty) {
       return error.message.trim();
     }
@@ -646,30 +454,6 @@ class ChatSendQueue extends ChangeNotifier {
     return 'Не удалось отправить сообщение.';
   }
 
-  List<ChatPendingMessage> _sortedMessages(
-    List<ChatPendingMessage> messages,
-  ) {
-    final sortedMessages = messages.toList();
-    sortedMessages.sort((left, right) {
-      final timestampCompare = right.timestamp.compareTo(left.timestamp);
-      if (timestampCompare != 0) {
-        return timestampCompare;
-      }
-      return right.localId.compareTo(left.localId);
-    });
-    return sortedMessages;
-  }
-
-  void _notify() {
-    if (!_isDisposed) {
-      notifyListeners();
-    }
-  }
-
   @override
-  void dispose() {
-    _isDisposed = true;
-    _appStatusService?.removeListener(_handleAppStatusChanged);
-    super.dispose();
-  }
+  String get perfTraceLabel => 'chat.send-to-ack';
 }
