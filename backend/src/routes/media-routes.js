@@ -38,7 +38,68 @@ function registerPublicMediaRoutes(app, {mediaStorage}) {
   });
 }
 
+// Бинарная загрузка: тело запроса = сами байты файла, без base64-обёртки.
+// Экономит +33% трафика и двойную память (JSON-строка + Buffer) на КАЖДОМ
+// фото/видео и снимает потолок express.json(50mb) с видео. Метаданные — в
+// query (bucket/path) и Content-Type. Старый POST /v1/media/upload с
+// fileBase64 остаётся: его шлют клиенты до этого OTA.
+const MAX_BINARY_UPLOAD_BYTES = 64 * 1024 * 1024;
+
 function registerAuthenticatedMediaRoutes(app, {mediaStorage, requireAuth}) {
+  app.put("/v1/media/object", requireAuth, async (req, res) => {
+    const bucket = String(req.query?.bucket || "").trim();
+    const mediaPath = String(req.query?.path || "").trim();
+    if (!bucket || !mediaPath) {
+      res.status(400).json({message: "Нужны query-параметры bucket и path"});
+      return;
+    }
+    const contentType =
+      String(req.headers["content-type"] || "").trim() || null;
+
+    const chunks = [];
+    let total = 0;
+    try {
+      for await (const chunk of req) {
+        total += chunk.length;
+        if (total > MAX_BINARY_UPLOAD_BYTES) {
+          res.status(413).json({message: "Файл больше 64 МБ"});
+          // Хвост потока не читаем — соединение закрываем, иначе клиент
+          // продолжит заливать байты в никуда.
+          req.destroy();
+          return;
+        }
+        chunks.push(chunk);
+      }
+    } catch (error) {
+      // Клиент оборвал соединение посреди загрузки — отвечать некому.
+      if (!res.headersSent) {
+        res.status(400).json({message: "Загрузка прервана"});
+      }
+      return;
+    }
+    if (total === 0) {
+      res.status(400).json({message: "Пустое тело запроса"});
+      return;
+    }
+
+    try {
+      const uploadResult = await mediaStorage.saveObject({
+        req,
+        bucket,
+        relativePath: mediaPath,
+        contentType,
+        fileBuffer: Buffer.concat(chunks),
+      });
+      res.status(201).json(uploadResult);
+    } catch (error) {
+      if (error.message === "INVALID_MEDIA_PATH") {
+        res.status(400).json({message: "Недопустимый media path"});
+        return;
+      }
+      res.status(500).json({message: "Не удалось сохранить файл"});
+    }
+  });
+
   app.post("/v1/media/upload", requireAuth, async (req, res) => {
     const {bucket, path: mediaPath, fileBase64, contentType} = req.body || {};
 

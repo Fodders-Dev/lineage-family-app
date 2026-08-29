@@ -757,7 +757,10 @@ function createApp({
       ) {
         return {bucket: "auth", limit: config.authRateLimitMax};
       }
-      if (pathName === "/v1/media/upload") {
+      if (
+        pathName === "/v1/media/upload" ||
+        pathName === "/v1/media/object"
+      ) {
         return {bucket: "upload", limit: config.uploadRateLimitMax};
       }
       if (pathName === "/v1/reports" || pathName.startsWith("/v1/blocks")) {

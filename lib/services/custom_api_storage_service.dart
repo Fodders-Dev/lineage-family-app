@@ -107,6 +107,11 @@ class CustomApiStorageService implements StorageServiceInterface {
     );
   }
 
+  /// Бэкенд ещё не умеет бинарный PUT (404/405 от старого прод-бэка в
+  /// первые минуты выкатки веба) — запоминаем на сессию и не долбим его
+  /// обречёнными запросами перед каждым фолбэком.
+  bool _binaryUploadUnsupported = false;
+
   @override
   Future<String?> uploadBytes({
     required String bucket,
@@ -114,6 +119,29 @@ class CustomApiStorageService implements StorageServiceInterface {
     required Uint8List fileBytes,
     FileOptions? fileOptions,
   }) async {
+    // Бинарный путь: тело = сами байты. Против base64-JSON экономит +33%
+    // трафика и двойную память (мегабайтная строка + её парсинг на бэке),
+    // а видео перестают упираться в потолок express.json(50mb).
+    if (!_binaryUploadUnsupported) {
+      final uri = _buildUri(
+        '/v1/media/object'
+        '?bucket=${Uri.encodeQueryComponent(bucket)}'
+        '&path=${Uri.encodeQueryComponent(path)}',
+      );
+      final response = await _httpClient.put(
+        uri,
+        headers: _binaryHeaders(fileOptions?.contentType),
+        body: fileBytes,
+      );
+      if (response.statusCode == 404 || response.statusCode == 405) {
+        _binaryUploadUnsupported = true;
+      } else {
+        final payload = _decodeJsonResponse(response);
+        return UrlUtils.normalizeImageUrl(payload['url']?.toString());
+      }
+    }
+
+    // Легаси-путь для бэка без PUT /v1/media/object.
     final response = await _requestJson(
       method: 'POST',
       path: '/v1/media/upload',
@@ -126,6 +154,18 @@ class CustomApiStorageService implements StorageServiceInterface {
     );
 
     return UrlUtils.normalizeImageUrl(response['url']?.toString());
+  }
+
+  Map<String, String> _binaryHeaders(String? contentType) {
+    final token = _authService.accessToken;
+    if (token == null || token.isEmpty) {
+      throw const CustomApiStorageException('Нет активной customApi session');
+    }
+    return {
+      'Content-Type': contentType ?? 'application/octet-stream',
+      'Accept': 'application/json',
+      'Authorization': 'Bearer $token',
+    };
   }
 
   Future<Map<String, dynamic>> _requestJson({
@@ -148,6 +188,10 @@ class CustomApiStorageService implements StorageServiceInterface {
         throw const CustomApiStorageException('Неподдерживаемый HTTP-метод');
     }
 
+    return _decodeJsonResponse(response);
+  }
+
+  Map<String, dynamic> _decodeJsonResponse(http.Response response) {
     if (response.body.isEmpty) {
       if (response.statusCode >= 200 && response.statusCode < 300) {
         return const <String, dynamic>{};
