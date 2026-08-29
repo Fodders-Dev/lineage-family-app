@@ -14,10 +14,10 @@
       "Bash(git branch*)",
       "Bash(gh run list*)",
       "Bash(gh run view*)",
-      "Bash(gh workflow view*)"
+      "Bash(gh workflow view*)",
+      "Bash(git push*)"
     ],
     "ask": [
-      "Bash(git push*)",
       "Bash(gh workflow run*)",
       "Bash(ssh *)",
       "Bash(scp *)",
