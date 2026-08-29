@@ -715,7 +715,19 @@ function createApp({
   );
   // Some legacy/mobile clients still send JSON literal `null` on bodyless POSTs
   // such as like/view/read actions. Accept it and let handlers validate fields.
-  app.use(express.json({limit: "50mb", strict: false}));
+  // Бинарный PUT /v1/media/object обязан пройти МИМО json-парсера при
+  // любом Content-Type: иначе application/json-тело перехватывается здесь
+  // (до requireAuth и rate-limit), а SyntaxError улетает в глобальный
+  // error-handler — 500 без токена и «Пустое тело» для легитимного клиента
+  // с кривым заголовком (ревью бинарной загрузки, P1).
+  const jsonBodyParser = express.json({limit: "50mb", strict: false});
+  app.use((req, res, next) => {
+    if (req.path.replace(/\/+$/, "") === "/v1/media/object") {
+      next();
+      return;
+    }
+    jsonBodyParser(req, res, next);
+  });
   registerPublicMediaRoutes(app, {mediaStorage: resolvedMediaStorage});
   // U1: публичный эндпоинт версии для OTA-апдейтера sideload-сборок.
   registerAppUpdateRoutes(app, {config});
@@ -728,6 +740,10 @@ function createApp({
   app.use(async (req, res, next) => {
     const policy = (() => {
       const pathName = req.path || "/";
+      // Express матчит роуты нестрого: /v1/media/object/ попадает в тот же
+      // хендлер, но строгие === в политике его не видели — запрос уезжал в
+      // щедрый mutation-бакет мимо upload-лимита (ревью, P2).
+      const normalizedPathName = pathName.replace(/\/+$/, "") || "/";
       if (pathName === "/health" || pathName === "/ready") {
         return null;
       }
@@ -758,8 +774,8 @@ function createApp({
         return {bucket: "auth", limit: config.authRateLimitMax};
       }
       if (
-        pathName === "/v1/media/upload" ||
-        pathName === "/v1/media/object"
+        normalizedPathName === "/v1/media/upload" ||
+        normalizedPathName === "/v1/media/object"
       ) {
         return {bucket: "upload", limit: config.uploadRateLimitMax};
       }

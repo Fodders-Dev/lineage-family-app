@@ -59,7 +59,11 @@ async function startTestServer() {
 
 async function shutdown({server, tempDir}) {
   await new Promise((resolve) => server.close(resolve));
-  await fs.rm(tempDir, {recursive: true, force: true});
+  // Best-effort, как в остальных тест-обвязках (posts-pagination и др.):
+  // на Windows антивирус/индексатор может держать файл в temp-каталоге,
+  // и ENOTEMPTY здесь красил содержательно зелёный тест (задокументированный
+  // флейк, стал стабильным 29.08). Утечка temp-папки безопасна.
+  await fs.rm(tempDir, {recursive: true, force: true}).catch(() => {});
 }
 
 async function makeUser(store, baseUrl, email) {

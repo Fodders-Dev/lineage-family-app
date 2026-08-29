@@ -17,14 +17,17 @@ class CustomApiStorageService implements StorageServiceInterface {
     required CustomApiAuthService authService,
     required BackendRuntimeConfig runtimeConfig,
     http.Client? httpClient,
+    DateTime Function()? nowProvider,
   })  : _authService = authService,
         _runtimeConfig = runtimeConfig,
-        _httpClient = httpClient ?? http.Client();
+        _httpClient = httpClient ?? http.Client(),
+        _now = nowProvider ?? DateTime.now;
 
   final CustomApiAuthService _authService;
   final BackendRuntimeConfig _runtimeConfig;
   final http.Client _httpClient;
   final Uuid _uuid = const Uuid();
+  final DateTime Function() _now;
 
   @override
   Future<String?> uploadImage(XFile imageFile, String folder) async {
@@ -107,10 +110,18 @@ class CustomApiStorageService implements StorageServiceInterface {
     );
   }
 
+  /// Потолок бинарного роута бэка. Проверяем ЗДЕСЬ, до отправки: сервер
+  /// свой 413 честно доставит только после того, как клиент дольёт всё
+  /// тело — мгновенная локальная ошибка ощутимо честнее.
+  static const int _maxUploadBytes = 64 * 1024 * 1024;
+
   /// Бэкенд ещё не умеет бинарный PUT (404/405 от старого прод-бэка в
-  /// первые минуты выкатки веба) — запоминаем на сессию и не долбим его
-  /// обречёнными запросами перед каждым фолбэком.
-  bool _binaryUploadUnsupported = false;
+  /// первые минуты выкатки веба) — придерживаем бинарные попытки, но НЕ
+  /// навсегда: файлы 37.5–50 МБ через base64 структурно не проходят
+  /// (потолок тела 50 МБ у бэка), поэтому вечное залипание на фолбэке
+  /// хоронило бы большие видео даже после рестарта бэка.
+  DateTime? _binaryUploadRetryAt;
+  static const Duration _binaryUploadRetryAfter = Duration(minutes: 10);
 
   @override
   Future<String?> uploadBytes({
@@ -119,10 +130,18 @@ class CustomApiStorageService implements StorageServiceInterface {
     required Uint8List fileBytes,
     FileOptions? fileOptions,
   }) async {
+    if (fileBytes.length > _maxUploadBytes) {
+      throw const CustomApiStorageException(
+        'Файл больше 64 МБ. Сожмите видео или выберите файл поменьше.',
+        statusCode: 413,
+      );
+    }
+
     // Бинарный путь: тело = сами байты. Против base64-JSON экономит +33%
     // трафика и двойную память (мегабайтная строка + её парсинг на бэке),
     // а видео перестают упираться в потолок express.json(50mb).
-    if (!_binaryUploadUnsupported) {
+    final retryAt = _binaryUploadRetryAt;
+    if (retryAt == null || !_now().isBefore(retryAt)) {
       final uri = _buildUri(
         '/v1/media/object'
         '?bucket=${Uri.encodeQueryComponent(bucket)}'
@@ -134,7 +153,7 @@ class CustomApiStorageService implements StorageServiceInterface {
         body: fileBytes,
       );
       if (response.statusCode == 404 || response.statusCode == 405) {
-        _binaryUploadUnsupported = true;
+        _binaryUploadRetryAt = _now().add(_binaryUploadRetryAfter);
       } else {
         final payload = _decodeJsonResponse(response);
         return UrlUtils.normalizeImageUrl(payload['url']?.toString());

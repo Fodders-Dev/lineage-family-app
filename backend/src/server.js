@@ -86,6 +86,14 @@ async function startServer() {
       console.log(`[rodnya-backend] release: ${runtimeInfo.releaseLabel}`);
     }
   });
+
+  // Дефолтный Node requestTimeout (300с) — абсолютный дедлайн с начала
+  // запроса: 64-МБ видео на аплинке ~1 Мбит/с физически не успевает, и
+  // клиент получает голый ECONNRESET вместо ответа (ревью бинарной
+  // загрузки, P1). 15 минут хватает на потолок 64 МБ при ~0.6 Мбит/с;
+  // от slow-loris защищает headersTimeout (дефолт 60с) + rate-limit.
+  server.requestTimeout = 15 * 60 * 1000;
+
   realtimeHub.attach(server);
 
   // Phase 3.6 hard-delete background job. Master toggle (env var

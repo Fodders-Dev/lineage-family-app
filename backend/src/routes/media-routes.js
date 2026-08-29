@@ -45,16 +45,55 @@ function registerPublicMediaRoutes(app, {mediaStorage}) {
 // fileBase64 остаётся: его шлют клиенты до этого OTA.
 const MAX_BINARY_UPLOAD_BYTES = 64 * 1024 * 1024;
 
+// До этого объёма хвост недочитанного тела дренируется, чтобы ошибка
+// (413/400) ДОЕХАЛА до клиента: HTTP/1.1-клиенты читают ответ только
+// дольют тело, а req.destroy() до дочитки превращает честный статус в
+// голый ECONNRESET (ревью: живая репродукция). Выше — рвём соединение:
+// вежливость не стоит гигабайтов дочитки (Node на ранних ответах иначе
+// молча дочитывает ВСЁ заявленное тело).
+const MAX_ERROR_DRAIN_BYTES = 96 * 1024 * 1024;
+
+/// Ответить ошибкой на незавершённом теле так, чтобы статус реально дошёл.
+function respondAndDispose(req, res, statusCode, message) {
+  res.status(statusCode).json({message});
+  const declared = Number(req.headers["content-length"]);
+  const drainable =
+    Number.isFinite(declared) && declared <= MAX_ERROR_DRAIN_BYTES;
+  if (drainable) {
+    // Дочитать-и-выбросить остаток: соединение закрывается штатно.
+    req.resume();
+  } else {
+    // Chunked без Content-Length или заведомо гигантское тело — рвём
+    // после того, как ответ ушёл в сокет.
+    res.on("finish", () => req.destroy());
+  }
+}
+
 function registerAuthenticatedMediaRoutes(app, {mediaStorage, requireAuth}) {
   app.put("/v1/media/object", requireAuth, async (req, res) => {
     const bucket = String(req.query?.bucket || "").trim();
     const mediaPath = String(req.query?.path || "").trim();
     if (!bucket || !mediaPath) {
-      res.status(400).json({message: "Нужны query-параметры bucket и path"});
+      respondAndDispose(
+        req,
+        res,
+        400,
+        "Нужны query-параметры bucket и path",
+      );
       return;
     }
     const contentType =
       String(req.headers["content-type"] || "").trim() || null;
+
+    // Заявленный размер больше потолка — отказ сразу, без чтения тела.
+    const declaredLength = Number(req.headers["content-length"]);
+    if (
+      Number.isFinite(declaredLength) &&
+      declaredLength > MAX_BINARY_UPLOAD_BYTES
+    ) {
+      respondAndDispose(req, res, 413, "Файл больше 64 МБ");
+      return;
+    }
 
     const chunks = [];
     let total = 0;
@@ -62,10 +101,8 @@ function registerAuthenticatedMediaRoutes(app, {mediaStorage, requireAuth}) {
       for await (const chunk of req) {
         total += chunk.length;
         if (total > MAX_BINARY_UPLOAD_BYTES) {
-          res.status(413).json({message: "Файл больше 64 МБ"});
-          // Хвост потока не читаем — соединение закрываем, иначе клиент
-          // продолжит заливать байты в никуда.
-          req.destroy();
+          // Chunked-поток или врущий Content-Length.
+          respondAndDispose(req, res, 413, "Файл больше 64 МБ");
           return;
         }
         chunks.push(chunk);
@@ -83,6 +120,16 @@ function registerAuthenticatedMediaRoutes(app, {mediaStorage, requireAuth}) {
     }
 
     try {
+      // Пути у клиентов уникальны (uuid/timestamp), перезапись существующего
+      // объекта легитимному клиенту не нужна — а вот участник с чужим
+      // публичным URL мог бы подменить чужое фото. Отказ до записи.
+      if (
+        typeof mediaStorage.objectExists === "function" &&
+        (await mediaStorage.objectExists(bucket, mediaPath))
+      ) {
+        res.status(409).json({message: "Файл уже существует"});
+        return;
+      }
       const uploadResult = await mediaStorage.saveObject({
         req,
         bucket,

@@ -24,8 +24,9 @@ void main() {
   /// Общая обвязка: настоящий auth-сервис логинится через тот же MockClient
   /// (storage-сервис требует конкретный CustomApiAuthService ради токена).
   Future<CustomApiStorageService> buildService(
-    Future<http.Response> Function(http.Request request) onMediaRequest,
-  ) async {
+    Future<http.Response> Function(http.Request request) onMediaRequest, {
+    DateTime Function()? nowProvider,
+  }) async {
     final client = MockClient((request) async {
       if (request.url.path == '/v1/auth/login') {
         return http.Response(
@@ -63,6 +64,7 @@ void main() {
       authService: authService,
       runtimeConfig: runtimeConfig,
       httpClient: client,
+      nowProvider: nowProvider,
     );
   }
 
@@ -128,7 +130,65 @@ void main() {
       'PUT /v1/media/object',
       'POST /v1/media/upload',
       'POST /v1/media/upload',
-    ], reason: 'после первого 404 бинарный путь не пробуем до перезапуска');
+    ], reason: 'после 404 бинарный путь придерживается (TTL), фолбэк сразу');
+  });
+
+  test('придержка после 404 отпускает через TTL: большие видео не хоронятся '
+      'на base64-пути навсегда', () async {
+    var now = DateTime(2026, 8, 29, 3, 0);
+    final mediaCalls = <String>[];
+    var binaryAvailable = false;
+    final service = await buildService(
+      (request) async {
+        mediaCalls.add('${request.method} ${request.url.path}');
+        if (request.url.path == '/v1/media/object' && !binaryAvailable) {
+          return http.Response('Not found', 404);
+        }
+        return http.Response(
+          jsonEncode({'url': 'https://api.rodnya-tree.ru/media/posts/x.jpg'}),
+          201,
+        );
+      },
+      nowProvider: () => now,
+    );
+
+    await service.uploadBytes(bucket: 'posts', path: 'a.jpg', fileBytes: bytes);
+    // Бэк перезапустился с новым роутом, TTL прошёл — бинарный путь снова
+    // в деле (без этого файлы 37.5–50 МБ не прошли бы вообще).
+    binaryAvailable = true;
+    now = now.add(const Duration(minutes: 11));
+    await service.uploadBytes(bucket: 'posts', path: 'b.jpg', fileBytes: bytes);
+
+    expect(mediaCalls, [
+      'PUT /v1/media/object',
+      'POST /v1/media/upload',
+      'PUT /v1/media/object',
+    ]);
+  });
+
+  test('файл больше 64 МБ отклоняется локально, без отправки байтов',
+      () async {
+    var requests = 0;
+    final service = await buildService((request) async {
+      requests += 1;
+      return http.Response('{}', 500);
+    });
+
+    await expectLater(
+      service.uploadBytes(
+        bucket: 'posts',
+        path: 'huge.mp4',
+        fileBytes: Uint8List(64 * 1024 * 1024 + 1),
+      ),
+      throwsA(isA<CustomApiStorageException>().having(
+        (error) => error.statusCode,
+        'statusCode',
+        413,
+      )),
+    );
+    expect(requests, 0,
+        reason: 'сервер свой 413 доставит только после заливки всего тела — '
+            'локальный отказ мгновенный и честный');
   });
 
   test('содержательная ошибка бинарного пути НЕ маскируется фолбэком',

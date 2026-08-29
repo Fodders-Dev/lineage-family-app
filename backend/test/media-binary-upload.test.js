@@ -169,3 +169,99 @@ test("легаси base64-путь работает как раньше", async 
     await shutdown(ctx);
   }
 });
+
+test("413 ДОСТАВЛЯЕТСЯ клиенту: заявленный размер сверх потолка не рвёт сокет", async () => {
+  const ctx = await startTestServer();
+  try {
+    const {token} = await makeUser(ctx.baseUrl);
+    // 65 МБ с честным Content-Length: pre-check отвечает сразу, хвост
+    // дренируется — fetch обязан ПОЛУЧИТЬ ответ, а не ECONNRESET.
+    const big = Buffer.alloc(65 * 1024 * 1024, 7);
+    const res = await fetch(
+      `${ctx.baseUrl}/v1/media/object?bucket=posts&path=huge.bin`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          Authorization: `Bearer ${token}`,
+        },
+        body: big,
+      },
+    );
+    assert.equal(res.status, 413);
+    const body = await res.json();
+    assert.equal(body.message, "Файл больше 64 МБ");
+  } finally {
+    await shutdown(ctx);
+  }
+});
+
+test("Content-Type application/json НЕ перехватывается json-парсером: байты доходят", async () => {
+  const ctx = await startTestServer();
+  try {
+    const {token} = await makeUser(ctx.baseUrl);
+    // Кривой клиент/прокси форсит application/json на бинарном теле —
+    // раньше глобальный express.json съедал поток до requireAuth и
+    // отвечал 500/«Пустое тело». Теперь тело сохраняется как есть.
+    const payload = Buffer.from("{not-actually-json", "utf8");
+    const res = await fetch(
+      `${ctx.baseUrl}/v1/media/object?bucket=posts&path=weird.json.bin`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: payload,
+      },
+    );
+    assert.equal(res.status, 201);
+    const saved = await fs.readFile(
+      path.join(ctx.tempDir, "uploads", "posts", "weird.json.bin"),
+    );
+    assert.deepEqual(saved, payload);
+
+    // И без токена json-тело больше не даёт обойти requireAuth в 500-шум.
+    const noAuth = await fetch(
+      `${ctx.baseUrl}/v1/media/object?bucket=posts&path=x.bin`,
+      {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: payload,
+      },
+    );
+    assert.equal(noAuth.status, 401);
+  } finally {
+    await shutdown(ctx);
+  }
+});
+
+test("повторный PUT на существующий path — 409, файл не перезаписан", async () => {
+  const ctx = await startTestServer();
+  try {
+    const {token} = await makeUser(ctx.baseUrl);
+    const original = Buffer.from("оригинал", "utf8");
+    const headers = {
+      "Content-Type": "application/octet-stream",
+      Authorization: `Bearer ${token}`,
+    };
+    const first = await fetch(
+      `${ctx.baseUrl}/v1/media/object?bucket=posts&path=fixed.bin`,
+      {method: "PUT", headers, body: original},
+    );
+    assert.equal(first.status, 201);
+
+    // Участник с чужим публичным URL пытается подменить файл.
+    const second = await fetch(
+      `${ctx.baseUrl}/v1/media/object?bucket=posts&path=fixed.bin`,
+      {method: "PUT", headers, body: Buffer.from("подмена", "utf8")},
+    );
+    assert.equal(second.status, 409);
+    const saved = await fs.readFile(
+      path.join(ctx.tempDir, "uploads", "posts", "fixed.bin"),
+    );
+    assert.deepEqual(saved, original);
+  } finally {
+    await shutdown(ctx);
+  }
+});

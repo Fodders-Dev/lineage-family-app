@@ -90,6 +90,19 @@ class LocalMediaStorage {
     return `${origin}/media/${encodedPath}`;
   }
 
+  /// Гейт бинарного PUT против перезаписи чужого объекта по известному
+  /// публичному URL: пути легитимных клиентов уникальны (uuid/timestamp),
+  /// повторное имя = чья-то попытка подменить файл.
+  async objectExists(bucket, relativePath) {
+    const {resolvedPath} = this.resolveMediaFilePath(bucket, relativePath);
+    try {
+      await fs.access(resolvedPath);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   async saveObject({req, bucket, relativePath, contentType, fileBuffer}) {
     const {safeBucket, safeRelativePath, resolvedPath} = this.resolveMediaFilePath(
       bucket,
@@ -230,6 +243,19 @@ class S3MediaStorage {
 
   async ensureReady() {
     await this._client.send(new HeadBucketCommand({Bucket: this.bucket}));
+  }
+
+  /// См. LocalMediaStorage.objectExists — та же роль для S3-бэкенда.
+  async objectExists(bucket, relativePath) {
+    const {objectKey} = this.buildObjectKey(bucket, relativePath);
+    try {
+      await this._client.send(
+        new HeadObjectCommand({Bucket: this.bucket, Key: objectKey}),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   async saveObject({bucket, relativePath, contentType, fileBuffer}) {
