@@ -231,6 +231,12 @@ class PostgresStore extends FileStore {
     this._qualifiedNotificationsTableName = `${quoteIdentifier(this._schema)}.${quoteIdentifier(this._notificationsTable)}`;
     this._qualifiedPushDeliveriesTableName = `${quoteIdentifier(this._schema)}.${quoteIdentifier(this._pushDeliveriesTable)}`;
     this._qualifiedNotificationBackupsTableName = `${quoteIdentifier(this._schema)}.${quoteIdentifier(this._notificationBackupsTable)}`;
+    // SPEED-7: гейт готовности — false, пока бут-миграция не подтвердила
+    // маркер. При транзиентно недоступном состоянии миграция скипается, и
+    // ВСЕ notification-оверрайды делегируют в FileStore-путь по блобу:
+    // иначе тихая пустая лента + drain обнулил бы массивы ДО миграции и
+    // write-once бэкап отката навсегда запомнил бы пустоту (ревью, P1).
+    this._notificationTablesReady = false;
     this._lastChatsProjectionHash = null;
     this._chatPurgeSweepScheduled = false;
     this._chatsProjectionDirty = false;
@@ -655,6 +661,7 @@ class PostgresStore extends FileStore {
     }
     try {
       if (state?.migrationStatus?.notificationsToTables === MARKER) {
+        this._notificationTablesReady = true;
         return;
       }
 
@@ -732,6 +739,7 @@ class PostgresStore extends FileStore {
       // Sidecar-кэш обязан пережить границу миграции (см. SPEED-6): иначе
       // fallback-чтение воскресит домиграционный блоб без маркера.
       await this._persistSnapshotCache(this._cachedState);
+      this._notificationTablesReady = true;
       console.log(
         "[backend] notification collections migrated to tables",
         JSON.stringify({
@@ -1850,6 +1858,9 @@ class PostgresStore extends FileStore {
 
   async createNotification({userId, type, title, body, data, silent = false}) {
     await this.initialize();
+    if (!this._notificationTablesReady) {
+      return super.createNotification({userId, type, title, body, data, silent});
+    }
     const user = await this.findUserById(userId);
     if (!user) {
       return null;
@@ -1868,6 +1879,17 @@ class PostgresStore extends FileStore {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
       this._notificationRowValues(notification),
     );
+    // TOCTOU с deleteUser (ревью, P2): в FileStore проверка юзера и вставка
+    // атомарны внутри _mutate; здесь между findUserById и INSERT юзера могли
+    // удалить — компенсирующая перепроверка убирает свежую сироту.
+    const userStillExists = await this.findUserById(userId);
+    if (!userStillExists) {
+      await this._pool.query(
+        `DELETE FROM ${this._qualifiedNotificationsTableName} WHERE id = $1`,
+        [notification.id],
+      );
+      return null;
+    }
     return structuredClone(notification);
   }
 
@@ -1884,6 +1906,9 @@ class PostgresStore extends FileStore {
     }
     const normalizedStatus = String(status || "").trim().toLowerCase();
     await this.initialize();
+    if (!this._notificationTablesReady) {
+      return super.listNotifications(userId, {status, limit});
+    }
     await this._awaitReadConsistency();
     const result = await this._pool.query(
       `SELECT notification_data
@@ -1909,6 +1934,9 @@ class PostgresStore extends FileStore {
       return 0;
     }
     await this.initialize();
+    if (!this._notificationTablesReady) {
+      return super.countUnreadNotifications(userId);
+    }
     await this._awaitReadConsistency();
     const result = await this._pool.query(
       `SELECT COUNT(*)::int AS total
@@ -1927,6 +1955,9 @@ class PostgresStore extends FileStore {
       return null;
     }
     await this.initialize();
+    if (!this._notificationTablesReady) {
+      return super.markNotificationRead(notificationId, userId);
+    }
     await this._awaitReadConsistency();
     const result = await this._pool.query(
       `SELECT notification_data, read_at
@@ -1968,6 +1999,9 @@ class PostgresStore extends FileStore {
       ? new Set(types.map((entry) => String(entry)))
       : null;
     await this.initialize();
+    if (!this._notificationTablesReady) {
+      return super.markNotificationsReadByDataKey({userId, dataKey, dataValue, types});
+    }
     await this._awaitReadConsistency();
     // data-фильтр — в JS по полной записи (byte-parity с FileStore, без
     // jsonb-путей в WHERE — pg-mem их поддерживает выборочно).
@@ -2012,6 +2046,9 @@ class PostgresStore extends FileStore {
       return null;
     }
     await this.initialize();
+    if (!this._notificationTablesReady) {
+      return super._applyNotificationCoalescePlan(plan);
+    }
     const coalesceKey = computeNotificationCoalesceKey({
       type: plan.type,
       data: plan.keyData,
@@ -2032,15 +2069,22 @@ class PostgresStore extends FileStore {
       plan.patchExisting(existing);
       existing.createdAt = nowIso();
       existing.readAt = null;
-      await this._pool.query(
+      const updated = await this._pool.query(
         `UPDATE ${this._qualifiedNotificationsTableName}
             SET created_at = $2,
                 read_at = '',
                 notification_data = $3::jsonb
-          WHERE id = $1`,
+          WHERE id = $1
+            AND read_at = ''`,
         [String(existingRow.id), existing.createdAt, JSON.stringify(existing)],
       );
-      return structuredClone(existing);
+      // Гвард read_at='': конкурентный markNotificationRead успел пометить
+      // запись прочитанной между SELECT и UPDATE — бамп не должен тихо
+      // «распрочитывать» её (ревью, P2). 0 строк → падаем в miss-ветку:
+      // «после прочтения — новая запись».
+      if (Number(updated.rowCount || 0) > 0) {
+        return structuredClone(existing);
+      }
     }
     const notification = plan.buildRecord();
     await this._pool.query(
@@ -2061,6 +2105,9 @@ class PostgresStore extends FileStore {
     status = "queued",
   }) {
     await this.initialize();
+    if (!this._notificationTablesReady) {
+      return super.createPushDelivery({notificationId, userId, deviceId, provider, status});
+    }
     const delivery = createPushDeliveryRecord({
       notificationId,
       userId,
@@ -2083,6 +2130,9 @@ class PostgresStore extends FileStore {
       return [];
     }
     await this.initialize();
+    if (!this._notificationTablesReady) {
+      return super.listPushDeliveries(userId, {limit});
+    }
     await this._awaitReadConsistency();
     const result = await this._pool.query(
       `SELECT delivery_data
@@ -2110,6 +2160,9 @@ class PostgresStore extends FileStore {
       return null;
     }
     await this.initialize();
+    if (!this._notificationTablesReady) {
+      return super.updatePushDelivery(deliveryId, {status, deliveredAt, lastError, responseCode});
+    }
     const result = await this._pool.query(
       `SELECT delivery_data
          FROM ${this._qualifiedPushDeliveriesTableName}
@@ -2162,6 +2215,10 @@ class PostgresStore extends FileStore {
   /// `continue` в _notifyReviewers). Возвращает состояние с пустыми
   /// транзит-массивами — в блоб и кэш они не попадают.
   async _drainTransientNotificationCollections(data) {
+    if (!this._notificationTablesReady) {
+      // До подтверждённой миграции блоб — единственный источник правды.
+      return data;
+    }
     const notifications = Array.isArray(data?.notifications)
       ? data.notifications
       : [];
@@ -2171,6 +2228,7 @@ class PostgresStore extends FileStore {
     if (notifications.length === 0 && pushDeliveries.length === 0) {
       return data;
     }
+    try {
     for (const notification of notifications) {
       const rowValues = this._notificationRowValues(notification);
       if (!rowValues[0] || !rowValues[1] || !rowValues[3]) {
@@ -2211,6 +2269,16 @@ class PostgresStore extends FileStore {
          ON CONFLICT DO NOTHING`,
         rowValues,
       );
+    }
+    } catch (error) {
+      // Best-effort: сбой INSERT'а уведомления не должен ронять бизнес-
+      // мутацию, которая его породила. Транзит НЕ обнуляем — блоб запишется
+      // с массивами, следующий _write повторит drain (дедуп по id).
+      console.warn(
+        "[backend] notification drain failed — keeping transit in blob",
+        JSON.stringify({message: error?.message || String(error)}),
+      );
+      return data;
     }
     return {...data, notifications: [], pushDeliveries: []};
   }
@@ -3610,23 +3678,6 @@ class PostgresStore extends FileStore {
     const beforeChatIds = beforeResult.rows
       .map((row) => String(row?.chat_id || "").trim())
       .filter(Boolean);
-    // SPEED-7: каскад уведомлений сверяется с «умершими» сущностями —
-    // множества removed* восстанавливаем сравнением блоба до/после super.
-    const stateBefore = await this._read();
-    const idsOf = (collection) =>
-      new Set(
-        (Array.isArray(collection) ? collection : [])
-          .map((entry) => String(entry?.id || "").trim())
-          .filter(Boolean),
-      );
-    const beforeIds = {
-      trees: idsOf(stateBefore.trees),
-      posts: idsOf(stateBefore.posts),
-      comments: idsOf(stateBefore.comments),
-      relationRequests: idsOf(stateBefore.relationRequests),
-      treeInvitations: idsOf(stateBefore.treeInvitations),
-    };
-
     const result = await super.deleteUser(userId);
 
     // Блобная часть уже вычистила записи чатов (projection пересинкан в
@@ -3753,35 +3804,35 @@ class PostgresStore extends FileStore {
     }
 
     // ── SPEED-7: каскад notifications/push_deliveries ──────────────────
-    const stateAfter = await this._read();
+    // Множества «умерших» сущностей — ИЗ РЕЗУЛЬТАТА super.deleteUser
+    // (вычислены внутри _mutate-applyFn): реконструкция дифом блоба
+    // до/после приписывала бы каскаду конкурентные удаления ДРУГИХ
+    // пользователей и убивала их уведомления (находка ревью, P0).
+    const asSet = (list) =>
+      new Set(
+        (Array.isArray(list) ? list : [])
+          .map((entry) => String(entry || "").trim())
+          .filter(Boolean),
+      );
     const removedIds = {
-      chats: new Set(),
-      trees: new Set(),
-      posts: new Set(),
-      comments: new Set(),
-      relationRequests: new Set(),
-      treeInvitations: new Set(),
+      chats: asSet(result?.removedChatIds),
+      trees: asSet(result?.removedTreeIds),
+      posts: asSet(result?.removedPostIds),
+      comments: asSet(result?.removedCommentIds),
+      relationRequests: asSet(result?.removedRelationRequestIds),
+      treeInvitations: asSet(result?.removedInvitationIds),
     };
-    const collectRemoved = (key, afterCollection) => {
-      const after = idsOf(afterCollection);
-      for (const id of beforeIds[key]) {
-        if (!after.has(id)) {
-          removedIds[key].add(id);
-        }
-      }
-    };
-    collectRemoved("trees", stateAfter.trees);
-    collectRemoved("posts", stateAfter.posts);
-    collectRemoved("comments", stateAfter.comments);
-    collectRemoved("relationRequests", stateAfter.relationRequests);
-    collectRemoved("treeInvitations", stateAfter.treeInvitations);
-    for (const chatId of removedChatIds) {
-      removedIds.chats.add(chatId);
+    if (result === null) {
+      // Юзера не было (skip в applyFn) — каскадить нечего.
+      return result;
     }
 
     // Полный скан: та же семантика, что у массивного фильтра FileStore
     // (deleteUser редкий, таблица сотни строк — дешевле, чем jsonb-WHERE,
-    // который pg-mem поддерживает выборочно).
+    // который pg-mem поддерживает выборочно). DELETE — точечно по id:
+    // уведомление, вставленное конкурентно ПОСЛЕ скана, не удаляется —
+    // узкое окно записи-сироты со ссылкой на умершую сущность (createNotification
+    // для самого юзера уже отбит findUserById по auth-проекции).
     const allNotifications = await this._pool.query(
       `SELECT id, user_id, notification_data
          FROM ${this._qualifiedNotificationsTableName}`,
@@ -3821,6 +3872,40 @@ class PostgresStore extends FileStore {
         `DELETE FROM ${this._qualifiedNotificationsTableName} WHERE id = $1`,
         [id],
       );
+    }
+
+    // Повторный точечный проход закрывает GDPR-окно: уведомление про
+    // юзера, вставленное конкурентно ПОСЛЕ основного скана (ревью, P1).
+    // Прямые записи юзера — одним DELETE; ссылки в data.* — вторым сканом.
+    await this._pool.query(
+      `DELETE FROM ${this._qualifiedNotificationsTableName} WHERE user_id = $1`,
+      [normalizedUserId],
+    );
+    const lateRows = await this._pool.query(
+      `SELECT id, notification_data
+         FROM ${this._qualifiedNotificationsTableName}`,
+    );
+    for (const row of lateRows.rows) {
+      const notification = this._rowToNotification(row) || {};
+      const data =
+        notification.data && typeof notification.data === "object"
+          ? notification.data
+          : {};
+      const referencesUser =
+        data.userId === userId ||
+        data.senderId === userId ||
+        data.recipientId === userId ||
+        data.actorId === userId ||
+        data.targetUserId === userId ||
+        data.authorId === userId ||
+        data.ownerId === userId;
+      if (referencesUser) {
+        await this._pool.query(
+          `DELETE FROM ${this._qualifiedNotificationsTableName} WHERE id = $1`,
+          [String(row.id)],
+        );
+        survivingNotificationIds.delete(String(row.id));
+      }
     }
 
     const allDeliveries = await this._pool.query(
@@ -3936,22 +4021,15 @@ class PostgresStore extends FileStore {
 
   async unbindPushDevicesForSession({userId, sessionPublicId}) {
     await this.initialize();
-    // deviceIds сессии — до super: блобная часть их удалит.
-    const state = await this._read();
-    const normalizedUserId = String(userId || "").trim();
-    const normalizedSession = String(sessionPublicId || "").trim();
-    const deviceIds = (Array.isArray(state.pushDevices) ? state.pushDevices : [])
-      .filter(
-        (entry) =>
-          String(entry?.userId || "").trim() === normalizedUserId &&
-          String(entry?.sessionPublicId || "").trim() === normalizedSession,
-      )
-      .map((entry) => String(entry?.id || "").trim())
-      .filter(Boolean);
     const result = await super.unbindPushDevicesForSession({
       userId,
       sessionPublicId,
     });
+    // Источник истины — ФАКТИЧЕСКИ удалённые устройства из super (пре-снапшот
+    // блоба мог устареть между чтением и мутацией — находка ревью).
+    const deviceIds = (Array.isArray(result) ? result : [])
+      .map((entry) => String(entry?.id || "").trim())
+      .filter(Boolean);
     for (const deviceId of deviceIds) {
       await this._pool.query(
         `DELETE FROM ${this._qualifiedPushDeliveriesTableName}

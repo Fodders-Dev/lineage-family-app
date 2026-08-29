@@ -24,7 +24,9 @@
       "Bash(psql *)",
       "Bash(gh secret *)",
       "Bash(adb uninstall*)",
-      "Bash(adb shell pm uninstall*)"
+      "Bash(adb shell pm uninstall*)",
+      "Bash(git push origin main*)",
+      "Bash(git push * main*)"
     ],
     "deny": [
       "Read(.local_dev_creds)",

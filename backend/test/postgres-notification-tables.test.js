@@ -529,3 +529,116 @@ test("hardDeleteExpired: три окна notifications + TTL/cap deliveries", as
   );
   assert.deepEqual(afterCap.rows.map((row) => row.id), ["pd-new", "pd-b"]);
 });
+
+test("скип миграции (БД моргнула) → полная делегация в блоб, drain выключен", async () => {
+  const seeded = {
+    users: USERS,
+    notifications: [seedNotification({id: "n-1", userId: "user-1"})],
+    pushDeliveries: [],
+  };
+  const memDb = newDb();
+  const {Pool} = memDb.adapters.createPg();
+  const rawPool = new Pool();
+  // Одна транзиентная ошибка ровно на SELECT миграции: пропускаем
+  // бутстрап-инфраструктуру (CREATE/INSERT/hydrate) и роняем первый
+  // SELECT data, который делает _migrateNotificationCollectionsToTables.
+  // Порядок SELECT data в бутстрапе (снят трассировкой): #1 backfill
+  // identities, #2 auth-hydrate, #3 чат-миграция, #4 notification-миграция,
+  // #5 chat-projection hydrate. Валим ровно #4 — транзиентная ошибка именно
+  // на чтении состояния notification-миграции.
+  let failedOnce = false;
+  let stateSelects = 0;
+  const pool = {
+    query: (sql, params) => {
+      const text = String(sql);
+      let effectiveParams = params;
+      if (
+        text.includes("ON CONFLICT (id) DO NOTHING") &&
+        Array.isArray(params) &&
+        params[0] === "default"
+      ) {
+        effectiveParams = [params[0], JSON.stringify(seeded)];
+      }
+      if (text.replace(/\s+/g, " ").trim().startsWith("SELECT data FROM")) {
+        stateSelects += 1;
+        if (stateSelects === 4 && !failedOnce) {
+          failedOnce = true;
+          return Promise.reject(new Error("connection reset"));
+        }
+      }
+      return rawPool.query(sql, effectiveParams);
+    },
+  };
+  const store = new PostgresStore({
+    connectionString: "postgresql://unused/rodnya",
+    pool,
+  });
+  await store.initialize();
+  assert.equal(failedOnce, true, "сценарий требует упавшего SELECT миграции");
+
+  // Гейт закрыт: таблицы пустые, но лента НЕ пустая — читаем блоб.
+  const listed = await store.listNotifications("user-1");
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].id, "n-1");
+  assert.equal(await store.countUnreadNotifications("user-1"), 1);
+
+  // Запись тоже уходит в блоб (super-путь), а drain НЕ трогает массивы —
+  // write-once бэкап будущей миграции не будет отравлен пустотой.
+  const created = await store.createNotification({
+    userId: "user-1",
+    type: "generic",
+    title: "В блоб",
+    body: "-",
+  });
+  assert.ok(created?.id);
+  const state = await store._read();
+  assert.equal(state.notifications.length, 2, "блоб остаётся источником правды");
+  const tableRows = await rawPool.query(`SELECT id FROM ${NOTIF_TABLE}`);
+  assert.equal(tableRows.rows.length, 0, "drain выключен до миграции");
+  assert.notEqual(
+    state.migrationStatus?.notificationsToTables,
+    "complete-v1",
+    "маркер не выставлен — следующий бут повторит миграцию честно",
+  );
+});
+
+test("бамп коалесинга не откатывает конкурентную пометку «прочитано»", async () => {
+  const {store, rawPool} = buildStore({
+    users: USERS,
+    notifications: [],
+    pushDeliveries: [],
+  });
+  await store.initialize();
+
+  const first = await store.addPostReactionNotification({
+    postId: "post-1",
+    postAuthorId: "user-1",
+    actorUserId: "user-2",
+    actorName: "Анна",
+    emoji: "❤️",
+    postSnippet: "Отпуск",
+  });
+  // «Конкурентный» markRead между SELECT и UPDATE бампа: симулируем его
+  // прямым UPDATE'ом read_at (SELECT бампа увидит unread из-за
+  // отсутствия блокировки — здесь проверяем сам UPDATE-гвард).
+  await rawPool.query(
+    `UPDATE ${NOTIF_TABLE} SET read_at = '2026-08-29T13:00:00.000Z' WHERE id = $1`,
+    [first.id],
+  );
+
+  const second = await store.addPostReactionNotification({
+    postId: "post-1",
+    postAuthorId: "user-1",
+    actorUserId: "user-2",
+    actorName: "Анна",
+    emoji: "🔥",
+    postSnippet: "Отпуск",
+  });
+  assert.notEqual(second.id, first.id, "прочитанную запись бамп не воскрешает");
+  const rows = await rawPool.query(
+    `SELECT id, read_at FROM ${NOTIF_TABLE} ORDER BY created_at ASC`,
+  );
+  assert.equal(rows.rows.length, 2);
+  const firstRow = rows.rows.find((row) => row.id === first.id);
+  assert.notEqual(firstRow.read_at, "", "пометка «прочитано» пережила бамп");
+});

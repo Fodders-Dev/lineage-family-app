@@ -8273,6 +8273,12 @@ class FileStore {
       removedPersonIds: Array.from(removedPersonIds),
       removedChatIds: Array.from(removedChatIds),
       removedPostIds: Array.from(removedPostIds),
+      // SPEED-7: точные множества для табличного notification-каскада
+      // PostgresStore — реконструкция дифом блоба до/после гонялась бы с
+      // конкурентными удалениями других пользователей.
+      removedCommentIds: Array.from(removedCommentIds),
+      removedRelationRequestIds: Array.from(removedRelationRequestIds),
+      removedInvitationIds: Array.from(removedInvitationIds),
     };
     });
     if (result === null) {
