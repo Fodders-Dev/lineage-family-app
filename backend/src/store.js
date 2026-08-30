@@ -1416,6 +1416,189 @@ function createPushDeviceRecord({
   };
 }
 
+/// SPEED-7: вычислимый ключ коалесинга уведомления. Единая точка правды
+/// для обоих сторов: FileStore схлопывает по нему в массиве, PostgresStore —
+/// SELECT'ом по колонке coalesce_key (индекс user_id+coalesce_key), той же
+/// функцией ключ заполняется при INSERT и в бут-миграции. Пустая строка =
+/// тип без коалесинга. Сравнение полей — через строкование (id всегда
+/// строки-uuid; прежние строгие === для них эквивалентны).
+function computeNotificationCoalesceKey(notification) {
+  const record = notification || {};
+  const type = String(record.type || "").trim();
+  const data = record.data && typeof record.data === "object" ? record.data : {};
+  const part = (value) => String(value ?? "").trim();
+  switch (type) {
+    case "story_reaction":
+      return `${type}|${part(data.storyId)}|${part(data.actorUserId)}`;
+    case "post_reaction":
+      return `${type}|${part(data.postId)}|${part(data.actorUserId)}`;
+    case "comment_reaction":
+      return `${type}|${part(data.commentId)}|${part(data.actorUserId)}`;
+    case "comment_reply":
+      return `${type}|${part(data.parentCommentId)}|${part(data.actorUserId)}`;
+    case "merge_proposal":
+    case "identity_claim":
+      return `${type}|${part(data.proposalId)}|${part(data.claimId)}`;
+    default:
+      return "";
+  }
+}
+
+/// SPEED-7: «план» коалесцирующего уведомления — guard'ы, ключ и оба
+/// исхода (бамп существующей unread-записи / создание новой) описаны
+/// ДАННЫМИ, чтобы массивная (FileStore) и табличная (PostgresStore)
+/// реализации _applyNotificationCoalescePlan не дублировали тексты.
+function buildStoryReactionNotificationPlan({
+  storyId,
+  storyAuthorId,
+  actorUserId,
+  actorName,
+  emoji,
+  storySnippet,
+}) {
+  if (
+    !storyAuthorId ||
+    !actorUserId ||
+    String(storyAuthorId).trim() === String(actorUserId).trim()
+  ) {
+    return null;
+  }
+  return {
+    userId: storyAuthorId,
+    type: "story_reaction",
+    keyData: {storyId, actorUserId},
+    patchExisting(existing) {
+      existing.data = {...existing.data, emoji};
+      existing.body = `${actorName || "Кто-то"} отреагировал ${emoji}`;
+    },
+    buildRecord() {
+      return createNotificationRecord({
+        userId: storyAuthorId,
+        type: "story_reaction",
+        title: actorName
+          ? `${actorName} отреагировал ${emoji}`
+          : `Реакция ${emoji} на историю`,
+        body: storySnippet || "",
+        data: {storyId, actorUserId, emoji},
+      });
+    },
+  };
+}
+
+function buildPostReactionNotificationPlan({
+  postId,
+  postAuthorId,
+  actorUserId,
+  actorName,
+  emoji,
+  postSnippet,
+}) {
+  if (
+    !postAuthorId ||
+    !actorUserId ||
+    String(postAuthorId).trim() === String(actorUserId).trim()
+  ) {
+    return null;
+  }
+  return {
+    userId: postAuthorId,
+    type: "post_reaction",
+    keyData: {postId, actorUserId},
+    patchExisting(existing) {
+      existing.data = {...existing.data, emoji};
+      existing.body = `${actorName || "Кто-то"} отреагировал ${emoji}`;
+    },
+    buildRecord() {
+      return createNotificationRecord({
+        userId: postAuthorId,
+        type: "post_reaction",
+        title: actorName
+          ? `${actorName} отреагировал ${emoji}`
+          : `Новая реакция ${emoji}`,
+        body: postSnippet || "",
+        data: {postId, actorUserId, emoji},
+      });
+    },
+  };
+}
+
+function buildCommentReactionNotificationPlan({
+  postId,
+  commentId,
+  commentAuthorId,
+  actorUserId,
+  actorName,
+  emoji,
+  commentSnippet,
+}) {
+  if (
+    !commentAuthorId ||
+    !actorUserId ||
+    String(commentAuthorId).trim() === String(actorUserId).trim()
+  ) {
+    return null;
+  }
+  return {
+    userId: commentAuthorId,
+    type: "comment_reaction",
+    keyData: {commentId, actorUserId},
+    patchExisting(existing) {
+      existing.data = {...existing.data, emoji};
+      existing.body = `${actorName || "Кто-то"} отреагировал ${emoji}`;
+    },
+    buildRecord() {
+      return createNotificationRecord({
+        userId: commentAuthorId,
+        type: "comment_reaction",
+        title: actorName
+          ? `${actorName} отреагировал ${emoji}`
+          : `Новая реакция ${emoji}`,
+        body: commentSnippet || "",
+        data: {postId, commentId, actorUserId, emoji},
+      });
+    },
+  };
+}
+
+function buildCommentReplyNotificationPlan({
+  postId,
+  parentCommentId,
+  parentCommentAuthorId,
+  replyCommentId,
+  actorUserId,
+  actorName,
+  replySnippet,
+}) {
+  if (
+    !parentCommentAuthorId ||
+    !actorUserId ||
+    String(parentCommentAuthorId).trim() === String(actorUserId).trim()
+  ) {
+    return null;
+  }
+  const trimmedSnippet = String(replySnippet || "").trim();
+  return {
+    userId: parentCommentAuthorId,
+    type: "comment_reply",
+    keyData: {parentCommentId, actorUserId},
+    patchExisting(existing) {
+      existing.data = {...existing.data, replyCommentId};
+      existing.body = trimmedSnippet || existing.body || "";
+    },
+    buildRecord() {
+      return createNotificationRecord({
+        userId: parentCommentAuthorId,
+        type: "comment_reply",
+        title: actorName
+          ? `${actorName} ответил на ваш комментарий`
+          : "Новый ответ на комментарий",
+        body: trimmedSnippet,
+        data: {postId, parentCommentId, replyCommentId, actorUserId},
+      });
+    },
+  };
+}
+
 function createPushDeliveryRecord({
   notificationId,
   userId,
@@ -8090,6 +8273,12 @@ class FileStore {
       removedPersonIds: Array.from(removedPersonIds),
       removedChatIds: Array.from(removedChatIds),
       removedPostIds: Array.from(removedPostIds),
+      // SPEED-7: точные множества для табличного notification-каскада
+      // PostgresStore — реконструкция дифом блоба до/после гонялась бы с
+      // конкурентными удалениями других пользователей.
+      removedCommentIds: Array.from(removedCommentIds),
+      removedRelationRequestIds: Array.from(removedRelationRequestIds),
+      removedInvitationIds: Array.from(removedInvitationIds),
     };
     });
     if (result === null) {
@@ -16586,53 +16775,45 @@ class FileStore {
     };
   }
 
-  async addStoryReactionNotification({
-    storyId,
-    storyAuthorId,
-    actorUserId,
-    actorName,
-    emoji,
-    storySnippet,
-  }) {
-    if (
-      !storyAuthorId ||
-      !actorUserId ||
-      String(storyAuthorId).trim() === String(actorUserId).trim()
-    ) {
+  /// SPEED-7: общий движок коалесцирующих уведомлений — hit по
+  /// coalesce-ключу среди НЕпрочитанных бампает запись (createdAt=now,
+  /// readAt сброс + патч плана), miss создаёт новую. PostgresStore
+  /// переопределяет табличной реализацией; тексты живут в plan-builder'ах.
+  async _applyNotificationCoalescePlan(plan) {
+    if (!plan) {
       return null;
     }
+    const coalesceKey = computeNotificationCoalesceKey({
+      type: plan.type,
+      data: plan.keyData,
+    });
     const db = await this._read();
     db.notifications = Array.isArray(db.notifications)
       ? db.notifications
       : [];
     const existing = db.notifications.find(
       (entry) =>
-        entry.userId === storyAuthorId &&
-        entry.type === "story_reaction" &&
+        entry.userId === plan.userId &&
         !entry.readAt &&
-        entry.data?.storyId === storyId &&
-        entry.data?.actorUserId === actorUserId,
+        computeNotificationCoalesceKey(entry) === coalesceKey,
     );
     if (existing) {
-      existing.data = {...existing.data, emoji};
-      existing.body = `${actorName || "Кто-то"} отреагировал ${emoji}`;
+      plan.patchExisting(existing);
       existing.createdAt = nowIso();
       existing.readAt = null;
       await this._write(db);
       return structuredClone(existing);
     }
-    const notification = createNotificationRecord({
-      userId: storyAuthorId,
-      type: "story_reaction",
-      title: actorName
-        ? `${actorName} отреагировал ${emoji}`
-        : `Реакция ${emoji} на историю`,
-      body: storySnippet || "",
-      data: {storyId, actorUserId, emoji},
-    });
+    const notification = plan.buildRecord();
     db.notifications.push(notification);
     await this._write(db);
     return structuredClone(notification);
+  }
+
+  async addStoryReactionNotification(args) {
+    return this._applyNotificationCoalescePlan(
+      buildStoryReactionNotificationPlan(args || {}),
+    );
   }
 
   /// Substring search across post content + author name. Query is
@@ -17714,120 +17895,20 @@ class FileStore {
   /// entries for the same (recipient, post, actor) tuple — multiple
   /// reactions don't spam the inbox. Returns the notification record
   /// or null if skipped (self-react or already-unread).
-  async addPostReactionNotification({
-    postId,
-    postAuthorId,
-    actorUserId,
-    actorName,
-    emoji,
-    postSnippet,
-  }) {
-    if (
-      !postAuthorId ||
-      !actorUserId ||
-      String(postAuthorId).trim() === String(actorUserId).trim()
-    ) {
-      return null;
-    }
-    const db = await this._read();
-    db.notifications = Array.isArray(db.notifications)
-      ? db.notifications
-      : [];
-    const existing = db.notifications.find(
-      (entry) =>
-        entry.userId === postAuthorId &&
-        entry.type === "post_reaction" &&
-        !entry.readAt &&
-        entry.data?.postId === postId &&
-        entry.data?.actorUserId === actorUserId,
+  async addPostReactionNotification(args) {
+    return this._applyNotificationCoalescePlan(
+      buildPostReactionNotificationPlan(args || {}),
     );
-    if (existing) {
-      // Bump emoji + timestamp on the existing record so it floats up.
-      existing.data = {
-        ...existing.data,
-        emoji,
-      };
-      existing.body = `${actorName || "Кто-то"} отреагировал ${emoji}`;
-      existing.createdAt = nowIso();
-      existing.readAt = null;
-      await this._write(db);
-      return structuredClone(existing);
-    }
-    const notification = createNotificationRecord({
-      userId: postAuthorId,
-      type: "post_reaction",
-      title: actorName
-        ? `${actorName} отреагировал ${emoji}`
-        : `Новая реакция ${emoji}`,
-      body: postSnippet || "",
-      data: {
-        postId,
-        actorUserId,
-        emoji,
-      },
-    });
-    db.notifications.push(notification);
-    await this._write(db);
-    return structuredClone(notification);
   }
 
   /// Same shape as [addPostReactionNotification] but scoped to a
   /// comment. Notifies the comment author. Post author is left alone
   /// — they already get a notification stream when their own comments
   /// get reacted to (separate flow).
-  async addCommentReactionNotification({
-    postId,
-    commentId,
-    commentAuthorId,
-    actorUserId,
-    actorName,
-    emoji,
-    commentSnippet,
-  }) {
-    if (
-      !commentAuthorId ||
-      !actorUserId ||
-      String(commentAuthorId).trim() === String(actorUserId).trim()
-    ) {
-      return null;
-    }
-    const db = await this._read();
-    db.notifications = Array.isArray(db.notifications)
-      ? db.notifications
-      : [];
-    const existing = db.notifications.find(
-      (entry) =>
-        entry.userId === commentAuthorId &&
-        entry.type === "comment_reaction" &&
-        !entry.readAt &&
-        entry.data?.commentId === commentId &&
-        entry.data?.actorUserId === actorUserId,
+  async addCommentReactionNotification(args) {
+    return this._applyNotificationCoalescePlan(
+      buildCommentReactionNotificationPlan(args || {}),
     );
-    if (existing) {
-      existing.data = {...existing.data, emoji};
-      existing.body = `${actorName || "Кто-то"} отреагировал ${emoji}`;
-      existing.createdAt = nowIso();
-      existing.readAt = null;
-      await this._write(db);
-      return structuredClone(existing);
-    }
-    const notification = createNotificationRecord({
-      userId: commentAuthorId,
-      type: "comment_reaction",
-      title: actorName
-        ? `${actorName} отреагировал ${emoji}`
-        : `Новая реакция ${emoji}`,
-      body: commentSnippet || "",
-      data: {
-        postId,
-        commentId,
-        actorUserId,
-        emoji,
-      },
-    });
-    db.notifications.push(notification);
-    await this._write(db);
-    return structuredClone(notification);
   }
 
   /// Notify the parent comment author that someone replied to their
@@ -17838,63 +17919,10 @@ class FileStore {
   /// We dedupe on (parentCommentId, actorUserId) for unread entries —
   /// a single user posting two replies in quick succession refreshes
   /// the existing entry rather than fanning out two pings.
-  async addCommentReplyNotification({
-    postId,
-    parentCommentId,
-    parentCommentAuthorId,
-    replyCommentId,
-    actorUserId,
-    actorName,
-    replySnippet,
-  }) {
-    if (
-      !parentCommentAuthorId ||
-      !actorUserId ||
-      String(parentCommentAuthorId).trim() === String(actorUserId).trim()
-    ) {
-      return null;
-    }
-    const db = await this._read();
-    db.notifications = Array.isArray(db.notifications)
-      ? db.notifications
-      : [];
-    const existing = db.notifications.find(
-      (entry) =>
-        entry.userId === parentCommentAuthorId &&
-        entry.type === "comment_reply" &&
-        !entry.readAt &&
-        entry.data?.parentCommentId === parentCommentId &&
-        entry.data?.actorUserId === actorUserId,
+  async addCommentReplyNotification(args) {
+    return this._applyNotificationCoalescePlan(
+      buildCommentReplyNotificationPlan(args || {}),
     );
-    const trimmedSnippet = String(replySnippet || "").trim();
-    if (existing) {
-      existing.data = {
-        ...existing.data,
-        replyCommentId,
-      };
-      existing.body = trimmedSnippet || existing.body || "";
-      existing.createdAt = nowIso();
-      existing.readAt = null;
-      await this._write(db);
-      return structuredClone(existing);
-    }
-    const notification = createNotificationRecord({
-      userId: parentCommentAuthorId,
-      type: "comment_reply",
-      title: actorName
-        ? `${actorName} ответил на ваш комментарий`
-        : "Новый ответ на комментарий",
-      body: trimmedSnippet,
-      data: {
-        postId,
-        parentCommentId,
-        replyCommentId,
-        actorUserId,
-      },
-    });
-    db.notifications.push(notification);
-    await this._write(db);
-    return structuredClone(notification);
   }
 
   async togglePostReaction({postId, userId, emoji}) {
@@ -21478,6 +21506,13 @@ class FileStore {
 module.exports = {
   EMPTY_DB,
   FileStore,
+  buildCommentReactionNotificationPlan,
+  buildCommentReplyNotificationPlan,
+  buildPostReactionNotificationPlan,
+  buildStoryReactionNotificationPlan,
+  computeNotificationCoalesceKey,
+  createNotificationRecord,
+  createPushDeliveryRecord,
   composeDisplayNameFromProfile,
   buildChatSearchSnippet,
   buildTreeGraphSnapshot,

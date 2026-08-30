@@ -36,6 +36,24 @@ paths:
   `chat_<uuid>` (группы/ветки) канонизировать НЕЛЬЗЯ — parse делит их на две
   части и сортировка переставляет (~81% uuid).
 
+## SPEED-7: notifications/pushDeliveries в таблицах (ветка; после мерджа — прод)
+
+- Обе коллекции — ТОЛЬКО в таблицах `<t>_notifications` / `<t>_push_deliveries`
+  (PostgresStore); блоб-массивы — «транзитная очередь» для унаследованных
+  inline-путей, `_write` их дренирует. НЕ писать в таблицы из applyFn.
+- Гейт `_notificationTablesReady`: false → все оверрайды делегируют в
+  FileStore-путь по блобу, drain выключен. Не убирать: без него транзиентный
+  сбой миграции на буте травит write-once бэкап пустотой.
+- Каскад deleteUser берёт removed-множества ИЗ result FileStore.deleteUser —
+  НЕ реконструировать дифом блоба до/после (гонка с чужими удалениями, P0).
+- Коалесинг реакций — планы `build*NotificationPlan` + единый
+  `computeNotificationCoalesceKey`; тексты уведомлений живут ТОЛЬКО в планах.
+- PK новых таблиц — явные имена `<t>_pk` (дефолтный `_pkey` конфликтует с
+  осиротевшими именами после DROP легаси-таблиц; на проде была таблица
+  старой схемы с апреля 2026 — эвакуируется в backups автоматически).
+- Откат: `restore-notifications-to-blob.js` (бэкенд остановлен, guard по
+  маркеру `migrationStatus.notificationsToTables`).
+
 ## pg-mem (тесты с реальным SQL)
 
 `backend/test/postgres-chat-tables.test.js` гоняет настоящий SQL на pg-mem —
