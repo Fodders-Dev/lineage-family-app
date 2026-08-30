@@ -3708,6 +3708,7 @@ function createApp({
     store,
     requireAuth,
     mapNotification,
+    realtimeHub,
   });
 
   registerPushRoutes(app, {

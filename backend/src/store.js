@@ -1422,6 +1422,26 @@ function createPushDeviceRecord({
 /// функцией ключ заполняется при INSERT и в бут-миграции. Пустая строка =
 /// тип без коалесинга. Сравнение полей — через строкование (id всегда
 /// строки-uuid; прежние строгие === для них эквивалентны).
+function encodeNotificationCursor(createdAt, id) {
+  return Buffer.from(`${createdAt}|${id}`, "utf8").toString("base64url");
+}
+
+function decodeNotificationCursor(rawCursor) {
+  const normalized = String(rawCursor || "").trim();
+  if (!normalized) return null;
+  try {
+    const decoded = Buffer.from(normalized, "base64url").toString("utf8");
+    const separatorIndex = decoded.lastIndexOf("|");
+    if (separatorIndex <= 0) return null;
+    return {
+      createdAt: decoded.slice(0, separatorIndex),
+      id: decoded.slice(separatorIndex + 1),
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
 function computeNotificationCoalesceKey(notification) {
   const record = notification || {};
   const type = String(record.type || "").trim();
@@ -15852,22 +15872,6 @@ class FileStore {
     return removed;
   }
 
-  async listPushDevicesForSession(userId, sessionPublicId) {
-    const normalizedUserId = String(userId || "").trim();
-    const normalizedSessionPublicId = String(sessionPublicId || "").trim();
-    if (!normalizedUserId) {
-      return [];
-    }
-    const db = await this._read();
-    return db.pushDevices
-      .filter((entry) => {
-        if (entry.userId !== normalizedUserId) return false;
-        if (!normalizedSessionPublicId) return true;
-        return entry.sessionPublicId === normalizedSessionPublicId;
-      })
-      .map((entry) => structuredClone(entry));
-  }
-
   async listPushDevices(userId) {
     const db = await this._read();
     return db.pushDevices
@@ -16026,6 +16030,76 @@ class FileStore {
   /// должен был тапать каждое сообщение по отдельности или
   /// нажимать «Прочитать всё», что было неудобно и часто
   /// забывалось.
+  /// «Прочитать всё»: один вызов вместо N поштучных POST'ов с клиента
+  /// (экран активности лупил цикл markNotificationRead по каждому id).
+  async markAllNotificationsRead(userId) {
+    const normalizedUserId = String(userId || "").trim();
+    if (!normalizedUserId) return 0;
+    return this._mutate((db, skip) => {
+      const now = nowIso();
+      let markedCount = 0;
+      for (const notification of db.notifications) {
+        if (notification.userId !== normalizedUserId) continue;
+        if (notification.readAt) continue;
+        notification.readAt = now;
+        markedCount += 1;
+      }
+      if (markedCount === 0) {
+        return skip(0);
+      }
+      return markedCount;
+    });
+  }
+
+  /// Курсорная страница ленты активности (все статусы по умолчанию).
+  /// Keyset-курсор `createdAt|id` (base64url), сортировка createdAt DESC,
+  /// id DESC — стабильна при вставке новых сверху. nextCursor null =
+  /// лента закончилась.
+  async listNotificationsPage(userId, {status = null, limit = 50, cursor = null} = {}) {
+    const normalizedUserId = String(userId || "").trim();
+    const normalizedLimit = Math.min(
+      200,
+      Math.max(1, Math.floor(Number(limit) || 50)),
+    );
+    if (!normalizedUserId) {
+      return {notifications: [], nextCursor: null};
+    }
+    const decodedCursor = decodeNotificationCursor(cursor);
+    const db = await this._read();
+    const filtered = db.notifications.filter((entry) => {
+      if (entry.userId !== normalizedUserId) return false;
+      if (status === "unread" && entry.readAt) return false;
+      if (status === "read" && !entry.readAt) return false;
+      return true;
+    });
+    filtered.sort((left, right) => {
+      const byCreated = String(right.createdAt || "").localeCompare(
+        String(left.createdAt || ""),
+      );
+      if (byCreated !== 0) return byCreated;
+      return String(right.id || "").localeCompare(String(left.id || ""));
+    });
+    const afterCursor = decodedCursor
+      ? filtered.filter((entry) => {
+          const created = String(entry.createdAt || "");
+          if (created !== decodedCursor.createdAt) {
+            return created < decodedCursor.createdAt;
+          }
+          return String(entry.id || "") < decodedCursor.id;
+        })
+      : filtered;
+    const pageItems = afterCursor.slice(0, normalizedLimit);
+    const hasMore = afterCursor.length > normalizedLimit;
+    const last = pageItems[pageItems.length - 1];
+    return {
+      notifications: pageItems.map((entry) => structuredClone(entry)),
+      nextCursor:
+        hasMore && last
+          ? encodeNotificationCursor(String(last.createdAt || ""), String(last.id || ""))
+          : null,
+    };
+  }
+
   async markNotificationsReadByDataKey({
     userId,
     dataKey,
@@ -21511,6 +21585,8 @@ module.exports = {
   buildPostReactionNotificationPlan,
   buildStoryReactionNotificationPlan,
   computeNotificationCoalesceKey,
+  decodeNotificationCursor,
+  encodeNotificationCursor,
   createNotificationRecord,
   createPushDeliveryRecord,
   composeDisplayNameFromProfile,

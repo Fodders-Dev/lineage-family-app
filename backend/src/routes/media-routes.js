@@ -164,6 +164,27 @@ function registerAuthenticatedMediaRoutes(app, {mediaStorage, requireAuth}) {
         return;
       }
 
+      // Sunset-телеметрия: по этому логу видно, когда волна OTA дообновит
+      // клиентов (1.0.29+ шлют бинарный PUT) и легаси-путь можно закрывать.
+      console.log(
+        "[legacy-media-upload]",
+        JSON.stringify({
+          userId: req.auth?.user?.id || null,
+          bucket: String(bucket),
+          bytes: fileBuffer.length,
+        }),
+      );
+      // Тот же гейт от перезаписи чужого файла, что у бинарного пути:
+      // пути легитимных клиентов уникальны (uuid/timestamp), повтор
+      // имени = чья-то попытка подменить файл по известному URL.
+      if (
+        typeof mediaStorage.objectExists === "function" &&
+        (await mediaStorage.objectExists(bucket, mediaPath))
+      ) {
+        res.status(409).json({message: "Файл уже существует"});
+        return;
+      }
+
       const uploadResult = await mediaStorage.saveObject({
         req,
         bucket,

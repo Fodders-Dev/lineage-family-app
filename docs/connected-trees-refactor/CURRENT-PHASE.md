@@ -4,6 +4,23 @@
 > [`docs/tree_model_overhaul_rfc.md`](../tree_model_overhaul_rfc.md).
 > См. [DECISIONS.md](DECISIONS.md) от 2026-05-09.
 
+## Status update: 2026-08-30
+
+* **27.08 — SPEED-6 задеплоен**: сообщения чатов вынесены из блоба в таблицы
+  (send = INSERT); send-to-ack p50 74мс (было 1533).
+* **27.08 — Phase B live в проде**: федеративные семьи,
+  `RODNYA_FEDERATED_SEMYI_ENABLED=true`.
+* **28-29.08 — массовая загрузка фото**: план `docs/plan_bulk_photo_upload.md`
+  выполнен целиком (5 шагов); OTA-релиз 1.0.29+37 разослан пользователям.
+* **29.08 — бинарная загрузка медиа**: `PUT /v1/media/object` вместо
+  base64-JSON; base64 остаётся легаси до sunset.
+* **30.08 — SPEED-7 задеплоен** (squash `158bdf9`): notifications +
+  pushDeliveries вынесены из блоба в таблицы; миграция на проде — 312+24
+  перенесено, 0 пропусков (легаси-таблица notifications с апреля
+  эвакуирована в backups); persist p50 13мс; наблюдение ~неделя.
+
+---
+
 **Status update**: 2026-05-26 (post 18-ship session — Phase A calls package landed, Phase B backend complete + frontend 8/10 ships shipped + integration test coverage, 5 design docs Phase B/C/D/E captured).
 
 ## Сессия 2026-05-26 — 18 ships, zero regressions

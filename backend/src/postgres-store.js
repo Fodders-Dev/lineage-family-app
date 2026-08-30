@@ -7,6 +7,8 @@ const {
   FileStore,
   EMPTY_DB,
   computeNotificationCoalesceKey,
+  decodeNotificationCursor,
+  encodeNotificationCursor,
   createNotificationRecord,
   createPushDeliveryRecord,
   buildChatSearchSnippet,
@@ -2095,6 +2097,94 @@ class PostgresStore extends FileStore {
       markedCount += 1;
     }
     return markedCount;
+  }
+
+  async markAllNotificationsRead(userId) {
+    const normalizedUserId = String(userId || "").trim();
+    if (!normalizedUserId) return 0;
+    await this.initialize();
+    if (!this._notificationTablesReady) {
+      return super.markAllNotificationsRead(userId);
+    }
+    await this._awaitReadConsistency();
+    // Цикл UPDATE (как markNotificationsReadByDataKey): notification_data
+    // держится в синке с колонкой read_at; unread у юзера — десятки строк.
+    const result = await this._pool.query(
+      `SELECT id, notification_data
+         FROM ${this._qualifiedNotificationsTableName}
+        WHERE user_id = $1
+          AND read_at = ''`,
+      [normalizedUserId],
+    );
+    const now = nowIso();
+    let markedCount = 0;
+    for (const row of result.rows) {
+      const notification = this._rowToNotification(row);
+      if (!notification) continue;
+      notification.readAt = now;
+      await this._pool.query(
+        `UPDATE ${this._qualifiedNotificationsTableName}
+            SET read_at = $2,
+                notification_data = $3::jsonb
+          WHERE id = $1`,
+        [String(row.id), now, JSON.stringify(notification)],
+      );
+      markedCount += 1;
+    }
+    return markedCount;
+  }
+
+  async listNotificationsPage(userId, {status = null, limit = 50, cursor = null} = {}) {
+    const normalizedUserId = String(userId || "").trim();
+    const normalizedLimit = Math.min(
+      200,
+      Math.max(1, Math.floor(Number(limit) || 50)),
+    );
+    if (!normalizedUserId) {
+      return {notifications: [], nextCursor: null};
+    }
+    await this.initialize();
+    if (!this._notificationTablesReady) {
+      return super.listNotificationsPage(userId, {status, limit, cursor});
+    }
+    await this._awaitReadConsistency();
+    const normalizedStatus = String(status || "").trim().toLowerCase();
+    const decodedCursor = decodeNotificationCursor(cursor);
+    // Keyset вместо OFFSET; кортежное сравнение разложено в OR — pg-mem
+    // row-value сравнения не поддерживает.
+    const params = [normalizedUserId, normalizedStatus, normalizedLimit + 1];
+    let cursorClause = "";
+    if (decodedCursor) {
+      params.push(decodedCursor.createdAt, decodedCursor.id);
+      cursorClause = `AND (created_at < $4 OR (created_at = $4 AND id < $5))`;
+    }
+    const result = await this._pool.query(
+      `SELECT notification_data
+         FROM ${this._qualifiedNotificationsTableName}
+        WHERE user_id = $1
+          AND (
+            $2 = ''
+            OR ($2 = 'unread' AND read_at = '')
+            OR ($2 = 'read' AND read_at <> '')
+          )
+          ${cursorClause}
+        ORDER BY created_at DESC, id DESC
+        LIMIT $3`,
+      params,
+    );
+    const rows = result.rows
+      .map((row) => this._rowToNotification(row))
+      .filter(Boolean);
+    const hasMore = rows.length > normalizedLimit;
+    const pageItems = hasMore ? rows.slice(0, normalizedLimit) : rows;
+    const last = pageItems[pageItems.length - 1];
+    return {
+      notifications: pageItems,
+      nextCursor:
+        hasMore && last
+          ? encodeNotificationCursor(String(last.createdAt || ""), String(last.id || ""))
+          : null,
+    };
   }
 
   /// Табличная реализация коалесинга (движок планов из store.js): hit по

@@ -706,3 +706,48 @@ test("легаси-таблица старой схемы (прод-артефа
   const listed = await store.listNotifications("user-1");
   assert.equal(listed.length, 1);
 });
+
+test("PG: listNotificationsPage keyset-страницы + markAllNotificationsRead", async () => {
+  const {store} = buildStore({users: USERS, notifications: [], pushDeliveries: []});
+  await store.initialize();
+
+  for (let i = 1; i <= 5; i += 1) {
+    await store.createNotification({
+      userId: "user-1",
+      type: "generic",
+      title: `N${i}`,
+      body: "-",
+    });
+  }
+
+  const firstPage = await store.listNotificationsPage("user-1", {limit: 2});
+  assert.equal(firstPage.notifications.length, 2);
+  assert.ok(firstPage.nextCursor);
+  const secondPage = await store.listNotificationsPage("user-1", {
+    limit: 2,
+    cursor: firstPage.nextCursor,
+  });
+  const thirdPage = await store.listNotificationsPage("user-1", {
+    limit: 2,
+    cursor: secondPage.nextCursor,
+  });
+  assert.equal(thirdPage.notifications.length, 1);
+  assert.equal(thirdPage.nextCursor, null);
+  const allIds = [
+    ...firstPage.notifications,
+    ...secondPage.notifications,
+    ...thirdPage.notifications,
+  ].map((entry) => entry.id);
+  assert.equal(new Set(allIds).size, 5, "страницы без дыр и дублей");
+
+  const marked = await store.markAllNotificationsRead("user-1");
+  assert.equal(marked, 5);
+  assert.equal(await store.countUnreadNotifications("user-1"), 0);
+  assert.equal(await store.markAllNotificationsRead("user-1"), 0);
+  // История доступна страницей со статусом read.
+  const readPage = await store.listNotificationsPage("user-1", {
+    status: "read",
+    limit: 10,
+  });
+  assert.equal(readPage.notifications.length, 5);
+});

@@ -157,6 +157,13 @@ search/reactions/mark-read — all pass. Rollback stays available via
 backend/scripts/restore-chat-collections-to-blob.js + the pre-deploy dump
 (/opt/rodnya/backups/manual/pre-speed6-20260827-0916.dump).
 
-Remaining background inefficiency (does NOT block acks anymore): notifications
-and pushDeliveries still do whole-blob writes on the fanout — next candidate
-if background load ever matters.
+### SPEED-7 задеплоен 2026-08-30 — notifications+pushDeliveries тоже вынесены
+
+Squash `158bdf9`: notifications и pushDeliveries больше не пишутся в блоб —
+фан-аут теперь делает INSERT в собственные таблицы (с SQL-дедупом по
+coalesce_key для реакций) вместо RMW всего блоба. Редкие всплески
+access/persist до ~300мс под бёрстом, оставленные SPEED-6 как известный
+остаток, больше не должны воспроизводиться. Если они всё же появятся снова —
+причина уже НЕ блоб-фан-аут (смотреть pg-индексы таблиц / нагрузку VPS, не
+возвращать коллекции в блоб). Дизайн и цифры репетиции/деплоя:
+`docs/speed7_notifications_table_design.md`. Наблюдение ~неделя с 30.08.
