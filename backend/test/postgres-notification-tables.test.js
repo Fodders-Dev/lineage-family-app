@@ -642,3 +642,67 @@ test("бамп коалесинга не откатывает конкурент
   const firstRow = rows.rows.find((row) => row.id === first.id);
   assert.notEqual(firstRow.read_at, "", "пометка «прочитано» пережила бамп");
 });
+
+test("легаси-таблица старой схемы (прод-артефакт апреля) переименовывается", async () => {
+  const seeded = {
+    users: USERS,
+    notifications: [seedNotification({id: "n-1", userId: "user-1"})],
+    pushDeliveries: [],
+  };
+  const memDb = newDb();
+  const {Pool} = memDb.adapters.createPg();
+  const rawPool = new Pool();
+  // Артефакт до initialize: старая схема с notification_id PK, без id.
+  await rawPool.query(`
+    CREATE TABLE "public"."rodnya_state_notifications" (
+      notification_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      created_at TEXT,
+      read_at TEXT,
+      notification_data JSONB NOT NULL
+    )
+  `);
+  await rawPool.query(`
+    INSERT INTO "public"."rodnya_state_notifications"
+      (notification_id, user_id, created_at, notification_data)
+    VALUES ('old-1', 'user-x', '2026-04-21T23:00:00.000Z', '{}')
+  `);
+  const pool = {
+    query: (sql, params) => {
+      let effectiveParams = params;
+      if (
+        String(sql).includes("ON CONFLICT (id) DO NOTHING") &&
+        Array.isArray(params) &&
+        params[0] === "default"
+      ) {
+        effectiveParams = [params[0], JSON.stringify(seeded)];
+      }
+      return rawPool.query(sql, effectiveParams);
+    },
+  };
+  const store = new PostgresStore({
+    connectionString: "postgresql://unused/rodnya",
+    pool,
+  });
+  await store.initialize();
+
+  // Легаси эвакуирована в backup-таблицу со своими данными.
+  const legacy = await rawPool.query(
+    `SELECT backup_data FROM "public"."rodnya_state_notification_backups"
+      WHERE id = 'legacy-table-rodnya_state_notifications'`,
+  );
+  assert.equal(legacy.rows.length, 1);
+  const legacyData =
+    typeof legacy.rows[0].backup_data === "string"
+      ? JSON.parse(legacy.rows[0].backup_data)
+      : legacy.rows[0].backup_data;
+  assert.deepEqual(
+    legacyData.rows.map((row) => row.notification_id),
+    ["old-1"],
+  );
+  // Новая таблица создана правильной схемой, миграция прошла.
+  const migrated = await rawPool.query(`SELECT id FROM ${NOTIF_TABLE}`);
+  assert.deepEqual(migrated.rows.map((row) => row.id), ["n-1"]);
+  const listed = await store.listNotifications("user-1");
+  assert.equal(listed.length, 1);
+});

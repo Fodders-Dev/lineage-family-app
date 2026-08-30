@@ -550,17 +550,82 @@ class PostgresStore extends FileStore {
   // (никто их не читает внутри applyFn), поэтому в отличие от чатов их можно
   // вынести целиком, без projection. NULL-колонок нет (pg-mem не дружит с
   // параметризованным NULL): read_at='' = непрочитано, silent 0/1.
+  /// Находка репетиции на прод-дампе: на проде с апреля 2026 живёт
+  /// таблица rodnya_state_notifications СТАРОЙ схемы (notification_id PK,
+  /// без type/silent/coalesce_key) — артефакт раннего эксперимента, никем
+  /// не читается (актуальные уведомления жили в блобе). CREATE IF NOT
+  /// EXISTS молча пропускал создание, а CREATE INDEX падал на
+  /// несуществующей колонке id и валил бут. Несовместимую таблицу
+  /// переименовываем (сохраняем, не дропаем) и создаём заново.
+  // PK-констрейнты новых таблиц имеют ЯВНЫЕ имена (<t>_pk, не дефолтный
+  // _pkey): после эвакуации+DROP легаси-таблицы pg-mem (а потенциально и
+  // осиротевшие объекты на реальном PG) держат старое имя «..._pkey».
+  async _renameIfIncompatibleTable(qualifiedName, bareName, probeColumn) {
+    try {
+      await this._pool.query(
+        `SELECT ${probeColumn} FROM ${qualifiedName} LIMIT 1`,
+      );
+      return; // таблица есть и совместима
+    } catch (error) {
+      const message = String(error?.message || "").toLowerCase();
+      const isColumnMismatch =
+        error?.code === "42703" ||
+        (message.includes("column") && message.includes("does not exist"));
+      if (!isColumnMismatch) {
+        // Таблицы нет (или иная причина) — CREATE IF NOT EXISTS разберётся.
+        return;
+      }
+    }
+    // Эвакуация содержимого в backup-таблицу + DROP. Не RENAME (тянет имя
+    // PK-констрейнта — CREATE новой таблицы падает на «_pkey already
+    // exists») и не CTAS (pg-mem его не парсит): только простые операции.
+    console.warn(
+      "[backend] incompatible legacy table evacuated before SPEED-7 DDL",
+      JSON.stringify({table: bareName}),
+    );
+    const legacyRows = await this._pool.query(
+      `SELECT * FROM ${qualifiedName}`,
+    );
+    await this._pool.query(
+      `INSERT INTO ${this._qualifiedNotificationBackupsTableName} (id, backup_data)
+       VALUES ($1, $2::jsonb)
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        `legacy-table-${bareName}`,
+        JSON.stringify({savedAt: nowIso(), rows: legacyRows.rows}),
+      ],
+    );
+    await this._pool.query(`DROP TABLE ${qualifiedName}`);
+  }
+
   async _createNotificationTables() {
     await this._pool.query(`
-      CREATE TABLE IF NOT EXISTS ${this._qualifiedNotificationsTableName} (
+      CREATE TABLE IF NOT EXISTS ${this._qualifiedNotificationBackupsTableName} (
         id TEXT PRIMARY KEY,
+        backup_data JSONB NOT NULL
+      )
+    `);
+    await this._renameIfIncompatibleTable(
+      this._qualifiedNotificationsTableName,
+      this._notificationsTable,
+      "id",
+    );
+    await this._renameIfIncompatibleTable(
+      this._qualifiedPushDeliveriesTableName,
+      this._pushDeliveriesTable,
+      "id",
+    );
+    await this._pool.query(`
+      CREATE TABLE IF NOT EXISTS ${this._qualifiedNotificationsTableName} (
+        id TEXT,
         user_id TEXT NOT NULL,
         type TEXT NOT NULL DEFAULT 'generic',
         created_at TEXT NOT NULL,
         read_at TEXT NOT NULL DEFAULT '',
         silent INT NOT NULL DEFAULT 0,
         coalesce_key TEXT NOT NULL DEFAULT '',
-        notification_data JSONB NOT NULL
+        notification_data JSONB NOT NULL,
+        CONSTRAINT ${quoteIdentifier(`${this._notificationsTable}_pk`)} PRIMARY KEY (id)
       )
     `);
     await this._pool.query(`
@@ -579,7 +644,7 @@ class PostgresStore extends FileStore {
     `);
     await this._pool.query(`
       CREATE TABLE IF NOT EXISTS ${this._qualifiedPushDeliveriesTableName} (
-        id TEXT PRIMARY KEY,
+        id TEXT,
         notification_id TEXT NOT NULL DEFAULT '',
         user_id TEXT NOT NULL,
         device_id TEXT NOT NULL DEFAULT '',
@@ -587,7 +652,8 @@ class PostgresStore extends FileStore {
         status TEXT NOT NULL DEFAULT 'queued',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        delivery_data JSONB NOT NULL
+        delivery_data JSONB NOT NULL,
+        CONSTRAINT ${quoteIdentifier(`${this._pushDeliveriesTable}_pk`)} PRIMARY KEY (id)
       )
     `);
     await this._pool.query(`
@@ -597,12 +663,6 @@ class PostgresStore extends FileStore {
     await this._pool.query(`
       CREATE INDEX IF NOT EXISTS ${quoteIdentifier(`${this._pushDeliveriesTable}_device_idx`)}
         ON ${this._qualifiedPushDeliveriesTableName} (device_id)
-    `);
-    await this._pool.query(`
-      CREATE TABLE IF NOT EXISTS ${this._qualifiedNotificationBackupsTableName} (
-        id TEXT PRIMARY KEY,
-        backup_data JSONB NOT NULL
-      )
     `);
   }
 
