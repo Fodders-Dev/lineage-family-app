@@ -143,6 +143,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Object? _loadError;
   List<AppNotificationItem> _notifications = const <AppNotificationItem>[];
 
+  /// Секция «Ранее»: прочитанная история страницами (keyset-cursor
+  /// бэкенда). После «Прочитать всё» уведомления не исчезают в пустоту —
+  /// переезжают сюда; подгрузка ленивая по скроллу.
+  List<AppNotificationItem> _readHistory = const <AppNotificationItem>[];
+  String? _readHistoryCursor;
+  bool _readHistoryExhausted = false;
+  bool _isLoadingHistory = false;
+
   CustomApiNotificationService? get _notificationService =>
       GetIt.I.isRegistered<CustomApiNotificationService>()
           ? GetIt.I<CustomApiNotificationService>()
@@ -209,8 +217,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       unawaited(_notificationsCache?.write(notifications));
       setState(() {
         _notifications = notifications;
+        _readHistory = const <AppNotificationItem>[];
+        _readHistoryCursor = null;
+        _readHistoryExhausted = false;
         _isLoading = false;
       });
+      unawaited(_loadMoreHistory());
     } catch (error) {
       _appStatusService.reportError(
         error,
@@ -223,6 +235,39 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         _loadError = error;
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _loadMoreHistory() async {
+    final notificationService = _notificationService;
+    // Тестовые сиды (widget.notificationLoader) живут без пагинации —
+    // история для них выключена.
+    if (notificationService == null ||
+        widget.notificationLoader != null ||
+        _isLoadingHistory ||
+        _readHistoryExhausted) {
+      return;
+    }
+    _isLoadingHistory = true;
+    try {
+      final page = await notificationService.fetchNotificationsPage(
+        status: 'read',
+        cursor: _readHistoryCursor,
+      );
+      if (!mounted) return;
+      setState(() {
+        _readHistory = [..._readHistory, ...page.items];
+        _readHistoryCursor = page.nextCursor;
+        _readHistoryExhausted = page.nextCursor == null;
+      });
+    } catch (_) {
+      // История — вторична: тихо остановим подгрузку до следующего
+      // pull-to-refresh, основной unread-поток уже на экране.
+      if (mounted) {
+        setState(() => _readHistoryExhausted = true);
+      }
+    } finally {
+      _isLoadingHistory = false;
     }
   }
 
@@ -297,8 +342,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       if (customHandler != null) {
         await customHandler(notificationsToMark);
       } else {
-        await _notificationService?.markNotificationsRead(
-          notificationsToMark.map((item) => item.id),
+        // Один bulk-запрос вместо N поштучных POST'ов (роут read-all).
+        await _notificationService?.markAllNotificationsRead(
+          fallbackIds:
+              notificationsToMark.map((item) => item.id).toList(growable: false),
         );
       }
 
@@ -307,6 +354,22 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       }
       setState(() {
         _notifications = const <AppNotificationItem>[];
+        // Прочитанное не исчезает в пустоту — сразу видно в «Ранее».
+        _readHistory = [
+          ...notificationsToMark.map(
+            (item) => AppNotificationItem(
+              id: item.id,
+              type: item.type,
+              title: item.title,
+              body: item.body,
+              createdAt: item.createdAt,
+              data: item.data,
+              payload: item.payload,
+              isRead: true,
+            ),
+          ),
+          ..._readHistory,
+        ];
       });
     } catch (error) {
       _appStatusService.reportError(
@@ -438,7 +501,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       );
     }
 
-    if (_notifications.isEmpty) {
+    if (_notifications.isEmpty && _readHistory.isEmpty) {
       return _NotificationsMessageState(
         icon: Icons.notifications_none,
         title: 'Пока нет новых уведомлений',
@@ -458,13 +521,28 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final sortedTypeSummary = typeSummary.entries.toList()
       ..sort((left, right) => right.value.compareTo(left.value));
 
+    final historyBlockCount = _readHistory.isEmpty
+        ? 0
+        : _readHistory.length + 1; // заголовок «Ранее» + карточки
+    // Маячок-подгрузчик — только в «живом» режиме: тестовые сиды
+    // (notificationLoader) без пагинации, иначе вечный спиннер.
+    final showHistoryLoader = !_readHistoryExhausted &&
+        _readHistory.isNotEmpty &&
+        widget.notificationLoader == null &&
+        _notificationService != null;
+    // Overview-карта имеет смысл только при непрочитанных: после
+    // «прочитать всё» экран открывается сразу историей.
+    final headerCount = _notifications.isEmpty ? 0 : 1;
     final listView = ListView.separated(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-      itemCount: groupedNotifications.length + 1,
+      itemCount: groupedNotifications.length +
+          headerCount +
+          historyBlockCount +
+          (showHistoryLoader ? 1 : 0),
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
-        if (index == 0) {
+        if (headerCount > 0 && index == 0) {
           return _NotificationsOverviewCard(
             totalCount: _notifications.length,
             isFriendsTree: isFriendsTree,
@@ -472,12 +550,56 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             typeSummary: sortedTypeSummary,
           );
         }
-        final group = groupedNotifications[index - 1];
-        final item = group.first;
-        return _NotificationCard(
-          item: item,
-          groupedCount: group.length,
-          onTap: _isMutating ? null : () => _openNotification(item),
+        final groupIndex = index - headerCount;
+        if (groupIndex < groupedNotifications.length) {
+          final group = groupedNotifications[groupIndex];
+          final item = group.first;
+          return _NotificationCard(
+            item: item,
+            groupedCount: group.length,
+            onTap: _isMutating ? null : () => _openNotification(item),
+          );
+        }
+        final historyIndex = groupIndex - groupedNotifications.length;
+        if (historyIndex == 0) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'Ранее',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          );
+        }
+        final readItemIndex = historyIndex - 1;
+        if (readItemIndex >= _readHistory.length) {
+          // Маячок в хвосте: докатились — тянем следующую страницу.
+          unawaited(_loadMoreHistory());
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(12),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          );
+        }
+        final item = _readHistory[readItemIndex];
+        return Opacity(
+          opacity: 0.62,
+          child: _NotificationCard(
+            item: item,
+            groupedCount: 1,
+            // Прочитанное открывается без повторного markRead.
+            onTap: _isMutating
+                ? null
+                : () =>
+                    _notificationService?.openNotificationPayload(item.payload),
+          ),
         );
       },
     );

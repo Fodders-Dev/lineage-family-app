@@ -9,6 +9,7 @@ class AppNotificationItem {
     required this.createdAt,
     required this.data,
     required this.payload,
+    this.isRead = false,
   });
 
   final String id;
@@ -18,6 +19,10 @@ class AppNotificationItem {
   final DateTime? createdAt;
   final Map<String, dynamic> data;
   final String payload;
+
+  /// Прочитано ли (бэкенд отдаёт isRead из readAt). Секция «Ранее» на
+  /// экране активности показывает историю приглушённой.
+  final bool isRead;
 
   factory AppNotificationItem.fromBackendJson(Map<String, dynamic> json) {
     final id = json['id']?.toString() ?? '';
@@ -36,6 +41,7 @@ class AppNotificationItem {
         'type': type,
         'data': data,
       }),
+      isRead: json['isRead'] == true,
     );
   }
 

@@ -1199,6 +1199,149 @@ void main() {
       await service.dispose();
     },
   );
+  test('fetchNotificationsPage передаёт cursor/status и читает nextCursor',
+      () async {
+    late Uri captured;
+    final client = MockClient((request) async {
+      if (request.url.path == '/v1/notifications') {
+        captured = request.url;
+        return http.Response(
+          jsonEncode({
+            'notifications': [
+              {
+                'id': 'n-1',
+                'type': 'generic',
+                'title': 'Прочитанное',
+                'body': '-',
+                'createdAt': '2026-08-30T10:00:00.000Z',
+                'data': const {},
+                'isRead': true,
+              },
+            ],
+            'nextCursor': 'cursor-2',
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      return http.Response('{"message":"not found"}', 404);
+    });
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      'custom_api_session_v1',
+      jsonEncode({
+        'accessToken': 'access-token',
+        'refreshToken': 'refresh-token',
+        'userId': 'user-1',
+        'email': 'dev@rodnya.app',
+        'displayName': 'Dev User',
+        'providerIds': ['password'],
+        'isProfileComplete': true,
+        'missingFields': const [],
+      }),
+    );
+    final authService = await CustomApiAuthService.create(
+      httpClient: client,
+      preferences: prefs,
+      runtimeConfig:
+          const BackendRuntimeConfig(apiBaseUrl: 'https://api.example.ru'),
+      invitationService: InvitationService(),
+    );
+    final service = await CustomApiNotificationService.create(
+      preferences: prefs,
+      authService: authService,
+      runtimeConfig:
+          const BackendRuntimeConfig(apiBaseUrl: 'https://api.example.ru'),
+      httpClient: client,
+    );
+
+    final page = await service.fetchNotificationsPage(
+      status: 'read',
+      cursor: 'cursor-1',
+    );
+    expect(captured.queryParameters['cursor'], 'cursor-1');
+    expect(captured.queryParameters['status'], 'read');
+    expect(page.items.single.isRead, isTrue);
+    expect(page.nextCursor, 'cursor-2');
+  });
+
+  test('markAllNotificationsRead — один POST read-all; 404 → поштучный фолбэк',
+      () async {
+    final calls = <String>[];
+    var readAllAvailable = true;
+    final client = MockClient((request) async {
+      calls.add('${request.method} ${request.url.path}');
+      if (request.url.path == '/v1/notifications/read-all') {
+        if (!readAllAvailable) {
+          return http.Response('{"message":"not found"}', 404);
+        }
+        return http.Response(
+          jsonEncode({'marked': 3}),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      if (request.url.path.endsWith('/read')) {
+        return http.Response(
+          jsonEncode({'notification': {}}),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      return http.Response('{"message":"not found"}', 404);
+    });
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      'custom_api_session_v1',
+      jsonEncode({
+        'accessToken': 'access-token',
+        'refreshToken': 'refresh-token',
+        'userId': 'user-1',
+        'email': 'dev@rodnya.app',
+        'displayName': 'Dev User',
+        'providerIds': ['password'],
+        'isProfileComplete': true,
+        'missingFields': const [],
+      }),
+    );
+    final authService = await CustomApiAuthService.create(
+      httpClient: client,
+      preferences: prefs,
+      runtimeConfig:
+          const BackendRuntimeConfig(apiBaseUrl: 'https://api.example.ru'),
+      invitationService: InvitationService(),
+    );
+    final service = await CustomApiNotificationService.create(
+      preferences: prefs,
+      authService: authService,
+      runtimeConfig:
+          const BackendRuntimeConfig(apiBaseUrl: 'https://api.example.ru'),
+      httpClient: client,
+    );
+
+    final marked = await service.markAllNotificationsRead(
+      fallbackIds: const ['n-1', 'n-2', 'n-3'],
+    );
+    expect(marked, 3);
+    expect(
+      calls.where((entry) => entry.contains('read-all')).length,
+      1,
+      reason: 'ровно один bulk-запрос, никакого цикла',
+    );
+    expect(calls.where((entry) => entry.endsWith('/read')).length, 0);
+
+    // Старый бэк без роута: честный фолбэк на поштучные POST /read.
+    calls.clear();
+    readAllAvailable = false;
+    final fallbackMarked = await service.markAllNotificationsRead(
+      fallbackIds: const ['n-1', 'n-2'],
+    );
+    expect(fallbackMarked, 2);
+    expect(calls.where((entry) => entry.endsWith('/read')).length, 2);
+  });
+
 }
 
 class _FakeFlutterLocalNotificationsPlatform
@@ -1324,4 +1467,6 @@ class _FakeNotificationCallService implements CallServiceInterface {
 
   @override
   Future<void> stopRealtimeBridge() async {}
+
+
 }

@@ -134,7 +134,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(markedItems, hasLength(2));
-      expect(find.text('Пока нет новых уведомлений'), findsOneWidget);
+      // Новая семантика (пункт 1, 31.08): прочитанное не исчезает в
+      // пустоту — переезжает в секцию «Ранее» приглушённой историей.
+      expect(find.text('Ранее'), findsOneWidget);
+      expect(find.text('Семья Шуфляк'), findsOneWidget);
+      expect(find.text('Пока нет новых уведомлений'), findsNothing);
     },
   );
 
@@ -245,6 +249,43 @@ void main() {
       expect(find.textContaining('Уведомление ·'), findsNothing);
     },
   );
+  testWidgets('«Прочитать всё» переносит уведомления в «Ранее», не в пустоту',
+      (tester) async {
+    final items = [
+      AppNotificationItem(
+        id: 'n-1',
+        type: 'generic',
+        title: 'Первое уведомление',
+        body: '-',
+        createdAt: DateTime(2026, 8, 30, 10),
+        data: const {},
+        payload: '',
+      ),
+    ];
+    var markAllCalls = 0;
+    await tester.pumpWidget(
+      await _buildNotificationsApp(
+        NotificationsScreen(
+          notificationLoader: () async => items,
+          onMarkAllNotificationsRead: (toMark) async {
+            markAllCalls += 1;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Первое уведомление'), findsOneWidget);
+    await tester.tap(find.byTooltip('Отметить всё прочитанным'));
+    await tester.pumpAndSettle();
+
+    expect(markAllCalls, 1);
+    expect(find.text('Ранее'), findsOneWidget,
+        reason: 'история появляется вместо пустого экрана');
+    expect(find.text('Первое уведомление'), findsOneWidget,
+        reason: 'уведомление переехало в «Ранее», а не пропало');
+  });
+
 }
 
 Future<List<AppNotificationItem>> _emptyLoader() async =>
@@ -261,6 +302,7 @@ Future<Widget> _buildNotificationsApp(Widget child) async {
     value: treeProvider,
     child: MaterialApp(home: child),
   );
+
 }
 
 class _FakeLocalStorageService implements LocalStorageService {
@@ -296,4 +338,5 @@ class _FakeAuthService implements AuthServiceInterface {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
 }

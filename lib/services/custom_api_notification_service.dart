@@ -633,6 +633,89 @@ class CustomApiNotificationService implements NotificationServiceInterface {
     }
   }
 
+  /// Страница ленты активности (все статусы): keyset-курсор бэкенда.
+  /// [cursor] null — первая страница; nextCursor null — лента кончилась.
+  Future<NotificationsPageResult> fetchNotificationsPage({
+    String? status,
+    String? cursor,
+    int limit = 30,
+  }) async {
+    final authService = _authService;
+    final runtimeConfig = _runtimeConfig;
+    if (authService == null || runtimeConfig == null) {
+      return const NotificationsPageResult(
+        items: <AppNotificationItem>[],
+        nextCursor: null,
+      );
+    }
+    final token = authService.accessToken;
+    if (token == null || token.isEmpty) {
+      return const NotificationsPageResult(
+        items: <AppNotificationItem>[],
+        nextCursor: null,
+      );
+    }
+
+    final query = StringBuffer('/v1/notifications?limit=$limit'
+        '&cursor=${Uri.encodeQueryComponent(cursor ?? '')}');
+    if (status != null && status.isNotEmpty) {
+      query.write('&status=${Uri.encodeQueryComponent(status)}');
+    }
+    final response = await _httpClient.get(
+      _buildUri(runtimeConfig, query.toString()),
+      headers: _headers(token),
+    );
+    final payload = _decodeResponse(response);
+    final rawNotifications = payload['notifications'];
+    final items = rawNotifications is List<dynamic>
+        ? rawNotifications
+            .whereType<Map<String, dynamic>>()
+            .map(AppNotificationItem.fromBackendJson)
+            .toList(growable: false)
+        : const <AppNotificationItem>[];
+    return NotificationsPageResult(
+      items: items,
+      nextCursor: payload['nextCursor']?.toString(),
+    );
+  }
+
+  /// «Прочитать всё» одним запросом. Бэкенд без роута (домиграционный,
+  /// маловероятно) отвечает 404 — тогда честный фолбэк на поштучный цикл
+  /// по [fallbackIds]. Возвращает сколько помечено.
+  Future<int> markAllNotificationsRead({
+    List<String> fallbackIds = const <String>[],
+  }) async {
+    final authService = _authService;
+    final runtimeConfig = _runtimeConfig;
+    if (authService == null || runtimeConfig == null) {
+      return 0;
+    }
+    final token = authService.accessToken;
+    if (token == null || token.isEmpty) {
+      return 0;
+    }
+    try {
+      final response = await _httpClient.post(
+        _buildUri(runtimeConfig, '/v1/notifications/read-all'),
+        headers: _headers(token),
+      );
+      final payload = _decodeResponse(response);
+      _updateUnreadNotificationsCount(0);
+      final marked = payload['marked'];
+      return marked is num ? marked.toInt() : 0;
+    } on CustomApiException catch (error) {
+      if (error.statusCode == 404 && fallbackIds.isNotEmpty) {
+        await markNotificationsRead(fallbackIds);
+        _updateUnreadNotificationsCount(0);
+        return fallbackIds.length;
+      }
+      if (await _handleUnauthorizedError(error)) {
+        return 0;
+      }
+      rethrow;
+    }
+  }
+
   Future<List<AppNotificationItem>> fetchUnreadNotifications({
     int limit = 50,
   }) async {
@@ -2116,4 +2199,12 @@ class _ChannelMeta {
   final String description;
   final Importance importance;
   final Priority priority;
+}
+
+/// Страница ленты активности: элементы + курсор продолжения (null = конец).
+class NotificationsPageResult {
+  const NotificationsPageResult({required this.items, required this.nextCursor});
+
+  final List<AppNotificationItem> items;
+  final String? nextCursor;
 }
