@@ -15,16 +15,16 @@
       "Bash(gh run list*)",
       "Bash(gh run view*)",
       "Bash(gh workflow view*)",
-      "Bash(git push*)"
-    ],
-    "ask": [
-      "Bash(gh workflow run*)",
+      "Bash(git push*)",
       "Bash(ssh *)",
       "Bash(scp *)",
       "Bash(psql *)",
-      "Bash(gh secret *)",
       "Bash(adb uninstall*)",
-      "Bash(adb shell pm uninstall*)",
+      "Bash(adb shell pm uninstall*)"
+    ],
+    "ask": [
+      "Bash(gh workflow run*)",
+      "Bash(gh secret *)",
       "Bash(git push origin main*)",
       "Bash(git push * main*)"
     ],
