@@ -1176,10 +1176,11 @@ async function main() {
           path: "/relatives",
           verify: async () => {
             await page.waitForFunction(
-              // SC2 merge: /relatives redirects → #/family?view=list
+              // Легаси /relatives сворачивается во вкладку «Родные».
+              // Режимов внутри больше нет — ?view= исчез вместе с ними.
               () =>
                 window.location.hash.startsWith("#/family") &&
-                window.location.hash.includes("view=list"),
+                !window.location.hash.includes("view="),
               undefined,
               {timeout: 15_000},
             );
