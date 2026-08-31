@@ -1386,7 +1386,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
           key: const Key('home-invitations-banner'),
-          onTap: () => context.go('/tree?selector=1&tab=invitations'),
+          onTap: () => context.go('/trees?tab=invitations'),
           borderRadius: BorderRadius.circular(16),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

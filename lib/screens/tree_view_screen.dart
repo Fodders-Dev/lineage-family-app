@@ -123,17 +123,10 @@ class TreeViewScreen extends StatefulWidget {
   final String? routeTreeId;
   final String? routeTreeName;
 
-  /// UX-T1 FR1: на телефоне переключатель «Список/Дерево» переезжает в
-  /// компактный icon-сегмент внутри топ-бара дерева (вместо отдельной полосы
-  /// над канвасом). Колбэк просит родителя (FamilyScreen) показать список.
-  /// null → сегмент не рисуем (например, отдельный роут /tree без шелла).
-  final VoidCallback? onSwitchToList;
-
   const TreeViewScreen({
     super.key,
     this.routeTreeId,
     this.routeTreeName,
-    this.onSwitchToList,
   });
 
   /// A-CTA: сброс session-dismiss гида между тестами.
@@ -983,7 +976,7 @@ class _TreeViewScreenState extends State<TreeViewScreen>
           message: 'Здесь появится схема семьи.',
           actions: [
             FilledButton.icon(
-              onPressed: () => context.go('/tree?selector=1'),
+              onPressed: () => context.go('/trees'),
               icon: const Icon(Icons.list_alt),
               label: const Text('Открыть'),
             ),
@@ -1102,67 +1095,8 @@ class _TreeViewScreenState extends State<TreeViewScreen>
   /// link к конкретному personId; pick'ить relative requires UI.
   /// Cheaper UX: send user туда where invite flow already polished.
   void _handleShareInvitation() {
-    // Прямой современный роут (legacy /relatives живёт только редиректом).
-    context.push('/family?view=list');
-  }
-
-  /// UX-T1 FR1: компактный icon-сегмент [Список | Дерево] для топ-бара на
-  /// телефоне. Дерево — текущий (выделен), тап по «Список» зовёт
-  /// onSwitchToList (FamilyScreen переключит вкладку). Заменяет и отдельную
-  /// полосу-тумблер, и дублирующее слово «Дерево» в заголовке.
-  Widget _buildCompactViewSegment(RodnyaDesignTokens tokens) {
-    Widget seg({
-      required IconData icon,
-      required bool selected,
-      required VoidCallback? onTap,
-      required String tooltip,
-    }) {
-      return Tooltip(
-        message: tooltip,
-        child: Material(
-          color: selected ? tokens.accent : Colors.transparent,
-          borderRadius: BorderRadius.circular(9),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(9),
-            onTap: onTap,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              child: Icon(
-                icon,
-                size: 18,
-                color: selected ? tokens.accentInk : tokens.inkMuted,
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: tokens.surfaceStrong,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: tokens.surfaceLine),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          seg(
-            icon: Icons.people_outline_rounded,
-            selected: false,
-            onTap: widget.onSwitchToList,
-            tooltip: 'Список',
-          ),
-          seg(
-            icon: Icons.account_tree_outlined,
-            selected: true,
-            onTap: null,
-            tooltip: _isFriendsTree ? 'Круг' : 'Дерево',
-          ),
-        ],
-      ),
-    );
+    // Вкладка «Родные» — там живёт отточенный per-person invite flow.
+    context.go('/family');
   }
 
   Widget _buildTreeTopbar({
@@ -1201,18 +1135,17 @@ class _TreeViewScreenState extends State<TreeViewScreen>
             padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
             child: Row(
               children: [
+                // Дерево — корень своей вкладки: возвращаться отсюда некуда,
+                // поэтому слева не «назад», а честный вход в выбор дерева.
+                // Слово «Дерево» в заголовке не дублируем — его несёт
+                // подсвеченная вкладка бара, идентичность — пилюля с именем.
                 IconButton(
-                  icon: Icon(Icons.arrow_back_rounded, color: tokens.ink),
-                  tooltip: 'К списку деревьев',
-                  onPressed: () => context.go('/tree?selector=1'),
+                  key: const Key('tree-topbar-select-tree'),
+                  icon: Icon(Icons.account_tree_outlined, color: tokens.ink),
+                  tooltip: 'Выбрать дерево',
+                  onPressed: () => context.go('/trees'),
                 ),
-                // UX-T1 FR1: на телефоне — компактный icon-сегмент Список/
-                // Дерево (переключатель переехал сюда из отдельной полосы);
-                // слово «Дерево» не дублируем — идентичность несёт
-                // treeName-пилюля. На десктопе оставляем serif-заголовок.
-                if (isPhone && widget.onSwitchToList != null)
-                  _buildCompactViewSegment(tokens)
-                else
+                if (!isPhone)
                   Text(
                     _isFriendsTree ? 'Круг' : 'Дерево',
                     style: AppTheme.serif(
@@ -1276,20 +1209,6 @@ class _TreeViewScreenState extends State<TreeViewScreen>
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // UX-T1.2 FR-c: на телефоне (<1180) пилюлю «Выбрать дерево»
-                        // не дублируем — стрелка «назад» уже ведёт в селектор
-                        // деревьев. На десктопе оставляем как было.
-                        if (!isPhone)
-                          _TreeTopbarPill(
-                            tokens: tokens,
-                            tooltip: 'Выбрать дерево',
-                            onTap: () => context.go('/tree?selector=1'),
-                            child: Icon(
-                              Icons.account_tree_outlined,
-                              size: 19,
-                              color: tokens.ink,
-                            ),
-                          ),
                         // Undo / redo пилюли — на десктопе всегда видны (disabled
                         // если стек пуст), чтобы юзер сразу понимал что эта
                         // функциональность есть. На телефоне (UX-T1.2 FR-c) они

@@ -419,7 +419,7 @@ class _DiscoverRelativesScreenState extends State<DiscoverRelativesScreen> {
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
-                  onPressed: () => context.go('/family?view=list'),
+                  onPressed: () => context.go('/family'),
                   icon: const Icon(Icons.account_tree_outlined),
                   label: const Text('Открыть семью'),
                 ),
@@ -456,7 +456,7 @@ class _DiscoverRelativesScreenState extends State<DiscoverRelativesScreen> {
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
-                  onPressed: () => context.go('/family?view=list'),
+                  onPressed: () => context.go('/family'),
                   icon: const Icon(Icons.person_add_alt_1_outlined),
                   label: const Text('Добавить человека в дерево'),
                 ),

@@ -17,7 +17,6 @@ import 'package:rodnya/models/family_relation.dart';
 import 'package:rodnya/models/family_tree.dart';
 import 'package:rodnya/models/relation_request.dart';
 import 'package:rodnya/providers/tree_provider.dart';
-import 'package:rodnya/screens/family_screen.dart';
 import 'package:rodnya/screens/relatives_screen.dart';
 import 'package:rodnya/services/app_status_service.dart';
 import 'package:rodnya/widgets/main_navigation_bar.dart';
@@ -431,7 +430,13 @@ void main() {
               Text('family:${state.uri.queryParameters['view']}'),
         ),
         GoRoute(
+          // Дерево — своя вкладка (центр бара); селектор деревьев уехал
+          // на /trees, потому что go_router матчит путь без query.
           path: '/tree',
+          builder: (context, state) => const Text('tree-tab'),
+        ),
+        GoRoute(
+          path: '/trees',
           builder: (context, state) => const Text('tree-selector'),
         ),
         GoRoute(
@@ -522,7 +527,7 @@ void main() {
     await tester.tap(find.byTooltip('Показать дерево'));
     await tester.pumpAndSettle();
 
-    expect(find.text('family:tree'), findsOneWidget);
+    expect(find.text('tree-tab'), findsOneWidget);
   });
 
   testWidgets('A-list: действие занимает отдельную строку, не инсет списка',
@@ -663,8 +668,8 @@ void main() {
   testWidgets(
       'контент, экранные действия и основная навигация занимают разные зоны',
       (tester) async {
-    // Production sandwich: outer shell nav + FamilyScreen + its local
-    // actions. None of the three layout regions may overlap.
+    // Production sandwich: outer shell nav + вкладка «Родные» + её
+    // экранные действия. None of the three layout regions may overlap.
     tester.view.physicalSize = const Size(412, 892);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -683,7 +688,7 @@ void main() {
           path: '/family',
           builder: (context, state) => Scaffold(
             extendBody: false,
-            body: const FamilyScreen(),
+            body: const RelativesScreen(),
             bottomNavigationBar: MainNavigationBar(
               currentIndex: 1,
               onTap: (_) {},

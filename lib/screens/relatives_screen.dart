@@ -898,7 +898,7 @@ class _RelativesScreenState extends State<RelativesScreen> {
               FilledButton.icon(
                 icon: const Icon(Icons.account_tree_outlined),
                 label: const Text('Открыть'),
-                onPressed: () => context.go('/tree?selector=1'),
+                onPressed: () => context.go('/trees'),
               ),
             ],
           ),

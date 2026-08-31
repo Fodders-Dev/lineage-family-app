@@ -206,7 +206,7 @@ extension _ProfileScreenSections on _ProfileScreenState {
           ),
           if (connectionLink == null)
             OutlinedButton(
-              onPressed: () => context.go('/tree?selector=1'),
+              onPressed: () => context.go('/trees'),
               style: OutlinedButton.styleFrom(
                 visualDensity: VisualDensity.compact,
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,

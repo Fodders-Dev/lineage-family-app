@@ -163,7 +163,7 @@ extension _HomeScreenSections on _HomeScreenState {
                       ),
                       if (!hasSelectedTree)
                         OutlinedButton.icon(
-                          onPressed: () => context.go('/tree?selector=1'),
+                          onPressed: () => context.go('/trees'),
                           icon: const Icon(Icons.account_tree_outlined),
                           label: const Text('Выбрать дерево'),
                         ),
@@ -427,7 +427,7 @@ extension _HomeScreenSections on _HomeScreenState {
     final primaryAction = _buildQuickActionButton(
       icon: hasSelectedTree ? Icons.account_tree_outlined : treeIcon,
       label: hasSelectedTree ? 'Дерево' : 'Выбрать',
-      onTap: () => context.go('/tree?selector=1'),
+      onTap: () => context.go('/trees'),
       primary: !hasSelectedTree,
     );
 
@@ -444,7 +444,7 @@ extension _HomeScreenSections on _HomeScreenState {
                 Expanded(
                   child: InkWell(
                     borderRadius: BorderRadius.circular(999),
-                    onTap: () => context.go('/tree?selector=1'),
+                    onTap: () => context.go('/trees'),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 4,
@@ -1030,7 +1030,9 @@ extension _HomeScreenSections on _HomeScreenState {
         icon: Icons.event_outlined,
         title: nearest == null ? eventLabel : '${nearest.status} — $eventLabel',
         subtitle: 'Все события',
-        onTap: () => context.go('/calendar'),
+        // Календарь больше не вкладка — открывается страницей поверх
+        // ленты (как «Альбом семьи»), поэтому push, а не go: нужен возврат.
+        onTap: () => context.push('/calendar'),
       ),
     );
 

@@ -72,10 +72,12 @@ class AppRouterGuards {
   static bool hasSocialAuthPayload(Uri uri) =>
       hasTelegramAuthPayload(uri) || hasVkAuthPayload(uri);
 
-  /// The unified «Семья» tab locations the legacy `/relatives` and
-  /// `/tree` roots now fold into (Список ⇄ Дерево toggle inside one tab).
-  static const String familyListLocation = '/family?view=list';
-  static const String familyTreeLocation = '/family?view=tree';
+  /// Дерево — ядро продукта и снова отдельная вкладка (по центру бара),
+  /// «Родные» — соседняя вкладка со списком людей. Тумблер Список⇄Дерево
+  /// внутри вкладки остаётся как быстрый переход, но каждый режим теперь
+  /// адресуем своим маршрутом.
+  static const String familyListLocation = '/family';
+  static const String familyTreeLocation = '/tree';
 
   /// Gated redirect for the legacy `/relatives` root → «Семья» Список.
   /// Only the bare root folds in; the add/edit/find/requests/
@@ -87,35 +89,46 @@ class AppRouterGuards {
     return familyListLocation;
   }
 
-  /// Gated redirect for the legacy `/tree` root → «Семья» Дерево.
-  /// `?selector=1` keeps the standalone TreeSelectorScreen, and the
-  /// `/tree/view/:id` canvas deep-link is carried across by its own
-  /// sub-route redirect ([familyTreeViewRedirect]).
-  static String? resolveTreeRootRedirect({required Uri uri}) {
-    if (uri.queryParameters['selector'] == '1') {
+  /// Легаси-ссылки на слитую вкладку: `/family?view=tree` жил ~3 месяца
+  /// (пуши, инвайты, чужие скриншоты) — уводим на вкладку «Дерево».
+  /// Голый `/family` — это «Родные», редиректить нечего.
+  static String? resolveFamilyViewRedirect({required Uri uri}) {
+    if (uri.path != '/family') {
       return null;
     }
-    if (uri.path.startsWith('/tree/view')) {
+    if (uri.queryParameters['view'] != 'tree') {
       return null;
     }
-    return familyTreeLocation;
+    final params = <String>[];
+    final treeId = uri.queryParameters['tree'];
+    final treeName = uri.queryParameters['name'];
+    if (treeId != null && treeId.isNotEmpty) {
+      params.add('tree=${Uri.encodeQueryComponent(treeId)}');
+    }
+    if (treeName != null && treeName.isNotEmpty) {
+      params.add('name=${Uri.encodeQueryComponent(treeName)}');
+    }
+    return params.isEmpty
+        ? familyTreeLocation
+        : '$familyTreeLocation?${params.join('&')}';
   }
 
-  /// Redirect for the `/tree/view/:id` canvas deep-link → «Семья» Дерево,
-  /// carrying the tree id (+ name) so the merged canvas opens that branch
-  /// instead of whatever was last selected.
+  /// `/tree/view/:id` — deep-link из пушей и приглашений: открыть вкладку
+  /// «Дерево» именно на этом дереве, а не на последнем выбранном.
   static String familyTreeViewRedirect({
     required String treeId,
     String? treeName,
   }) {
-    final params = <String>['view=tree'];
+    final params = <String>[];
     if (treeId.isNotEmpty) {
       params.add('tree=${Uri.encodeQueryComponent(treeId)}');
     }
     if (treeName != null && treeName.isNotEmpty) {
       params.add('name=${Uri.encodeQueryComponent(treeName)}');
     }
-    return '/family?${params.join('&')}';
+    return params.isEmpty
+        ? familyTreeLocation
+        : '$familyTreeLocation?${params.join('&')}';
   }
 
   Future<String?> redirect(BuildContext context, GoRouterState state) async {

@@ -760,7 +760,7 @@ class _ChatsListScreenState extends State<ChatsListScreen>
           ),
           action: SnackBarAction(
             label: 'Открыть',
-            onPressed: () => context.go('/tree?selector=1'),
+            onPressed: () => context.go('/trees'),
           ),
         ),
       );

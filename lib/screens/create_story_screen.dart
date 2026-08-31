@@ -1114,7 +1114,7 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
                 ),
                 const SizedBox(height: 16),
                 FilledButton.icon(
-                  onPressed: () => context.go('/tree?selector=1'),
+                  onPressed: () => context.go('/trees'),
                   icon: const Icon(Icons.swap_horiz),
                   label: const Text('Выбрать дерево'),
                 ),

@@ -13,7 +13,8 @@ import '../screens/about_screen.dart';
 import '../screens/access_grants_screen.dart';
 import '../screens/family_album_screen.dart';
 import '../screens/family_calendar_screen.dart';
-import '../screens/family_screen.dart';
+import '../screens/relatives_screen.dart';
+import '../screens/tree_view_screen.dart';
 import '../screens/add_relative_screen.dart';
 import '../screens/blocked_users_screen.dart';
 import '../screens/qr_login_scan_screen.dart';
@@ -192,6 +193,19 @@ class AppShellRouteModule {
             ),
             routes: [
               GoRoute(
+                // Календарь освободил место в баре для «Дерева» (ядро
+                // продукта) и вернулся на Ленту отдельной страницей —
+                // входы «Сегодня…»/«Все события» там же, где и были.
+                path: 'calendar',
+                parentNavigatorKey: rootNavigatorKey,
+                pageBuilder: (context, state) => RodnyaCustomTransitionPage(
+                  key: state.pageKey,
+                  constrainWidth: true,
+                  child: const FamilyCalendarScreen(),
+                  transitionsBuilder: AppRouteTransitions.slide,
+                ),
+              ),
+              GoRoute(
                 path: 'post/search',
                 parentNavigatorKey: rootNavigatorKey,
                 pageBuilder: (context, state) => RodnyaCustomTransitionPage(
@@ -285,44 +299,57 @@ class AppShellRouteModule {
           ),
         ],
       ),
-      // UX-core: «Семья» — the unified tab merging the former «Родные»
-      // (people list) and «Дерево» (canvas) tabs behind one Список⇄Дерево
-      // toggle. `?view=` opens a specific body; `?tree=` deep-links a
-      // branch (the redirect target of the old `/tree/view/:id`).
+      // «Родные» — список людей. Дерево держит собственную ветку ниже,
+      // поэтому вкладка рендерит список напрямую: общая обёртка с
+      // тумблером Список⇄Дерево дублировала бы сам таб-бар и держала
+      // вторую живую копию списка в ветке дерева.
       StatefulShellBranch(
         routes: [
           GoRoute(
             path: '/family',
+            redirect: (context, state) =>
+                AppRouterGuards.resolveFamilyViewRedirect(uri: state.uri),
+            pageBuilder: (context, state) => RodnyaNoTransitionPage(
+              key: state.pageKey,
+              child: const RelativesScreen(),
+            ),
+          ),
+        ],
+      ),
+      // «Дерево» — ЯДРО продукта: люди приходят строить семейное дерево,
+      // поэтому у него снова своя вкладка, и она по центру бара. С июня
+      // по август дерево было режимом внутри «Родных» (за двумя тапами и
+      // без своего имени в интерфейсе) — это и вернули.
+      // `?tree=`/`?name=` — deep-link конкретного дерева (пуши, инвайты).
+      StatefulShellBranch(
+        routes: [
+          GoRoute(
+            path: '/tree',
             pageBuilder: (context, state) {
-              final view =
-                  FamilyScreen.viewFromQuery(state.uri.queryParameters['view']);
               final treeId = state.uri.queryParameters['tree'];
               final treeName = state.uri.queryParameters['name'];
               return RodnyaNoTransitionPage(
                 key: state.pageKey,
-                child: FamilyScreen(
-                  initialView: view,
-                  treeId: (treeId != null && treeId.isNotEmpty) ? treeId : null,
-                  treeName: (treeName != null && treeName.isNotEmpty)
+                child: TreeViewScreen(
+                  routeTreeId:
+                      (treeId != null && treeId.isNotEmpty) ? treeId : null,
+                  routeTreeName: (treeName != null && treeName.isNotEmpty)
                       ? treeName
                       : null,
                 ),
               );
             },
-          ),
-        ],
-      ),
-      // «Календарь» — promoted from a home-screen pushed page to its own
-      // tab. FamilyCalendarScreen reads the active branch from the
-      // TreeProvider when no treeId is passed.
-      StatefulShellBranch(
-        routes: [
-          GoRoute(
-            path: '/calendar',
-            pageBuilder: (context, state) => RodnyaNoTransitionPage(
-              key: state.pageKey,
-              child: const FamilyCalendarScreen(),
-            ),
+            routes: [
+              GoRoute(
+                // Легаси deep-link канваса — на ту же вкладку с деревом.
+                path: 'view/:treeId',
+                redirect: (context, state) =>
+                    AppRouterGuards.familyTreeViewRedirect(
+                  treeId: state.pathParameters['treeId'] ?? '',
+                  treeName: state.uri.queryParameters['name'],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -608,19 +635,11 @@ class AppShellRouteModule {
           ),
         ],
       ),
+      // Выбор дерева переехал с `/tree?selector=1` на `/trees`: сам
+      // `/tree` теперь вкладка-ветка, а go_router матчит путь без учёта
+      // query — селектор иначе перехватывался бы веткой.
       GoRoute(
-        path: '/tree',
-        // Bare /tree → «Семья» Дерево; `?selector=1` keeps the standalone
-        // TreeSelectorScreen below; `/tree/view/:id` carries the branch
-        // across via its own redirect.
-        redirect: (context, state) {
-          final redirectPath =
-              AppRouterGuards.resolveTreeRootRedirect(uri: state.uri);
-          if (redirectPath != null) {
-            debugPrint('[GoRouter Redirect] /tree → $redirectPath');
-          }
-          return redirectPath;
-        },
+        path: '/trees',
         pageBuilder: (context, state) {
           // `?tab=invitations` deep-links from the home-feed banner — pass
           // it through so the selector scrolls straight to the invitations
@@ -631,18 +650,6 @@ class AppShellRouteModule {
             child: TreeSelectorScreen(initialFocus: initialFocus),
           );
         },
-        routes: [
-          GoRoute(
-            path: 'view/:treeId',
-            // The canvas now lives inside «Семья»; carry the tree id (+
-            // name) so the merged Дерево view opens that branch.
-            redirect: (context, state) =>
-                AppRouterGuards.familyTreeViewRedirect(
-              treeId: state.pathParameters['treeId'] ?? '',
-              treeName: state.uri.queryParameters['name'],
-            ),
-          ),
-        ],
       ),
     ];
   }
@@ -691,13 +698,14 @@ class AdaptiveNavigationRail extends StatelessWidget {
                     outlinedIcon: Icons.groups_outlined,
                     filledIcon: Icons.groups_rounded,
                     // Tree invitations now surface on «Родные» (the tree
-                    // lives inside this tab).
+                    // живёт на своей вкладке «Дерево»).
                     count: invitationsCount,
                   ),
+                  // Ядро — по центру и на десктопе (см. MainNavigationBar).
                   const _RailDestinationData(
-                    label: 'Календарь',
-                    outlinedIcon: Icons.calendar_month_outlined,
-                    filledIcon: Icons.calendar_month_rounded,
+                    label: 'Дерево',
+                    outlinedIcon: Icons.account_tree_outlined,
+                    filledIcon: Icons.account_tree_rounded,
                   ),
                   _RailDestinationData(
                     label: 'Чаты',

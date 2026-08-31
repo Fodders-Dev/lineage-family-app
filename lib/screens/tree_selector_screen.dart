@@ -17,8 +17,10 @@ import '../services/public_tree_link_service.dart';
 import '../utils/russian_plural.dart';
 import '../widgets/glass_panel.dart';
 
-/// Canonical tree-selection surface. Lives at `/tree?selector=1` (and
-/// `/trees` redirects here). Earlier the app had two near-identical
+/// Canonical tree-selection surface. Lives at `/trees` (moved off
+/// `/tree?selector=1` once `/tree` became its own tab route — prefix
+/// matching in go_router ignores query params, so the selector had to
+/// get its own path). Earlier the app had two near-identical
 /// pickers — `TreesScreen` overlay and this shell-aware selector —
 /// which split the back-arrow / sidebar / BranchSwitcher into
 /// different visual paths and confused users. Now this one screen
@@ -161,7 +163,7 @@ class _TreeSelectorScreenState extends State<TreeSelectorScreen> {
             if (Navigator.of(context).canPop()) {
               Navigator.of(context).pop();
             } else {
-              context.go('/family?view=tree');
+              context.go('/tree');
             }
           },
         ),

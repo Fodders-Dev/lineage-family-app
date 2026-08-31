@@ -408,8 +408,8 @@ void main() {
             ),
           ),
           // The home banner deep-links to the canonical selector
-          // surface (`/tree?selector=1&tab=invitations`), not the
-          // legacy `/trees` overlay which has been folded into it.
+          // surface (`/trees?tab=invitations`, moved off
+          // `/tree?selector=1` once `/tree` became its own tab route).
           // We register both as catch-alls so this test stays
           // resilient if the routing convention is tweaked again.
           GoRoute(

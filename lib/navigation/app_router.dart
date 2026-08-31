@@ -75,8 +75,8 @@ class AppRouter {
   static bool hasSocialAuthPayload(Uri uri) =>
       AppRouterGuards.hasSocialAuthPayload(uri);
 
-  static String? resolveTreeRootRedirect({required Uri uri}) =>
-      AppRouterGuards.resolveTreeRootRedirect(uri: uri);
+  static String? resolveFamilyViewRedirect({required Uri uri}) =>
+      AppRouterGuards.resolveFamilyViewRedirect(uri: uri);
 
   static String? resolveRelativesRootRedirect({required Uri uri}) =>
       AppRouterGuards.resolveRelativesRootRedirect(uri: uri);

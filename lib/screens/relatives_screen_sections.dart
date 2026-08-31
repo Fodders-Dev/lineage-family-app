@@ -12,7 +12,8 @@ extension _RelativesScreenSections on _RelativesScreenState {
         icon: const Icon(Icons.account_tree_outlined),
         tooltip: isPhone ? 'Показать дерево' : 'Выбрать другое дерево',
         onPressed: () {
-          context.go(isPhone ? '/family?view=tree' : '/tree?selector=1');
+          // Дерево — соседняя вкладка (центр бара/рейла).
+          context.go('/tree');
         },
       ),
       if (_pendingRequestsCount > 0)

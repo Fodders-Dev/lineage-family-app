@@ -270,11 +270,11 @@ class _BranchSwitcherSheet extends StatelessWidget {
               onPressed: () {
                 Navigator.of(context).pop();
                 // Canonical selector URL — same surface as the
-                // back-arrow from the tree view. Earlier this
-                // pushed `/trees`, which rendered a parallel
-                // overlay screen and split the user's mental
-                // model of where they were.
-                outerContext.push('/tree?selector=1');
+                // back-arrow from the tree view. `/trees` now IS
+                // that canonical selector (moved off `/tree?selector=1`
+                // once `/tree` became its own tab route); this is no
+                // longer the old overlay screen that used to live here.
+                outerContext.push('/trees');
               },
               icon: const Icon(Icons.add_rounded, size: 20),
               label: const Text('Создать или управлять ветками'),

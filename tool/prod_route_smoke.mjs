@@ -1300,10 +1300,10 @@ async function main() {
           }`,
           verify: async () => {
             await page.waitForFunction(
-              // SC2 merge: /tree/view/:id redirects → #/family?view=tree
+              // Дерево снова отдельная вкладка: /tree/view/:id → #/tree?tree=…
               () =>
-                window.location.hash.startsWith("#/family") &&
-                window.location.hash.includes("view=tree"),
+                window.location.hash.startsWith("#/tree") &&
+                window.location.hash.includes("tree="),
               undefined,
               {timeout: 15_000},
             );

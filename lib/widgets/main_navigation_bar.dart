@@ -51,15 +51,18 @@ class MainNavigationBar extends StatelessWidget {
                     label: 'Родные',
                     outlinedIcon: Icons.groups_outlined,
                     filledIcon: Icons.groups_rounded,
-                    // The tree (and its invitations) now lives inside the
-                    // «Родные» tab, so the pending-invitations badge rides
-                    // here instead of on a separate «Дерево» tab.
+                    // Приглашения — про людей, поэтому бейдж живёт на
+                    // «Родных» (у дерева своя вкладка с августа 2026).
                     count: pendingInvitationsCount,
                   ),
+                  // Ядро продукта — в центре бара. Люди приходят строить
+                  // семейное дерево; с июня по август у него не было ни
+                  // своей вкладки, ни имени в интерфейсе (жило режимом
+                  // внутри «Родных»). Календарь уехал на Ленту.
                   const _NavItemData(
-                    label: 'Календарь',
-                    outlinedIcon: Icons.calendar_month_outlined,
-                    filledIcon: Icons.calendar_month_rounded,
+                    label: 'Дерево',
+                    outlinedIcon: Icons.account_tree_outlined,
+                    filledIcon: Icons.account_tree_rounded,
                   ),
                   _NavItemData(
                     label: 'Чаты',

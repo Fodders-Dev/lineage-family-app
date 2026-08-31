@@ -10,10 +10,10 @@ void main() {
   test('production shell + legacy redirect routes build a valid GoRouter', () {
     // Constructing a GoRouter runs go_router's RouteConfiguration
     // validation over the whole tree (unique paths, every route has a
-    // builder/pageBuilder or redirect, parentNavigatorKey resolves). This
-    // is the production wiring — the StatefulShellRoute branches plus the
-    // top-level /relatives and /tree redirect routes — so reaching the
-    // expect means the «Семья» merge didn't produce a broken route table.
+    // builder/pageBuilder or redirect, parentNavigatorKey resolves). Это
+    // прод-проводка: ветки StatefulShellRoute (включая вернувшуюся вкладку
+    // «Дерево») плюс легаси-редиректы — дойти до expect значит, что
+    // таблица маршрутов не сломалась.
     const shell = AppShellRouteModule();
     final router = GoRouter(
       navigatorKey: rootNavigatorKey,
@@ -44,44 +44,70 @@ void main() {
         .whereType<GoRoute>()
         .map((route) => route.path)
         .toList();
-    expect(topLevelPaths, containsAll(<String>['/relatives', '/tree']));
-  });
-
-  // ── /tree and /relatives now fold into the unified «Семья» tab ──
-
-  test('держит selector открытым на /tree?selector=1', () {
+    // Селектор деревьев переехал на /trees: сам /tree теперь ветка-вкладка.
+    expect(topLevelPaths, containsAll(<String>['/relatives', '/trees']));
     expect(
-      AppRouter.resolveTreeRootRedirect(uri: Uri.parse('/tree?selector=1')),
-      isNull,
+      topLevelPaths,
+      isNot(contains('/tree')),
+      reason: 'верхнеуровневый /tree перехватывал бы вкладку «Дерево»',
     );
   });
 
-  test('голый /tree редиректит в «Семья» на вид дерева', () {
+  test('вкладка «Дерево» — отдельная ветка шелла, по центру бара', () {
+    const shell = AppShellRouteModule();
+    final shellRoute = shell.build() as StatefulShellRoute;
+    final branchPaths = shellRoute.branches
+        .map((branch) => (branch.routes.first as GoRoute).path)
+        .toList();
+
     expect(
-      AppRouter.resolveTreeRootRedirect(uri: Uri.parse('/tree')),
-      '/family?view=tree',
+      branchPaths,
+      <String>['/', '/family', '/tree', '/chats', '/profile'],
+      reason: 'порядок веток = порядок вкладок; дерево третье из пяти = центр',
+    );
+    expect(
+      branchPaths.indexOf('/tree'),
+      (branchPaths.length - 1) ~/ 2,
+      reason: 'ядро продукта стоит ровно посередине бара',
     );
   });
 
-  test('корневой редирект /tree уступает саб-роуту /tree/view/:id', () {
-    // The /tree root defers to the view sub-route's own redirect so the
-    // tree id isn't lost.
+  // ── дерево вернулось во вкладку; легаси-ссылки ведут туда же ──
+
+  test('легаси /family?view=tree уводит на вкладку «Дерево»', () {
     expect(
-      AppRouter.resolveTreeRootRedirect(
-        uri: Uri.parse(
-            '/tree/view/tree-2?name=%D0%92%D1%82%D0%BE%D1%80%D0%BE%D0%B5'),
+      AppRouter.resolveFamilyViewRedirect(uri: Uri.parse('/family?view=tree')),
+      '/tree',
+    );
+  });
+
+  test('легаси /family?view=tree сохраняет дерево и имя', () {
+    expect(
+      AppRouter.resolveFamilyViewRedirect(
+        uri: Uri.parse('/family?view=tree&tree=tree-2&name=%D0%94%D0%BE%D0%BC'),
       ),
+      '/tree?tree=tree-2&name=${Uri.encodeQueryComponent('Дом')}',
+    );
+  });
+
+  test('голый /family — это «Родные», редиректа нет', () {
+    expect(
+      AppRouter.resolveFamilyViewRedirect(uri: Uri.parse('/family')),
+      isNull,
+    );
+    expect(
+      AppRouter.resolveFamilyViewRedirect(uri: Uri.parse('/family?view=list')),
       isNull,
     );
   });
 
-  test('/tree/view/:id уносит дерево и имя в «Семья»', () {
+  test('/tree/view/:id уносит дерево и имя на вкладку «Дерево»', () {
     expect(
       AppRouter.familyTreeViewRedirect(
         treeId: 'tree-2',
         treeName: 'Второе дерево',
       ),
-      '/family?view=tree&tree=tree-2'
+      '/tree?tree=tree-2'
       '&name=${Uri.encodeQueryComponent('Второе дерево')}',
     );
   });
@@ -89,14 +115,14 @@ void main() {
   test('/tree/view/:id без имени уносит только дерево', () {
     expect(
       AppRouter.familyTreeViewRedirect(treeId: 'tree-2'),
-      '/family?view=tree&tree=tree-2',
+      '/tree?tree=tree-2',
     );
   });
 
-  test('голый /relatives редиректит в «Семья» на список', () {
+  test('голый /relatives редиректит на вкладку «Родные»', () {
     expect(
       AppRouter.resolveRelativesRootRedirect(uri: Uri.parse('/relatives')),
-      '/family?view=list',
+      '/family',
     );
   });
 
