@@ -4239,8 +4239,12 @@ class PostgresStore extends FileStore {
       );
     }
     if (notifReadMs > 0) {
+      // Возраст ПРОЧИТАННОГО — от read_at, не от created_at: «Прочитать
+      // всё» переводил бы годовой бэклог в 30-дневное окно и hard-delete
+      // стирал бы историю «Ранее» за сутки (ревью, P2). Окно честно
+      // отсчитывается от момента прочтения.
       await sweepNotifications(
-        `silent = 0 AND read_at <> '' AND created_at < $1`,
+        `silent = 0 AND read_at <> '' AND read_at < $1`,
         [cutoffIso(notifReadMs)],
         "notificationsRead",
       );

@@ -784,3 +784,34 @@ test("PG: markAllNotificationsRead не затирает конкурентны�
   assert.ok(listed[0].readAt, "прочитанность доведена из колонки read_at");
   assert.equal(await store.countUnreadNotifications("user-1"), 0);
 });
+
+test("PG: окно read-ретенции считается от read_at, а не от created_at", async () => {
+  const {store, rawPool} = buildStore({users: USERS, notifications: [], pushDeliveries: []});
+  await store.initialize();
+
+  const now = new Date("2026-08-31T12:00:00.000Z");
+  // Полугодовой давности уведомление, прочитанное ТОЛЬКО ЧТО («Прочитать
+  // всё» по накопленному бэклогу) — обязано пережить 30-дневное окно.
+  await rawPool.query(
+    `INSERT INTO ${NOTIF_TABLE}
+       (id, user_id, type, created_at, read_at, silent, coalesce_key, notification_data)
+     VALUES ('old-just-read', 'user-1', 'generic', '2026-03-01T12:00:00.000Z',
+             '2026-08-31T11:59:00.000Z', 0, '', '{}')`,
+  );
+  // Прочитанное давно — уходит.
+  await rawPool.query(
+    `INSERT INTO ${NOTIF_TABLE}
+       (id, user_id, type, created_at, read_at, silent, coalesce_key, notification_data)
+     VALUES ('read-long-ago', 'user-1', 'generic', '2026-03-01T12:00:00.000Z',
+             '2026-03-02T12:00:00.000Z', 0, '', '{}')`,
+  );
+
+  const summary = await store.hardDeleteExpired({now});
+  assert.equal(summary.logRetention.notificationsRead, 1);
+  const left = await rawPool.query(`SELECT id FROM ${NOTIF_TABLE}`);
+  assert.deepEqual(
+    left.rows.map((row) => row.id),
+    ["old-just-read"],
+    "свежепрочитанный бэклог не стирается ночным проходом",
+  );
+});

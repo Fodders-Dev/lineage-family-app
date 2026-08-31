@@ -57,12 +57,23 @@ const stateTable = `"${schema}"."${table}"`;
     }
 
     const notifications = (
-      await client.query(`SELECT notification_data FROM ${q("notifications")}`)
-    ).rows.map((row) =>
-      typeof row.notification_data === "string"
-        ? JSON.parse(row.notification_data)
-        : row.notification_data,
-    );
+      await client.query(
+        `SELECT notification_data, read_at FROM ${q("notifications")}`,
+      )
+    ).rows.map((row) => {
+      const record =
+        typeof row.notification_data === "string"
+          ? JSON.parse(row.notification_data)
+          : row.notification_data;
+      // Колонка read_at — источник истины прочитанности (массовые пометки
+      // обновляют только её): без реконсиляции откат в блоб «распрочитал»
+      // бы всё, что гасили через «Прочитать всё» (ревью, P1).
+      const columnReadAt = String(row.read_at || "");
+      if (columnReadAt !== "" && !record.readAt) {
+        record.readAt = columnReadAt;
+      }
+      return record;
+    });
     const pushDeliveries = (
       await client.query(`SELECT delivery_data FROM ${q("push_deliveries")}`)
     ).rows.map((row) =>

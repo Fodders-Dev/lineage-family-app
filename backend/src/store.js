@@ -21205,7 +21205,12 @@ class FileStore {
             counts.notificationsSilent += 1;
           }
         } else if (notif.readAt) {
-          if (notifReadMs > 0 && age > notifReadMs) {
+          // Возраст прочитанного — от readAt (см. Postgres-sweep): иначе
+          // массовое «Прочитать всё» отправляло бы старый бэклог под
+          // 30-дневное окно в первый же ночной проход.
+          const readTs = parseTs(notif.readAt);
+          const readAge = readTs === null ? age : nowTs - readTs;
+          if (notifReadMs > 0 && readAge > notifReadMs) {
             remove.add(notif);
             counts.notificationsRead += 1;
           }

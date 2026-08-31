@@ -243,6 +243,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
+  /// Контракт секции «Ранее» — «сначала новое» (как сортирует бэкенд):
+  /// createdAt DESC, id DESC.
+  static int _compareByCreatedDesc(
+    AppNotificationItem left,
+    AppNotificationItem right,
+  ) {
+    final leftCreated =
+        left.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final rightCreated =
+        right.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final byCreated = rightCreated.compareTo(leftCreated);
+    if (byCreated != 0) return byCreated;
+    return right.id.compareTo(left.id);
+  }
+
   Future<void> _loadMoreHistory() async {
     final notificationService = _notificationService;
     // Тестовые сиды (widget.notificationLoader) живут без пагинации —
@@ -265,17 +280,23 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       // «Ранее» локально — серверная страница принесёт их же.
       final knownIds = _readHistory.map((entry) => entry.id).toSet();
       setState(() {
+        // Merge с той же пересортировкой, что в _markAllAsRead: страница
+        // от старого курсора может быть моложе оптимистично перенесённых
+        // записей — чистый append вклинивал бы январь между августом и
+        // июлем (ревью, P2).
         _readHistory = [
           ..._readHistory,
           ...page.items.where((entry) => !knownIds.contains(entry.id)),
-        ];
+        ]..sort(_compareByCreatedDesc);
         _readHistoryCursor = page.nextCursor;
         _readHistoryExhausted = page.nextCursor == null;
       });
     } catch (_) {
       // История — вторична: тихо остановим подгрузку до следующего
-      // pull-to-refresh, основной unread-поток уже на экране.
-      if (mounted) {
+      // pull-to-refresh. Гвард поколения обязателен и здесь: упавшая
+      // УСТАРЕВШАЯ страница не должна гасить «Ранее» нового поколения
+      // (ревью, P2 — иначе секция пустела навсегда).
+      if (mounted && generation == _historyGeneration) {
         setState(() => _readHistoryExhausted = true);
       }
     } finally {
@@ -389,15 +410,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ),
           ),
           ..._readHistory,
-        ]..sort((left, right) {
-            final leftCreated =
-                left.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-            final rightCreated =
-                right.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-            final byCreated = rightCreated.compareTo(leftCreated);
-            if (byCreated != 0) return byCreated;
-            return right.id.compareTo(left.id);
-          });
+        ]..sort(_compareByCreatedDesc);
         _readHistory = merged;
       });
     } catch (error) {
