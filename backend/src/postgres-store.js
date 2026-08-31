@@ -1915,7 +1915,17 @@ class PostgresStore extends FileStore {
     if (!record) {
       return null;
     }
-    return typeof record === "string" ? JSON.parse(record) : record;
+    const parsed = typeof record === "string" ? JSON.parse(record) : record;
+    // Колонка read_at — источник истины прочитанности: массовые пометки
+    // обновляют ТОЛЬКО её (не перезаписывая notification_data, чтобы не
+    // затирать конкурентный коалесинг-бамп — ревью, P1). Здесь колонка
+    // доводится в JSONB-представление, если SELECT её принёс.
+    const columnReadAt =
+      row.read_at !== undefined ? String(row.read_at || "") : "";
+    if (columnReadAt !== "" && !parsed.readAt) {
+      parsed.readAt = columnReadAt;
+    }
+    return parsed;
   }
 
   async createNotification({userId, type, title, body, data, silent = false}) {
@@ -1973,7 +1983,7 @@ class PostgresStore extends FileStore {
     }
     await this._awaitReadConsistency();
     const result = await this._pool.query(
-      `SELECT notification_data
+      `SELECT notification_data, read_at
          FROM ${this._qualifiedNotificationsTableName}
         WHERE user_id = $1
           AND (
@@ -2107,31 +2117,18 @@ class PostgresStore extends FileStore {
       return super.markAllNotificationsRead(userId);
     }
     await this._awaitReadConsistency();
-    // Цикл UPDATE (как markNotificationsReadByDataKey): notification_data
-    // держится в синке с колонкой read_at; unread у юзера — десятки строк.
+    // ОДИН UPDATE только колонки read_at: перезапись notification_data из
+    // JS-снапшота затирала бы конкурентный коалесинг-бамп (ревью, P1) —
+    // JSONB доводится колонкой в _rowToNotification при чтении.
     const result = await this._pool.query(
-      `SELECT id, notification_data
-         FROM ${this._qualifiedNotificationsTableName}
+      `UPDATE ${this._qualifiedNotificationsTableName}
+          SET read_at = $2
         WHERE user_id = $1
-          AND read_at = ''`,
-      [normalizedUserId],
+          AND read_at = ''
+        RETURNING id`,
+      [normalizedUserId, nowIso()],
     );
-    const now = nowIso();
-    let markedCount = 0;
-    for (const row of result.rows) {
-      const notification = this._rowToNotification(row);
-      if (!notification) continue;
-      notification.readAt = now;
-      await this._pool.query(
-        `UPDATE ${this._qualifiedNotificationsTableName}
-            SET read_at = $2,
-                notification_data = $3::jsonb
-          WHERE id = $1`,
-        [String(row.id), now, JSON.stringify(notification)],
-      );
-      markedCount += 1;
-    }
-    return markedCount;
+    return result.rows.length;
   }
 
   async listNotificationsPage(userId, {status = null, limit = 50, cursor = null} = {}) {
@@ -2159,7 +2156,7 @@ class PostgresStore extends FileStore {
       cursorClause = `AND (created_at < $4 OR (created_at = $4 AND id < $5))`;
     }
     const result = await this._pool.query(
-      `SELECT notification_data
+      `SELECT notification_data, read_at
          FROM ${this._qualifiedNotificationsTableName}
         WHERE user_id = $1
           AND (

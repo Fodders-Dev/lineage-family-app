@@ -661,11 +661,24 @@ class CustomApiNotificationService implements NotificationServiceInterface {
     if (status != null && status.isNotEmpty) {
       query.write('&status=${Uri.encodeQueryComponent(status)}');
     }
-    final response = await _httpClient.get(
-      _buildUri(runtimeConfig, query.toString()),
-      headers: _headers(token),
-    );
-    final payload = _decodeResponse(response);
+    late final Map<String, dynamic> payload;
+    try {
+      final response = await _httpClient.get(
+        _buildUri(runtimeConfig, query.toString()),
+        headers: _headers(token),
+      );
+      payload = _decodeResponse(response);
+    } on CustomApiException catch (error) {
+      // Протухшая сессия гасится единым путём (как fetchUnread) — иначе
+      // подгрузчик истории молча объявлял бы ленту исчерпанной.
+      if (await _handleUnauthorizedError(error)) {
+        return const NotificationsPageResult(
+          items: <AppNotificationItem>[],
+          nextCursor: null,
+        );
+      }
+      rethrow;
+    }
     final rawNotifications = payload['notifications'];
     final items = rawNotifications is List<dynamic>
         ? rawNotifications

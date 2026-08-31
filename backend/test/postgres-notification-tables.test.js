@@ -751,3 +751,36 @@ test("PG: listNotificationsPage keyset-страницы + markAllNotificationsRe
   });
   assert.equal(readPage.notifications.length, 5);
 });
+
+test("PG: markAllNotificationsRead не затирает конкурентный бамп (read_at — истина)", async () => {
+  const {store, rawPool} = buildStore({users: USERS, notifications: [], pushDeliveries: []});
+  await store.initialize();
+
+  const created = await store.createNotification({
+    userId: "user-1",
+    type: "post_reaction",
+    title: "Аня отреагировала ❤️",
+    body: "Отпуск",
+    data: {postId: "post-1", actorUserId: "user-2", emoji: "❤️"},
+  });
+  // «Конкурентный бамп» между гипотетическим снапшотом и пометкой:
+  // содержимое записи обновилось (второй реагирующий, свежий текст).
+  const bumped = {...created, body: "Аня и Пётр отреагировали 🔥"};
+  await rawPool.query(
+    `UPDATE ${NOTIF_TABLE} SET notification_data = $2 WHERE id = $1`,
+    [created.id, JSON.stringify(bumped)],
+  );
+
+  const marked = await store.markAllNotificationsRead("user-1");
+  assert.equal(marked, 1);
+
+  const listed = await store.listNotifications("user-1");
+  assert.equal(listed.length, 1);
+  assert.equal(
+    listed[0].body,
+    "Аня и Пётр отреагировали 🔥",
+    "markAll обновляет ТОЛЬКО read_at — бампнутое содержимое живо",
+  );
+  assert.ok(listed[0].readAt, "прочитанность доведена из колонки read_at");
+  assert.equal(await store.countUnreadNotifications("user-1"), 0);
+});

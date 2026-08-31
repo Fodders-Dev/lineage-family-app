@@ -151,6 +151,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   bool _readHistoryExhausted = false;
   bool _isLoadingHistory = false;
 
+  /// Поколение истории: _refresh сбрасывает её, а страница, летевшая в
+  /// этот момент, не должна воскресить старые данные поверх сброса.
+  int _historyGeneration = 0;
+
   CustomApiNotificationService? get _notificationService =>
       GetIt.I.isRegistered<CustomApiNotificationService>()
           ? GetIt.I<CustomApiNotificationService>()
@@ -220,6 +224,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         _readHistory = const <AppNotificationItem>[];
         _readHistoryCursor = null;
         _readHistoryExhausted = false;
+        _historyGeneration += 1;
         _isLoading = false;
       });
       unawaited(_loadMoreHistory());
@@ -249,14 +254,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       return;
     }
     _isLoadingHistory = true;
+    final generation = _historyGeneration;
     try {
       final page = await notificationService.fetchNotificationsPage(
         status: 'read',
         cursor: _readHistoryCursor,
       );
-      if (!mounted) return;
+      if (!mounted || generation != _historyGeneration) return;
+      // Дедуп по id: после «Прочитать всё» уведомления уже переехали в
+      // «Ранее» локально — серверная страница принесёт их же.
+      final knownIds = _readHistory.map((entry) => entry.id).toSet();
       setState(() {
-        _readHistory = [..._readHistory, ...page.items];
+        _readHistory = [
+          ..._readHistory,
+          ...page.items.where((entry) => !knownIds.contains(entry.id)),
+        ];
         _readHistoryCursor = page.nextCursor;
         _readHistoryExhausted = page.nextCursor == null;
       });
@@ -268,6 +280,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       }
     } finally {
       _isLoadingHistory = false;
+      // Refresh сменил поколение, пока эта страница летела: гвард выше её
+      // выбросил, но новую цепочку никто не начал (маячок требует непустой
+      // истории) — «Ранее» пустело бы навсегда. Перезапускаем сами.
+      if (mounted && generation != _historyGeneration) {
+        unawaited(_loadMoreHistory());
+      }
     }
   }
 
@@ -355,7 +373,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       setState(() {
         _notifications = const <AppNotificationItem>[];
         // Прочитанное не исчезает в пустоту — сразу видно в «Ранее».
-        _readHistory = [
+        // Merge с пересортировкой: старое забытое unread не должно встать
+        // выше свежих прочитанных (инвариант «сначала новое» — ревью, P2).
+        final merged = [
           ...notificationsToMark.map(
             (item) => AppNotificationItem(
               id: item.id,
@@ -369,7 +389,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ),
           ),
           ..._readHistory,
-        ];
+        ]..sort((left, right) {
+            final leftCreated =
+                left.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+            final rightCreated =
+                right.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+            final byCreated = rightCreated.compareTo(leftCreated);
+            if (byCreated != 0) return byCreated;
+            return right.id.compareTo(left.id);
+          });
+        _readHistory = merged;
       });
     } catch (error) {
       _appStatusService.reportError(
