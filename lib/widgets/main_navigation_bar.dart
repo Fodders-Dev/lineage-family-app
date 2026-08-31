@@ -92,7 +92,7 @@ class MainNavigationBar extends StatelessWidget {
                       // S20 / mid-range phones the SafeArea + outer
                       // 14dp padding pulled effective width to ~330dp
                       // and labels disappeared. The five short labels
-                      // (Лента / Родные / Календарь / Чаты / Профиль) fit
+                      // (Лента / Родные / Дерево / Чаты / Профиль) fit
                       // even at 280dp so we lower the threshold; a 240dp
                       // floor still trips for very narrow tablets in
                       // weird split-screen layouts.

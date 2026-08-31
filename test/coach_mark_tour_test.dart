@@ -74,6 +74,29 @@ void main() {
     expect(dismissed, isTrue);
   });
 
+  testWidgets('шаг без анкера показывается карточкой по центру',
+      (tester) async {
+    // Вкладка «Дерево» живёт в шелле, ключа на неё у ленты нет — шаг
+    // без анкера обязан отрисоваться (скрим без дырки), иначе новичку
+    // некому назвать ядро продукта.
+    var dismissed = false;
+    final targets = <CoachMarkTarget>[
+      const CoachMarkTarget(title: 'Дерево', body: 'Внизу по центру'),
+      CoachMarkTarget(key: GlobalKey(), title: 'Второй', body: 'Тело'),
+    ];
+    await tester.pumpWidget(host(targets, () => dismissed = true));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('coach-mark-tour')), findsOneWidget);
+    expect(find.text('Дерево'), findsOneWidget);
+    expect(find.text('1 / 2'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('coach-mark-next')));
+    await tester.pumpAndSettle();
+    expect(find.text('Второй'), findsOneWidget);
+    expect(dismissed, isFalse);
+  });
+
   test('shouldShow gates on prefs; markShown persists', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     expect(await CoachMarkTour.shouldShow(), isTrue);

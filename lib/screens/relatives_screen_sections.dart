@@ -6,11 +6,12 @@ extension _RelativesScreenSections on _RelativesScreenState {
     required String? selectedTreeId,
     required bool isFriendsTree,
   }) {
-    final isPhone = MediaQuery.of(context).size.width < 1180;
     return [
       IconButton(
         icon: const Icon(Icons.account_tree_outlined),
-        tooltip: isPhone ? 'Показать дерево' : 'Выбрать другое дерево',
+        // Ведёт на вкладку с уже выбранным деревом — «выбрать другое»
+        // тут не обещаем: за выбором ходят в /trees.
+        tooltip: 'Открыть дерево',
         onPressed: () {
           // Дерево — соседняя вкладка (центр бара/рейла).
           context.go('/tree');

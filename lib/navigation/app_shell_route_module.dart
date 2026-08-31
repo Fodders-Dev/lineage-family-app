@@ -79,12 +79,10 @@ class AppShellRouteModule {
             // tablet / desktop shell at 900+ — sidebar nav rail
             // replaces the bottom dock, content centered at 1400 max.
             final bool isDesktop = constraints.maxWidth >= 900;
-            // The «Семья» tab (index 1) hosts the tree canvas behind its
-            // Список⇄Дерево toggle, so it takes the full-width desktop
-            // treatment the old standalone tree tab used. Its list body
-            // (RelativesScreen) self-constrains to ~1420, so letting the
-            // tab run full width is safe for both views.
-            final isFamilyBranch = navigationShell.currentIndex == 1;
+            // Канвас дерева (ветка 2) — единственный экран, которому тесно
+            // в 1400: схема семьи растёт вширь. Остальные вкладки, включая
+            // список «Родных», сами держат свою читаемую ширину.
+            final isTreeBranch = navigationShell.currentIndex == 2;
 
             Widget bodyContent = Column(
               children: <Widget>[
@@ -103,7 +101,7 @@ class AppShellRouteModule {
               bodyContent = Center(
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
-                    maxWidth: isFamilyBranch ? double.infinity : 1400,
+                    maxWidth: isTreeBranch ? double.infinity : 1400,
                   ),
                   child: bodyContent,
                 ),

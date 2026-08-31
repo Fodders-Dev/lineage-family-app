@@ -258,11 +258,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // событий). Нет тайла → шаг пропускаем целиком.
     final hasEventsTile = !_isLoadingEvents && _upcomingEvents.isNotEmpty;
     return <CoachMarkTarget>[
+      // Первым шагом — ядро продукта. Вкладка живёт в шелле, ключа на
+      // неё у ленты нет, поэтому шаг без анкера: важнее назвать дерево
+      // вслух, чем подсветить пиксель.
+      const CoachMarkTarget(
+        title: 'Дерево — сердце Родни',
+        body: 'Внизу по центру — вкладка «Дерево». Там растёт схема '
+            'семьи: добавляйте родных, связи и их истории.',
+      ),
       CoachMarkTarget(
         key: _tourStoriesKey,
-        title: 'Это твоё дерево',
-        body: 'Здесь живёт твоя семья. Добавляй моменты — фото и '
-            'короткие истории дня.',
+        title: 'Моменты дня',
+        body: 'Короткие истории и фото — то, что родные увидят сегодня.',
       ),
       CoachMarkTarget(
         key: _tourTeaserKey,

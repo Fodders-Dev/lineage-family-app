@@ -12,15 +12,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../theme/app_theme.dart';
 
-/// One hotspot: a [key] on the real widget to spotlight + the copy.
+/// One step: the copy plus an optional [key] on the real widget to
+/// spotlight. `key: null` — шаг без анкера: скрим без дырки и карточка
+/// по центру. Нужен для того, что живёт ВНЕ экрана-хозяина (нижний бар
+/// принадлежит шеллу), но объяснить это новичку всё равно надо.
 class CoachMarkTarget {
   const CoachMarkTarget({
-    required this.key,
+    this.key,
     required this.title,
     required this.body,
   });
 
-  final GlobalKey key;
+  final GlobalKey? key;
   final String title;
   final String body;
 }
@@ -132,7 +135,8 @@ class _CoachMarkTourState extends State<CoachMarkTour> {
             ? RodnyaDesignTokens.dark
             : RodnyaDesignTokens.light);
     final target = widget.targets[_index];
-    final rect = _resolveRect(target.key);
+    final targetKey = target.key;
+    final rect = targetKey == null ? null : _resolveRect(targetKey);
     final isLast = _index == widget.targets.length - 1;
 
     return Positioned.fill(

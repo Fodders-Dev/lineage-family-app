@@ -46,9 +46,10 @@ GoRouter _router() => GoRouter(
           builder: (context, state) => const DiscoverRelativesScreen(),
         ),
         GoRoute(
+          // «Родные» — своя вкладка без ?view=: режимов внутри больше нет.
           path: '/family',
-          builder: (context, state) => Scaffold(
-            body: Text('family:${state.uri.queryParameters['view']}'),
+          builder: (context, state) => const Scaffold(
+            body: Text('family-tab'),
           ),
         ),
       ],
@@ -81,7 +82,7 @@ void main() {
     await tester.tap(find.text('Открыть семью'));
     await tester.pumpAndSettle();
 
-    expect(find.text('family:list'), findsOneWidget);
+    expect(find.text('family-tab'), findsOneWidget);
   });
 
   testWidgets('пустой поиск предлагает добавить человека в дерево',

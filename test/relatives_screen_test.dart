@@ -524,7 +524,7 @@ void main() {
 
     await pumpRelativesScreen(tester);
 
-    await tester.tap(find.byTooltip('Показать дерево'));
+    await tester.tap(find.byTooltip('Открыть дерево'));
     await tester.pumpAndSettle();
 
     expect(find.text('tree-tab'), findsOneWidget);
