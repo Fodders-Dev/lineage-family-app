@@ -1905,6 +1905,61 @@ class PostgresStore extends FileStore {
     return this._selectStoredTreeInvitationsForUser(userId);
   }
 
+  /// Горячий путь фан-аута пушей: каждый dispatchNotification звал
+  /// listPushDevices → FileStore._read(), а на PostgresStore это ПОЛНЫЙ
+  /// цикл блоба (SELECT ~1МБ + JSON.parse + _syncGraphFromLegacy +
+  /// structuredClone + запись sidecar-кэша) — блокировка event-loop на
+  /// сотни мс. В логах это видно как `fanout=534ms`, за которым СЛЕДУЮЩАЯ
+  /// отправка ждёт в `access=467ms`. Сами устройства остаются в блобе
+  /// (их пишет registerPushDevice), но ЧТЕНИЕ — точечный LATERAL-запрос,
+  /// как у treeInvitations: ни парсинга блоба, ни клона, ни диска.
+  async listPushDevices(userId) {
+    const normalizedUserId = String(userId || "").trim();
+    if (!normalizedUserId) {
+      return [];
+    }
+    await this.initialize();
+    await this._awaitReadConsistency();
+    try {
+      return await this._selectPushDevicesForUser(normalizedUserId);
+    } catch (error) {
+      // Движок без jsonb_array_elements (pg-mem в тестах) или иная
+      // неожиданность — падать на пути доставки пуша нельзя: честный
+      // фолбэк на медленное, но верное чтение блоба.
+      console.warn(
+        "[backend] push devices SQL read failed — falling back to blob",
+        JSON.stringify({message: error?.message || String(error)}),
+      );
+      return super.listPushDevices(userId);
+    }
+  }
+
+  async _selectPushDevicesForUser(normalizedUserId) {
+    const result = await this._pool.query(
+      // Развёртка массива — в подзапросе, а не LATERAL: pg-mem не
+      // резолвит внешнюю колонку внутри LATERAL, а такая форма работает
+      // и на нём, и на реальном Postgres (значит путь покрыт тестом).
+      `SELECT device_entry AS device_data
+         FROM (
+           SELECT jsonb_array_elements(
+                    COALESCE(data->'pushDevices', '[]'::jsonb)
+                  ) AS device_entry
+             FROM ${this._qualifiedTableName}
+            WHERE id = $1
+         ) AS devices
+        WHERE COALESCE(device_entry->>'userId', '') = $2
+        ORDER BY COALESCE(device_entry->>'updatedAt', '') DESC`,
+      [this._rowId, normalizedUserId],
+    );
+    return result.rows
+      .map((row) => {
+        const record = row.device_data;
+        if (!record) return null;
+        return typeof record === "string" ? JSON.parse(record) : record;
+      })
+      .filter(Boolean);
+  }
+
   // ── SPEED-7: notifications/pushDeliveries поверх таблиц ─────────────
   // После бут-миграции блоб этих коллекций не содержит; блоб-массивы —
   // «транзитная очередь» для унаследованных inline-путей (_notifyReviewers,

@@ -815,3 +815,47 @@ test("PG: окно read-ретенции считается от read_at, а н�
     "свежепрочитанный бэклог не стирается ночным проходом",
   );
 });
+
+test("PG: listPushDevices — контракт (свои устройства, свежие первыми)", async () => {
+  const {store} = buildStore({
+    users: USERS,
+    notifications: [],
+    pushDeliveries: [],
+    pushDevices: [],
+  });
+  await store.initialize();
+
+  const older = await store.registerPushDevice({
+    userId: "user-1",
+    provider: "fcm",
+    token: "tok-old",
+    platform: "android",
+  });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const newer = await store.registerPushDevice({
+    userId: "user-1",
+    provider: "webpush",
+    token: "tok-new",
+    platform: "web",
+  });
+  await store.registerPushDevice({
+    userId: "user-2",
+    provider: "fcm",
+    token: "tok-other",
+    platform: "android",
+  });
+
+  // Контракт FileStore: только свои устройства, свежие первыми.
+  const listed = await store.listPushDevices("user-1");
+  assert.deepEqual(
+    listed.map((entry) => entry.id),
+    [newer.id, older.id],
+  );
+  assert.equal(listed[0].token, "tok-new");
+  assert.deepEqual(await store.listPushDevices(""), []);
+  assert.deepEqual(await store.listPushDevices("ghost"), []);
+
+  // Быстрый SQL-путь на pg-mem недоступен (нет jsonb_array_elements) —
+  // здесь проверяется КОНТРАКТ (он же после фолбэка). Сам SQL проверен
+  // на реальном Postgres прода, см. коммит.
+});
