@@ -37,6 +37,10 @@ jobs:
             -czf ../rodnya-backend.tgz .
 
       - name: Setup server auth
+        # Только ключевая аутентификация: парольные ветки (sshpass +
+        # BACKEND_SERVER_PASSWORD) удалены 31.08.2026 вместе с переездом —
+        # секрет удалён, а на новом сервере парольный ssh отключён, так что
+        # ветка была мёртвой и лишь просила StrictHostKeyChecking=no.
         # Pass every secret via env: + reference $VAR in shell —
         # never `${{ secrets.X }}` interpolated into the rendered
         # script body. Same hardening as backend-deploy /
@@ -44,46 +48,28 @@ jobs:
         env:
           SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          BACKEND_SERVER_PASSWORD: ${{ secrets.BACKEND_SERVER_PASSWORD }}
         run: |
           set +x
           mkdir -p ~/.ssh
           printenv SERVER_SSH_KEY > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -T 5 -H "$SERVER_HOST" >> ~/.ssh/known_hosts || true
-          if [ -n "$BACKEND_SERVER_PASSWORD" ]; then
-            sudo apt-get update
-            sudo apt-get install -y sshpass
-          fi
 
       - name: Upload backend archive
         env:
           REMOTE_ARCHIVE: /tmp/rodnya-backend-${{ github.sha }}.tgz
           REMOTE_SCRIPT: /tmp/rodnya-activate-backend-release-${{ github.sha }}.sh
           BACKEND_SERVER_USERNAME: ${{ secrets.BACKEND_SERVER_USERNAME }}
-          BACKEND_SERVER_PASSWORD: ${{ secrets.BACKEND_SERVER_PASSWORD }}
           SERVER_USERNAME: ${{ secrets.SERVER_USERNAME }}
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
         run: |
           set +x
           backend_user="${BACKEND_SERVER_USERNAME:-$SERVER_USERNAME}"
-          if [ -n "$BACKEND_SERVER_PASSWORD" ]; then
-            sshpass -p "$BACKEND_SERVER_PASSWORD" scp \
-              -o StrictHostKeyChecking=no \
-              -o UserKnownHostsFile=/dev/null \
-              rodnya-backend.tgz \
-              "${backend_user}@$SERVER_HOST:${REMOTE_ARCHIVE}"
-            sshpass -p "$BACKEND_SERVER_PASSWORD" scp \
-              -o StrictHostKeyChecking=no \
-              -o UserKnownHostsFile=/dev/null \
-              deploy/backend/activate_backend_release.sh \
-              "${backend_user}@$SERVER_HOST:${REMOTE_SCRIPT}"
-          else
-            scp -i ~/.ssh/id_ed25519 rodnya-backend.tgz \
-              "${backend_user}@$SERVER_HOST:${REMOTE_ARCHIVE}"
-            scp -i ~/.ssh/id_ed25519 deploy/backend/activate_backend_release.sh \
-              "${backend_user}@$SERVER_HOST:${REMOTE_SCRIPT}"
-          fi
+          scp -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes rodnya-backend.tgz \
+            "${backend_user}@$SERVER_HOST:${REMOTE_ARCHIVE}"
+          scp -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
+            deploy/backend/activate_backend_release.sh \
+            "${backend_user}@$SERVER_HOST:${REMOTE_SCRIPT}"
 
       - name: Activate backend release on server
         id: activate_backend_release
@@ -92,22 +78,13 @@ jobs:
           REMOTE_ARCHIVE: /tmp/rodnya-backend-${{ github.sha }}.tgz
           REMOTE_SCRIPT: /tmp/rodnya-activate-backend-release-${{ github.sha }}.sh
           BACKEND_SERVER_USERNAME: ${{ secrets.BACKEND_SERVER_USERNAME }}
-          BACKEND_SERVER_PASSWORD: ${{ secrets.BACKEND_SERVER_PASSWORD }}
           SERVER_USERNAME: ${{ secrets.SERVER_USERNAME }}
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
         run: |
           set +x
           DEPLOY_LABEL="deploy ${GITHUB_SHA::7} / github-actions-backend / $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           backend_user="${BACKEND_SERVER_USERNAME:-$SERVER_USERNAME}"
-          ssh_cmd=(ssh -i ~/.ssh/id_ed25519 "${backend_user}@$SERVER_HOST")
-          if [ -n "$BACKEND_SERVER_PASSWORD" ]; then
-            ssh_cmd=(
-              sshpass -p "$BACKEND_SERVER_PASSWORD" ssh
-              -o StrictHostKeyChecking=no
-              -o UserKnownHostsFile=/dev/null
-              "${backend_user}@$SERVER_HOST"
-            )
-          fi
+          ssh_cmd=(ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes "${backend_user}@$SERVER_HOST")
           "${ssh_cmd[@]}" bash -s -- "${REMOTE_ARCHIVE}" "${REMOTE_SCRIPT}" "/opt/rodnya/backend" "rodnya-backend.service" "${DEPLOY_LABEL}" <<'EOF'
           set -euo pipefail
           archive="$1"
@@ -124,21 +101,12 @@ jobs:
         if: steps.activate_backend_release.outcome != 'success'
         env:
           BACKEND_SERVER_USERNAME: ${{ secrets.BACKEND_SERVER_USERNAME }}
-          BACKEND_SERVER_PASSWORD: ${{ secrets.BACKEND_SERVER_PASSWORD }}
           SERVER_USERNAME: ${{ secrets.SERVER_USERNAME }}
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
         run: |
           set +x
           backend_user="${BACKEND_SERVER_USERNAME:-$SERVER_USERNAME}"
-          ssh_cmd=(ssh -i ~/.ssh/id_ed25519 "${backend_user}@$SERVER_HOST")
-          if [ -n "$BACKEND_SERVER_PASSWORD" ]; then
-            ssh_cmd=(
-              sshpass -p "$BACKEND_SERVER_PASSWORD" ssh
-              -o StrictHostKeyChecking=no
-              -o UserKnownHostsFile=/dev/null
-              "${backend_user}@$SERVER_HOST"
-            )
-          fi
+          ssh_cmd=(ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes "${backend_user}@$SERVER_HOST")
           "${ssh_cmd[@]}" bash -s <<'EOF'
           set -euo pipefail
           echo "=== systemctl status ==="

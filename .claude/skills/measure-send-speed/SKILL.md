@@ -20,7 +20,7 @@ node tool/measure_send_speed.mjs
 ## 2. Серверная разбивка (те же отправки)
 
 ```bash
-ssh rodnya-vps "journalctl -u rodnya-backend --since '10 minutes ago' --no-pager | grep -E 'send-timing.*ack=' | tail -25"
+ssh fodders "journalctl -u rodnya-backend --since '10 minutes ago' --no-pager | grep -E 'send-timing.*ack=' | tail -25"
 ```
 
 ## Интерпретация (базлайны)
