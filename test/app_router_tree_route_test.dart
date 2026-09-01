@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rodnya/backend/interfaces/auth_service_interface.dart';
+import 'package:rodnya/navigation/app_overlay_route_module.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rodnya/navigation/app_router.dart';
 import 'package:rodnya/navigation/app_router_shared.dart';
@@ -141,6 +143,63 @@ void main() {
     );
   });
 
+  // ── полная прод-таблица: все три модуля вместе ──
+
+  test('полная прод-таблица роутов не содержит дублей путей', () {
+    // Ловушка, которую не видно по одному модулю: после переезда вкладки
+    // /trees жил в ДВУХ модулях — страница в шелле и мёртвый редирект на
+    // `/tree?selector=1` в overlay (теперь это канвас дерева). Кто победит,
+    // решал порядок сборки. Собираем таблицу ровно как AppRouter и
+    // требуем единственного владельца на каждый полный путь.
+    final routes = <RouteBase>[
+      ...const AppShellRouteModule().buildLegacyFamilyRedirectRoutes(),
+      const AppShellRouteModule().build(),
+      ...AppOverlayRouteModule(authService: _FakeAuthService()).build(),
+    ];
+    final owners = <String, List<GoRoute>>{};
+    void walk(RouteBase route, String prefix) {
+      if (route is GoRoute) {
+        final full = route.path.startsWith('/')
+            ? route.path
+            : (prefix == '/' ? '/${route.path}' : '$prefix/${route.path}');
+        owners.putIfAbsent(full, () => <GoRoute>[]).add(route);
+        for (final child in route.routes) {
+          walk(child, full);
+        }
+        return;
+      }
+      if (route is StatefulShellRoute) {
+        for (final branch in route.branches) {
+          for (final child in branch.routes) {
+            walk(child, prefix);
+          }
+        }
+        return;
+      }
+      if (route is ShellRoute) {
+        for (final child in route.routes) {
+          walk(child, prefix);
+        }
+      }
+    }
+
+    for (final route in routes) {
+      walk(route, '/');
+    }
+
+    final duplicated = owners.entries
+        .where((entry) => entry.value.length > 1)
+        .map((entry) => entry.key)
+        .toList();
+    expect(duplicated, isEmpty, reason: 'у пути должен быть один владелец');
+
+    final trees = owners['/trees']!.single;
+    expect(trees.pageBuilder, isNotNull, reason: '/trees — это селектор');
+    expect(trees.redirect, isNull, reason: 'редирект на /tree?selector=1 умер');
+    expect(owners['/trees/create'], hasLength(1),
+        reason: 'форма создания дерева осталась deep-link-адресуемой');
+  });
+
   // ── auth / deep-link guards (unchanged) ──
 
   test(
@@ -235,3 +294,7 @@ class _FakeGoRouterState implements GoRouterState {
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
+
+/// Overlay-модулю нужен auth-сервис только для ленивых редиректов
+/// — сборка таблицы его не зовёт.
+class _FakeAuthService extends Fake implements AuthServiceInterface {}

@@ -43,6 +43,8 @@ import '../widgets/app_update_ui.dart';
 import '../widgets/main_navigation_bar.dart';
 import '../widgets/notification_permission_banner.dart';
 import '../widgets/offline_indicator.dart';
+import '../models/family_tree.dart';
+import '../screens/family_tree/create_tree_screen.dart';
 import '../widgets/post_publish_status_chip.dart';
 import 'app_router_guards.dart';
 import 'app_router_shared.dart';
@@ -648,6 +650,28 @@ class AppShellRouteModule {
             child: TreeSelectorScreen(initialFocus: initialFocus),
           );
         },
+        routes: [
+          // Форма создания живёт под тем же /trees: единственный владелец
+          // пути. Раньше второй /trees в overlay-модуле держал этот саб-роут
+          // и редирект на `/tree?selector=1` — после переезда вкладки такой
+          // редирект уводил бы в канвас дерева вместо селектора.
+          GoRoute(
+            path: 'create',
+            parentNavigatorKey: rootNavigatorKey,
+            pageBuilder: (context, state) {
+              final kindParam = state.uri.queryParameters['kind'];
+              final initialKind = kindParam?.toLowerCase() == 'friends'
+                  ? TreeKind.friends
+                  : TreeKind.family;
+              return RodnyaCustomTransitionPage(
+                key: state.pageKey,
+                constrainWidth: true,
+                child: CreateTreeScreen(initialKind: initialKind),
+                transitionsBuilder: AppRouteTransitions.slide,
+              );
+            },
+          ),
+        ],
       ),
     ];
   }

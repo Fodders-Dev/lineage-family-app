@@ -97,12 +97,10 @@ class AppRouter {
     refreshListenable: authState,
     redirect: _guards.redirect,
     routes: <RouteBase>[
-      // Legacy /relatives and /tree are no longer tabs; they live at the
-      // top level and gated-redirect into the unified «Семья» tab. Keep
-      // them before StatefulShellRoute: otherwise go_router can retain the
-      // current shell branch when a legacy hash URL is entered after an
-      // in-shell route, leaving the URL at /relatives while the old branch
-      // stays visible.
+      // Легаси /relatives живёт на верхнем уровне и редиректит во вкладку
+      // «Родные». Держим его ПЕРЕД StatefulShellRoute: иначе go_router
+      // может удержать текущую ветку шелла, когда легаси hash-URL вводят
+      // после in-shell роута — URL уже /relatives, а на экране старая ветка.
       ..._shellRoutes.buildLegacyFamilyRedirectRoutes(),
       _shellRoutes.build(),
       ..._overlayRoutes.build(),

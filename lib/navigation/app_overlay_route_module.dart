@@ -4,13 +4,11 @@ import 'package:go_router/go_router.dart';
 
 import '../backend/interfaces/auth_service_interface.dart';
 import '../models/call_media_mode.dart';
-import '../models/family_tree.dart';
 import '../screens/auth_screen.dart';
 import '../screens/browse_tree_screen.dart';
 import '../screens/complete_profile_screen.dart';
 import '../screens/create_story_screen.dart';
 import '../screens/chat_screen.dart';
-import '../screens/family_tree/create_tree_screen.dart';
 import '../screens/identity_review_screen.dart';
 import '../screens/notifications_screen.dart';
 import '../screens/discover_relatives/discover_relatives_screen.dart';
@@ -26,7 +24,6 @@ import '../screens/relative_details_screen.dart';
 import '../screens/semya_invitation_accept_screen.dart';
 import '../screens/send_relation_request_screen.dart';
 import '../screens/story_viewer_screen.dart';
-import '../screens/user_profile_entry_screen.dart';
 import 'app_router_shared.dart';
 
 class AppOverlayRouteModule {
@@ -95,48 +92,6 @@ class AppOverlayRouteModule {
             transitionsBuilder: AppRouteTransitions.slideUp,
           );
         },
-      ),
-      // /trees was a parallel overlay-style branch picker that
-      // duplicated the shell-aware TreeSelectorScreen at
-      // /tree?selector=1. Two screens with the same purpose was a
-      // clear UX bug — back-arrow from the tree view went to one
-      // copy, BranchSwitcherChip's "manage branches" button went
-      // to the other. Redirect everything to the single canonical
-      // surface; subroute /trees/create still has a real page
-      // builder so direct deep-links to the create form keep
-      // working.
-      GoRoute(
-        path: '/trees',
-        redirect: (context, state) {
-          // Don't redirect when the user is hitting the create
-          // sub-route — /trees/create has its own page builder.
-          if (state.uri.path.startsWith('/trees/')) return null;
-          final query = Map<String, String>.from(state.uri.queryParameters);
-          query['selector'] = '1';
-          final qs = query.entries
-              .map((e) =>
-                  '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}')
-              .join('&');
-          return qs.isEmpty ? '/tree?selector=1' : '/tree?$qs';
-        },
-        routes: [
-          GoRoute(
-            path: 'create',
-            parentNavigatorKey: rootNavigatorKey,
-            pageBuilder: (context, state) {
-              final kindParam = state.uri.queryParameters['kind'];
-              final initialKind = kindParam?.toLowerCase() == 'friends'
-                  ? TreeKind.friends
-                  : TreeKind.family;
-              return RodnyaCustomTransitionPage(
-                key: state.pageKey,
-                constrainWidth: true,
-                child: CreateTreeScreen(initialKind: initialKind),
-                transitionsBuilder: AppRouteTransitions.slide,
-              );
-            },
-          ),
-        ],
       ),
       GoRoute(
         path: '/__e2e__/idle',
@@ -348,19 +303,6 @@ class AppOverlayRouteModule {
               relativeId: relativeId,
               chatType: 'direct',
             ),
-            transitionsBuilder: AppRouteTransitions.slide,
-          );
-        },
-      ),
-      GoRoute(
-        path: '/user/:userId',
-        parentNavigatorKey: rootNavigatorKey,
-        pageBuilder: (context, state) {
-          final userId = state.pathParameters['userId'] ?? '';
-          return RodnyaCustomTransitionPage(
-            key: state.pageKey,
-            constrainWidth: true,
-            child: UserProfileEntryScreen(userId: userId),
             transitionsBuilder: AppRouteTransitions.slide,
           );
         },
