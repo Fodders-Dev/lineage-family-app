@@ -18,6 +18,16 @@ buildscript {
 
 allprojects {
     repositories {
+        // RuStore SDK: свой Maven-репозиторий (artifactory-external.
+        // vkpartner.ru) 01.09.2026 перестал отвечать (404 даже на ping),
+        // а jitpack на эти координаты отвечает 401 — Gradle считает это
+        // жёсткой ошибкой, и релизная сборка падала. Зеркало лежит в
+        // репо (~5 МБ) и объявлено ПЕРВЫМ и только для этой группы:
+        // сборка перестаёт зависеть от чужого Artifactory.
+        maven {
+            url = uri("${rootDir}/rustore-maven")
+            content { includeGroup("ru.rustore.sdk") }
+        }
         google()
         mavenCentral()
     }
