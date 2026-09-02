@@ -1586,12 +1586,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final ordered = byAuthor.values.toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
+    // Плотность (02.09.2026): рейл 88 → 76dp — кольцо 50 вместо 56,
+    // боковые поля как у остального контента (14).
     return SizedBox(
-      height: 88,
+      height: 76,
       child: ListView(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 18),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
         children: [
           KeyedSubtree(
             key: _tourStoriesKey,
@@ -1678,13 +1680,13 @@ class _StoryRing extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: SizedBox(
-        width: 64,
+        width: 58,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              width: 56,
-              height: 56,
+              width: 50,
+              height: 50,
               padding: const EdgeInsets.all(2.5),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,

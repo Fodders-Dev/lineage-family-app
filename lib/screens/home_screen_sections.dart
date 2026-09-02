@@ -188,7 +188,7 @@ extension _HomeScreenSections on _HomeScreenState {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SizedBox(height: 8),
+        const SizedBox(height: 4),
         if (_pendingIdentityReviewCount > 0 || _identityReviewsUnavailable)
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
@@ -204,7 +204,7 @@ extension _HomeScreenSections on _HomeScreenState {
         // прежней пары «карточка альбома + рельс событий» (~48+~130dp).
         // Полный фильтр+стек событий живёт в сайдбаре широкой раскладки.
         Padding(
-          padding: const EdgeInsets.fromLTRB(18, 8, 18, 8),
+          padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
           child: _buildComposeTeaser(),
         ),
         _buildHomeHubTiles(includeEvents: true),
@@ -1010,7 +1010,7 @@ extension _HomeScreenSections on _HomeScreenState {
 
     if (!includeEvents) {
       return Padding(
-        padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+        padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
         child: albumTile,
       );
     }
@@ -1037,7 +1037,7 @@ extension _HomeScreenSections on _HomeScreenState {
     );
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
       child: LayoutBuilder(
         builder: (context, constraints) {
           // На 360dp-экране ряду остаётся ~324dp — по ~158 на тайл, текст
@@ -1227,18 +1227,18 @@ extension _HomeScreenSections on _HomeScreenState {
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           child: Row(
             children: [
               Container(
-                width: 36,
-                height: 36,
+                width: 30,
+                height: 30,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: tokens.accentSoft,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(icon, size: 20, color: tokens.accent),
+                child: Icon(icon, size: 18, color: tokens.accent),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -1304,10 +1304,11 @@ extension _HomeScreenSections on _HomeScreenState {
       child: GlassPanel(
         key: _tourTeaserKey,
         padding: EdgeInsets.zero,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         plain: true,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          // Плотность: 76 → ~56dp — одна строка, как поле ввода в чате.
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           child: Row(
             children: [
               Expanded(
@@ -1315,12 +1316,12 @@ extension _HomeScreenSections on _HomeScreenState {
                   borderRadius: BorderRadius.circular(20),
                   onTap: () => _openCreatePost(),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    padding: const EdgeInsets.symmetric(vertical: 2),
                     child: Row(
                       children: [
                         Container(
-                          width: 36,
-                          height: 36,
+                          width: 32,
+                          height: 32,
                           decoration: BoxDecoration(
                             gradient: tokens.accentGradient,
                             shape: BoxShape.circle,
