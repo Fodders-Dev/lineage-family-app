@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:ui';
 import 'package:get_it/get_it.dart';
@@ -149,11 +148,9 @@ class _RelativesScreenState extends State<RelativesScreen> {
       _treeProviderInstance = Provider.of<TreeProvider>(context, listen: false);
       _treeProviderInstance!.addListener(_handleTreeChange);
       _currentTreeId = _treeProviderInstance!.selectedTreeId;
-      // Phase 6 chunk 3: one-shot tooltip pointing к discover FAB.
-      // Fires once globally, не per-tree (Q6).
-      if (mounted) {
-        _maybeShowDiscoverTooltip(context);
-      }
+      // Объясняющий диалог «Проверить родство» при первом входе убран
+      // (02.09.2026): подсказку несёт tooltip самой кнопки, а модалка
+      // перекрывала список людей в первую же секунду.
       if (_currentTreeId != null) {
         _loadDataForSelectedTree(_currentTreeId!);
       } else {
@@ -699,42 +696,6 @@ class _RelativesScreenState extends State<RelativesScreen> {
         ),
       ),
     );
-  }
-
-  /// Phase 6 chunk 3 (PHASE-6-PROPOSAL.md §2.4): one-shot tooltip
-  /// pointing к discover FAB. State persisted в SharedPreferences под
-  /// global key (not per-tree) per Q6 — existing users get tooltip
-  /// once even if wizard skipped.
-  static const String _kDiscoverTooltipKey = 'discover_fab_tooltip_shown_v1';
-
-  bool _discoverTooltipScheduled = false;
-
-  Future<void> _maybeShowDiscoverTooltip(BuildContext outerContext) async {
-    if (_treeProviderInstance?.selectedTreeKind == TreeKind.friends) return;
-    if (_discoverTooltipScheduled) return;
-    _discoverTooltipScheduled = true;
-    final prefs = await SharedPreferences.getInstance();
-    if (prefs.getBool(_kDiscoverTooltipKey) == true) return;
-    if (!outerContext.mounted) return;
-    await showDialog<void>(
-      context: outerContext,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Проверить родство'),
-          content: const Text(
-            'Если у знакомого уже есть аккаунт Родни, отправьте запрос и '
-            'проверьте связь с вашим деревом.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Понятно'),
-            ),
-          ],
-        );
-      },
-    );
-    await prefs.setBool(_kDiscoverTooltipKey, true);
   }
 
   bool get _showSecondaryLoadingStrip =>

@@ -25,12 +25,17 @@ import '../utils/photo_url.dart';
 
 /// Hero card matching the Profile Redesign spec:
 ///   - 130px cover (gradient or photo)
-///   - 78x78 avatar overlapping the cover bottom by ~36px
+///   - 64x64 avatar overlapping the cover bottom by 32px
 ///   - Name (Lora 22px / 600), location (12px / 600 / muted), bio
 ///   - Optional stats grid (3 columns)
 ///   - Optional row of pill-buttons
 ///   - Optional rel-badge after the name (used on relative cards)
 ///   - Optional «† Память» badge top-left of cover (deceased relatives)
+/// На сколько аватар свисает под обложку. Раньше свес делался через
+/// Transform.translate, который двигает только отрисовку и оставлял
+/// ~28dp пустого зарезервированного места под каждой шапкой.
+const double _kHeroAvatarOverlap = 32;
+
 class ProfileHeroCard extends StatelessWidget {
   const ProfileHeroCard({
     super.key,
@@ -140,7 +145,7 @@ class ProfileHeroCard extends StatelessWidget {
           );
 
     final cover = SizedBox(
-      height: 130,
+      height: 88,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -180,14 +185,14 @@ class ProfileHeroCard extends StatelessWidget {
     final avatar = GestureDetector(
       onTap: onTapAvatar,
       child: Container(
-        width: 78,
-        height: 78,
+        width: 64,
+        height: 64,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           gradient: photoUrl == null || photoUrl!.trim().isEmpty
               ? avatarGradient
               : null,
-          border: Border.all(color: tokens.bgBase, width: 4),
+          border: Border.all(color: tokens.bgBase, width: 3),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.28),
@@ -209,7 +214,7 @@ class ProfileHeroCard extends StatelessWidget {
                       _initials,
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 26,
+                        fontSize: 22,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -220,7 +225,7 @@ class ProfileHeroCard extends StatelessWidget {
                     _initials,
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 26,
+                      fontSize: 22,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -258,46 +263,33 @@ class ProfileHeroCard extends StatelessWidget {
       );
     }
 
-    final nameWidget = (firstName != null || lastName != null)
-        ? RichText(
-            text: TextSpan(
-              style: AppTheme.serif(
-                color: tokens.ink,
-                fontSize: 22,
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.4,
-                height: 1.2,
-              ),
-              children: [
-                if (firstName != null && firstName!.trim().isNotEmpty)
-                  TextSpan(text: firstName!.trim()),
-                if (patronymic != null && patronymic!.trim().isNotEmpty) ...[
-                  const TextSpan(text: ' '),
-                  TextSpan(text: patronymic!.trim()),
-                ],
-                if (lastName != null && lastName!.trim().isNotEmpty) ...[
-                  const TextSpan(text: '\n'),
-                  TextSpan(text: lastName!.trim()),
-                ],
-              ],
-            ),
-          )
-        : Text(
-            fullName,
-            style: AppTheme.serif(
-              color: tokens.ink,
-              fontSize: 22,
-              fontWeight: FontWeight.w600,
-              letterSpacing: -0.4,
-              height: 1.2,
-            ),
-          );
+    // Имя в одну строку (перенос — только если не влезает): принудительный
+    // '\n' перед фамилией делал двухстрочную шапку каждому.
+    final nameStyle = AppTheme.serif(
+      color: tokens.ink,
+      fontSize: 20,
+      fontWeight: FontWeight.w600,
+      letterSpacing: -0.3,
+      height: 1.15,
+    );
+    final nameParts = <String>[
+      if (firstName != null && firstName!.trim().isNotEmpty) firstName!.trim(),
+      if (patronymic != null && patronymic!.trim().isNotEmpty)
+        patronymic!.trim(),
+      if (lastName != null && lastName!.trim().isNotEmpty) lastName!.trim(),
+    ];
+    final nameWidget = Text(
+      nameParts.isNotEmpty ? nameParts.join(' ') : fullName,
+      style: nameStyle,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+    );
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: tokens.surfaceStrong,
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: tokens.surfaceLine),
         boxShadow: [
           BoxShadow(
@@ -309,93 +301,104 @@ class ProfileHeroCard extends StatelessWidget {
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            cover,
+            // Аватар свисает под обложку настоящим overflow'ом Stack'а —
+            // ниже резервируем ровно свес + зазор, а не «минус 36 / минус 28»
+            // поверх полноразмерной колонки.
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                cover,
+                Positioned(
+                  left: 16,
+                  bottom: -_kHeroAvatarOverlap,
+                  child: avatar,
+                ),
+              ],
+            ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              padding: const EdgeInsets.fromLTRB(
+                16,
+                _kHeroAvatarOverlap + 8,
+                16,
+                12,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Transform.translate(
-                    offset: const Offset(0, -36),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        avatar,
-                        const Spacer(),
-                        if (trailing != null)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 2),
-                            child: trailing,
-                          ),
-                      ],
-                    ),
-                  ),
-                  Transform.translate(
-                    offset: const Offset(0, -28),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (location != null && location!.trim().isNotEmpty) ...[
-                          Row(
-                            children: [
-                              Icon(Icons.place_outlined,
-                                  size: 13, color: tokens.inkMuted),
-                              const SizedBox(width: 4),
-                              Flexible(
-                                child: Text(
-                                  location!.trim(),
-                                  style: AppTheme.sans(
-                                    color: tokens.inkMuted,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    letterSpacing: 0,
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (location != null &&
+                                location!.trim().isNotEmpty) ...[
+                              Row(
+                                children: [
+                                  Icon(Icons.place_outlined,
+                                      size: 13, color: tokens.inkMuted),
+                                  const SizedBox(width: 4),
+                                  Flexible(
+                                    child: Text(
+                                      location!.trim(),
+                                      style: AppTheme.sans(
+                                        color: tokens.inkMuted,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        letterSpacing: 0,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                                ],
                               ),
+                              const SizedBox(height: 3),
                             ],
-                          ),
-                          const SizedBox(height: 5),
-                        ],
-                        nameWidget,
-                        if (relBadge != null &&
-                            relBadge!.trim().isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          _RelBadge(label: relBadge!),
-                        ],
-                        if (bio != null && bio!.trim().isNotEmpty) ...[
-                          const SizedBox(height: 10),
-                          Text(
-                            bio!.trim(),
-                            style: AppTheme.sans(
-                              color: tokens.inkSecondary,
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w500,
-                              letterSpacing: 0,
-                              height: 1.5,
-                            ),
-                          ),
-                        ],
-                        if (stats != null && stats!.isNotEmpty) ...[
-                          const SizedBox(height: 14),
-                          _StatsRow(stats: stats!),
-                        ],
-                        if (actions != null && actions!.isNotEmpty) ...[
-                          const SizedBox(height: 12),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: actions!,
-                          ),
-                        ],
+                            nameWidget,
+                          ],
+                        ),
+                      ),
+                      if (trailing != null) ...[
+                        const SizedBox(width: 8),
+                        trailing,
                       ],
-                    ),
+                    ],
                   ),
+                  if (relBadge != null && relBadge!.trim().isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    _RelBadge(label: relBadge!),
+                  ],
+                  if (bio != null && bio!.trim().isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      bio!.trim(),
+                      style: AppTheme.sans(
+                        color: tokens.inkSecondary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: 0,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                  if (stats != null && stats!.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    _StatsRow(stats: stats!),
+                  ],
+                  if (actions != null && actions!.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: actions!,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -432,10 +435,10 @@ class _StatsRow extends StatelessWidget {
           if (i > 0) const SizedBox(width: 8),
           Expanded(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               decoration: BoxDecoration(
                 color: tokens.bgTintWarm,
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(10),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
@@ -444,7 +447,7 @@ class _StatsRow extends StatelessWidget {
                     stats[i].value,
                     style: AppTheme.serif(
                       color: tokens.ink,
-                      fontSize: 20,
+                      fontSize: 15,
                       fontWeight: FontWeight.w600,
                       letterSpacing: -0.2,
                     ),
