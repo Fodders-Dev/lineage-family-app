@@ -47,6 +47,11 @@ It captures:
   `web/invite/index.html` so in-app browsers can still offer
   "open in app" and web fallback.
 - `/dl/*` served from `/opt/rodnya/static/dl` for direct APK downloads.
+  The directory MUST be owned by `rodnya-deploy` (the OTA workflow `scp`s the
+  APK there as that user; Caddy only needs world-read). After the 31.08.2026
+  server move it came back as `rodnya:rodnya 755` and the first OTA failed with
+  `scp: dest open: Permission denied` — fixed with
+  `chown rodnya-deploy:rodnya-deploy /opt/rodnya/static/dl`.
 - Cache-Control bands for SPA entry / runtime / long-cached assets
   before falling through to the Flutter SPA.
 
