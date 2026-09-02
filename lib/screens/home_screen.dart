@@ -969,7 +969,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             // Q3: 6pt vertical (was 8) gives the 48pt touch targets room
             // inside the fixed-height bar; tighter horizontal insets
             // (14/8 was 18/12) reclaim the width the larger targets need.
-            padding: const EdgeInsets.fromLTRB(14, 6, 8, 6),
+            padding: const EdgeInsets.fromLTRB(14, 3, 8, 3),
             child: Row(
               children: [
                 // Brand + branch chip own all the space left of the icon
@@ -988,7 +988,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           overflow: TextOverflow.ellipsis,
                           style: AppTheme.serif(
                             color: tokens.ink,
-                            fontSize: 22,
+                            fontSize: AppTheme.tabTitleFontSize,
                             fontWeight: FontWeight.w600,
                             letterSpacing: -0.22,
                           ),

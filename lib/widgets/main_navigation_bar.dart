@@ -84,8 +84,12 @@ class MainNavigationBar extends StatelessWidget {
                         ? RodnyaDesignTokens.dark
                         : RodnyaDesignTokens.light);
 
+                // Плоская панель у нижнего края (02.09.2026): плавающая
+                // пилюля с полями 14dp и двойной тенью занимала 84–100dp на
+                // каждой вкладке — Telegram обходится 56 + системный inset.
                 return SafeArea(
-                  minimum: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                  top: false,
+                  minimum: EdgeInsets.zero,
                   child: LayoutBuilder(
                     builder: (context, constraints) {
                       // Was `>= 340` — too strict; on Samsung Galaxy
@@ -97,10 +101,10 @@ class MainNavigationBar extends StatelessWidget {
                       // floor still trips for very narrow tablets in
                       // weird split-screen layouts.
                       final showLabels = constraints.maxWidth >= 280;
-                      // Slimmed (was 70/62). Labelled height matches
-                      // AppTheme.bottomNavContentHeight so the global
-                      // bottom-inset helper reserves exactly the bar.
-                      final navHeight = showLabels ? 62.0 : 56.0;
+                      // Labelled height = AppTheme.bottomNavContentHeight,
+                      // чтобы bottomNavInset резервировал ровно панель.
+                      final navHeight =
+                          showLabels ? AppTheme.bottomNavContentHeight : 48.0;
                       // User-reported: «домик с лентой находятся
                       // правее этой зеленой области». The pill used
                       // `constraints.maxWidth / items.length` for its
@@ -136,7 +140,7 @@ class MainNavigationBar extends StatelessWidget {
                             : (isDark ? 0.90 : 0.94),
                       );
                       final borderColor = tokens.surfaceLine;
-                      final navRadius = BorderRadius.circular(999);
+                      final navRadius = BorderRadius.zero;
 
                       Widget navInner = ClipRRect(
                         borderRadius: navRadius,
@@ -170,8 +174,8 @@ class MainNavigationBar extends StatelessWidget {
                               duration: const Duration(milliseconds: 320),
                               curve: Curves.easeOutCubic,
                               left: pillLeft,
-                              top: 6,
-                              bottom: 6,
+                              top: 4,
+                              bottom: 4,
                               width: pillWidth,
                               child: DecoratedBox(
                                 decoration: BoxDecoration(
@@ -193,7 +197,7 @@ class MainNavigationBar extends StatelessWidget {
                             Padding(
                               padding: EdgeInsets.symmetric(
                                 horizontal: showLabels ? 6 : 4,
-                                vertical: 6,
+                                vertical: 4,
                               ),
                               child: Row(
                                 children: [
@@ -216,9 +220,13 @@ class MainNavigationBar extends StatelessWidget {
                                 child: DecoratedBox(
                                   decoration: BoxDecoration(
                                     borderRadius: navRadius,
-                                    border: Border.all(
-                                      color: borderColor,
-                                      width: 1,
+                                    // Волосяная линия сверху вместо рамки
+                                    // вокруг: панель, не карточка.
+                                    border: Border(
+                                      top: BorderSide(
+                                        color: borderColor,
+                                        width: 0.6,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -238,32 +246,9 @@ class MainNavigationBar extends StatelessWidget {
                         );
                       }
 
-                      return DecoratedBox(
-                        decoration: BoxDecoration(
-                          borderRadius: navRadius,
-                          // Lighter, shallower shadow to match the
-                          // slimmer bar (was 38/-8/22 + 14/-4/8).
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(
-                                alpha: isDark ? 0.36 : 0.14,
-                              ),
-                              blurRadius: 28,
-                              spreadRadius: -8,
-                              offset: const Offset(0, 16),
-                            ),
-                            BoxShadow(
-                              color: Colors.black.withValues(
-                                alpha: isDark ? 0.18 : 0.08,
-                              ),
-                              blurRadius: 10,
-                              spreadRadius: -4,
-                              offset: const Offset(0, 6),
-                            ),
-                          ],
-                        ),
-                        child: SizedBox(height: navHeight, child: navInner),
-                      );
+                      // Без внешних теней: панель лежит на краю экрана, а не
+                      // парит над контентом.
+                      return SizedBox(height: navHeight, child: navInner);
                     },
                   ),
                 );

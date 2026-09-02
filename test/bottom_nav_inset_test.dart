@@ -1,6 +1,6 @@
-// Chunk A: AppTheme.bottomNavInset — the global bottom-edge clearance for
-// the floating nav pill, mirror of topbarHeight. Screens under
-// extendBody:true reserve this so content clears the pill.
+// AppTheme.bottomNavInset — сколько нижний бар занимает от края экрана,
+// зеркало topbarHeight. С 02.09.2026 бар — плоская панель: высота +
+// системный inset, без полей пилюли и «воздуха».
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,15 +23,14 @@ void main() {
     return inset;
   }
 
-  testWidgets('bottomNavInset = bar height + max(safe-bottom, 14) + gap',
+  testWidgets('bottomNavInset = высота панели + системный inset',
       (tester) async {
-    // Device inset below the 14dp SafeArea floor → the floor wins.
     final small = await insetFor(tester, 6);
-    expect(small, AppTheme.bottomNavContentHeight + 14.0 + 8.0);
+    expect(small, AppTheme.bottomNavContentHeight + 6.0);
 
-    // Gesture-nav device inset above the floor → the device inset wins.
+    // Жестовая навигация: inset устройства добавляется целиком.
     final large = await insetFor(tester, 48);
-    expect(large, AppTheme.bottomNavContentHeight + 48.0 + 8.0);
+    expect(large, AppTheme.bottomNavContentHeight + 48.0);
 
     // Inset grows with the device safe-area.
     expect(large, greaterThan(small));

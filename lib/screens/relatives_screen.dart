@@ -1978,14 +1978,14 @@ class _RelativesScreenState extends State<RelativesScreen> {
         child: SizedBox(
           height: AppTheme.topbarContentHeight,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 8, 12, 8),
+            padding: const EdgeInsets.fromLTRB(18, 3, 12, 3),
             child: Row(
               children: [
                 Text(
                   isFriendsTree ? 'Круг' : 'Родные',
                   style: AppTheme.serif(
                     color: tokens.ink,
-                    fontSize: 22,
+                    fontSize: AppTheme.tabTitleFontSize,
                     fontWeight: FontWeight.w600,
                     letterSpacing: -0.22,
                   ),

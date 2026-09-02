@@ -1347,7 +1347,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         child: SizedBox(
           height: AppTheme.topbarContentHeight,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
+            padding: const EdgeInsets.fromLTRB(8, 3, 12, 3),
             child: Row(
               children: [
                 if (Navigator.of(context).canPop())
@@ -1368,7 +1368,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   'Профиль',
                   style: AppTheme.serif(
                     color: tokens.ink,
-                    fontSize: 22,
+                    fontSize: AppTheme.tabTitleFontSize,
                     fontWeight: FontWeight.w600,
                     letterSpacing: -0.22,
                   ),

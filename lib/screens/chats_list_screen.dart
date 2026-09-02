@@ -974,14 +974,14 @@ class _ChatsListScreenState extends State<ChatsListScreen>
           height: AppTheme.topbarContentHeight,
           child: Padding(
             // Q3: 6pt vertical (was 8) so the 48pt touch targets fit.
-            padding: const EdgeInsets.fromLTRB(18, 6, 12, 6),
+            padding: const EdgeInsets.fromLTRB(18, 3, 12, 3),
             child: Row(
               children: [
                 Text(
                   'Чаты',
                   style: AppTheme.serif(
                     color: tokens.ink,
-                    fontSize: 22,
+                    fontSize: AppTheme.tabTitleFontSize,
                     fontWeight: FontWeight.w600,
                     letterSpacing: -0.22,
                   ),

@@ -269,9 +269,14 @@ class AppTheme {
   /// bar — title and pill buttons came out squished. All sticky
   /// topbars in the app should pull from this getter so the fix is
   /// consistent.
-  static const double topbarContentHeight = 62.0;
+  static const double topbarContentHeight = 56.0;
   static double topbarHeight(BuildContext context) =>
       MediaQuery.of(context).padding.top + topbarContentHeight;
+
+  /// Заголовок вкладки в топбаре (serif). Один токен вместо инлайнового
+  /// `fontSize: 22` в шести экранах: 20 — как заголовок экрана в Telegram,
+  /// крупнее только имя человека и заголовок дерева (осознанные акценты).
+  static const double tabTitleFontSize = 20.0;
 
   /// Токены бренда с фоллбеком по яркости — один шорткат вместо
   /// повторяющегося `theme.extension<RodnyaDesignTokens>() ?? (...)`
@@ -284,21 +289,18 @@ class AppTheme {
             : RodnyaDesignTokens.light);
   }
 
-  /// Slimmed height of the floating bottom nav pill (MainNavigationBar,
-  /// labelled state). Kept in lockstep with `navHeight` there.
-  static const double bottomNavContentHeight = 62.0;
+  /// Высота нижнего бара (MainNavigationBar, состояние с подписями).
+  /// Держать в lockstep с `navHeight` там. С 02.09.2026 бар — плоская
+  /// панель у нижнего края, а не плавающая пилюля с полями 14dp: пилюля
+  /// съедала 84–100dp на каждой вкладке ради тени и воздуха.
+  static const double bottomNavContentHeight = 56.0;
 
-  /// Vertical space the floating bottom nav occupies, measured from the
-  /// bottom of the screen — the pill height plus its outer margin
-  /// (the nav sits inside `SafeArea(minimum bottom: 14)`, so the gap is
-  /// `max(device inset, 14)`) plus a small breathing gap. Screens under
-  /// `extendBody: true` should reserve this at the END of their scroll
-  /// content so the last items clear the pill. The bottom-edge mirror of
-  /// [topbarHeight].
+  /// Сколько бар занимает от нижнего края экрана: панель + системный
+  /// inset (жестовая навигация). Зеркало [topbarHeight] для экранов под
+  /// `extendBody: true`.
   static double bottomNavInset(BuildContext context) {
     final safeBottom = MediaQuery.of(context).padding.bottom;
-    final outerMargin = safeBottom > 14.0 ? safeBottom : 14.0;
-    return bottomNavContentHeight + outerMargin + 8.0;
+    return bottomNavContentHeight + safeBottom;
   }
 
   // Warm sage + honey palette — kept in lockstep with the

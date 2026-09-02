@@ -1159,7 +1159,7 @@ class _TreeViewScreenState extends State<TreeViewScreen>
         child: SizedBox(
           height: AppTheme.topbarContentHeight,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
+            padding: const EdgeInsets.fromLTRB(8, 3, 12, 3),
             child: Row(
               children: [
                 // Дерево — корень своей вкладки: возвращаться отсюда некуда,
@@ -1177,7 +1177,7 @@ class _TreeViewScreenState extends State<TreeViewScreen>
                     _isFriendsTree ? 'Круг' : 'Дерево',
                     style: AppTheme.serif(
                       color: tokens.ink,
-                      fontSize: 22,
+                      fontSize: AppTheme.tabTitleFontSize,
                       fontWeight: FontWeight.w600,
                       letterSpacing: -0.22,
                     ),
