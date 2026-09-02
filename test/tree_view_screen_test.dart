@@ -520,6 +520,47 @@ void main() {
     await getIt.reset();
   });
 
+  testWidgets('без единого дерева вкладка зовёт создать семью прямо здесь',
+      (tester) async {
+    final familyService = _FakeFamilyTreeService();
+    getIt.registerSingleton<FamilyTreeServiceInterface>(familyService);
+    // Новичок: ничего не выбрано и выбирать нечего.
+    final treeProvider = TreeProvider();
+    expect(treeProvider.availableTrees, isEmpty);
+
+    final router = GoRouter(
+      initialLocation: '/tree',
+      routes: [
+        GoRoute(
+          path: '/tree',
+          builder: (context, state) => const TreeViewScreen(),
+        ),
+        GoRoute(
+          path: '/trees/create',
+          builder: (context, state) =>
+              Text('create:${state.uri.queryParameters['kind'] ?? 'family'}'),
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<TreeProvider>.value(
+        value: treeProvider,
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Здесь будет ваше дерево'), findsOneWidget);
+    expect(find.text('Выберите дерево'), findsNothing,
+        reason: 'селектор без деревьев — тупик, не предлагаем');
+    expect(find.byKey(const Key('tree-empty-create-friends')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('tree-empty-create-family')));
+    await tester.pumpAndSettle();
+    expect(find.text('create:family'), findsOneWidget);
+  });
+
   testWidgets('явный routeTreeId обновляет выбранное дерево в TreeProvider',
       (tester) async {
     final familyService = _FakeFamilyTreeService();

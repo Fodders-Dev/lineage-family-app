@@ -960,6 +960,12 @@ class _TreeViewScreenState extends State<TreeViewScreen>
             : RodnyaDesignTokens.light);
 
     if (selectedTreeId == null) {
+      // Дерево — ядро продукта, и это первый экран новичка без дерева:
+      // «Выберите дерево / Открыть» отправлял его в селектор искать то,
+      // чего ещё нет. Без деревьев зовём создать прямо здесь (create-экран
+      // сам выбирает новое дерево и возвращает на вкладку); селектор
+      // предлагаем только тем, кому есть из чего выбирать.
+      final hasTrees = treeProvider.availableTrees.isNotEmpty;
       return Scaffold(
         backgroundColor: Colors.transparent,
         appBar: PreferredSize(
@@ -972,15 +978,33 @@ class _TreeViewScreenState extends State<TreeViewScreen>
         ),
         body: _buildTreeState(
           icon: Icons.account_tree_outlined,
-          title: 'Выберите дерево',
-          message: 'Здесь появится схема семьи.',
-          actions: [
-            FilledButton.icon(
-              onPressed: () => context.go('/trees'),
-              icon: const Icon(Icons.list_alt),
-              label: const Text('Открыть'),
-            ),
-          ],
+          title: hasTrees ? 'Выберите дерево' : 'Здесь будет ваше дерево',
+          message: hasTrees
+              ? 'Откройте одно из ваших деревьев.'
+              : 'Добавьте себя и близких — схема семьи вырастет сама.',
+          actions: hasTrees
+              ? [
+                  FilledButton.icon(
+                    onPressed: () => context.go('/trees'),
+                    icon: const Icon(Icons.list_alt),
+                    label: const Text('Выбрать дерево'),
+                  ),
+                ]
+              : [
+                  FilledButton.icon(
+                    key: const Key('tree-empty-create-family'),
+                    onPressed: () => context.push('/trees/create'),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Создать семью'),
+                  ),
+                  OutlinedButton.icon(
+                    key: const Key('tree-empty-create-friends'),
+                    onPressed: () =>
+                        context.push('/trees/create?kind=friends'),
+                    icon: const Icon(Icons.diversity_3_outlined),
+                    label: const Text('Круг друзей'),
+                  ),
+                ],
         ),
       );
     }
