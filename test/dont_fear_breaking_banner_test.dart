@@ -16,8 +16,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('dont-fear-breaking-banner')), findsOneWidget);
-    expect(find.text('Не бойся сломать'), findsOneWidget);
-    expect(find.text('Каждое действие можно отменить.'), findsOneWidget);
+    expect(
+      find.text('Не бойся сломать — каждое действие можно отменить.'),
+      findsOneWidget,
+    );
 
     await tester.tap(
       find.byKey(const Key('dont-fear-breaking-banner-dismiss')),

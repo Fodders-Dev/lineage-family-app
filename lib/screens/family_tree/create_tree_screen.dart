@@ -262,14 +262,16 @@ class _CreateTreeScreenState extends State<CreateTreeScreen> {
                 'С чего начнём?',
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
+              // Плотность (02.09.2026): по одной строке на объяснение —
+              // экран был стеной текста до первого поля ввода.
               Text(
                 _treeKind == TreeKind.friends
-                    ? 'Введите название круга друзей — потом сможете добавлять и связывать людей.'
-                    : 'Введите название ветки — потом сможете добавлять родственников. У каждой ветки своя лента, истории и события.',
+                    ? 'Назовите круг — людей добавите потом.'
+                    : 'Назовите ветку — родных добавите потом.',
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               SegmentedButton<TreeKind>(
                 segments: const [
                   ButtonSegment<TreeKind>(
@@ -305,14 +307,14 @@ class _CreateTreeScreenState extends State<CreateTreeScreen> {
                   });
                 },
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Text(
                 _treeKind == TreeKind.friends
-                    ? 'Режим друзей подходит для близкого круга, друзей, коллег и выбранной семьи. Узлы удобнее раскладывать вручную.'
-                    : 'Режим семьи лучше подходит для родственных связей и поколений. Ветка — это срез вашего общего графа: «Кровная родня», «Семья жены», «Папина линия» — и у каждой свои истории, посты и события.',
+                    ? 'Близкий круг без родственных связей — раскладка вручную.'
+                    : 'Ветка — срез общего дерева: «Кровная родня», «Семья жены», «Папина линия».',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 12),
               // Pre-cooked template chips. Tap one and the name +
               // description fields below get prefilled with a
               // sensible default — the user can edit either, the
@@ -608,7 +610,7 @@ class _MaxHopsSlider extends StatelessWidget {
           onChanged: (next) => onChanged(next.round()),
         ),
         Text(
-          '«Колено» — это шаг родства: родитель/ребёнок, дед/внук, прадед/правнук.',
+          'Колено — шаг родства: родитель → ребёнок.',
           style: Theme.of(context).textTheme.bodySmall,
         ),
       ],

@@ -60,51 +60,40 @@ class _DontFearBreakingBannerState extends State<DontFearBreakingBanner> {
     final tokens = theme.extension<RodnyaDesignTokens>() ??
         (isDark ? RodnyaDesignTokens.dark : RodnyaDesignTokens.light);
 
+    // Плотность (02.09.2026): одна строка вместо заголовка + подзаголовка —
+    // ~40dp вместо ~90 на главном экране продукта; смысл тот же, показ до
+    // первого закрытия — тот же.
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+      padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
       child: Material(
         key: const Key('dont-fear-breaking-banner'),
         color: tokens.surfaceStrong.withValues(alpha: isDark ? 0.92 : 0.96),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(tokens.radiusMd),
+          borderRadius: BorderRadius.circular(tokens.radiusSm),
           side: BorderSide(
             color: theme.colorScheme.primary.withValues(alpha: 0.45),
           ),
         ),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
+          padding: const EdgeInsets.fromLTRB(12, 4, 2, 4),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Icon(
-                  Icons.shield_outlined,
-                  size: 20,
-                  color: theme.colorScheme.primary,
-                ),
+              Icon(
+                Icons.shield_outlined,
+                size: 18,
+                color: theme.colorScheme.primary,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Не бойся сломать',
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: tokens.ink,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Каждое действие можно отменить.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: tokens.inkSecondary,
-                        height: 1.35,
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  'Не бойся сломать — каждое действие можно отменить.',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: tokens.ink,
+                    fontWeight: FontWeight.w600,
+                    height: 1.25,
+                  ),
                 ),
               ),
               IconButton(

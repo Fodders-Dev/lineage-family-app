@@ -1156,12 +1156,19 @@ class ProfileCompletionMeterCard extends StatelessWidget {
             ? RodnyaDesignTokens.dark
             : RodnyaDesignTokens.light);
     final clamped = percent.clamp(0.0, 100.0);
+    // Заполненный профиль подсказок не требует — плитке нечего показывать.
+    if (clamped >= 100 && suggestions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    // Плотность (02.09.2026): поля 14/12 → 12/8, чипы — одной прокручиваемой
+    // строкой вместо Wrap на 2–3 ряда: плитка ~90 → ~70dp и не растёт с
+    // числом подсказок.
     return Container(
-      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       decoration: BoxDecoration(
         color: tokens.surfaceStrong,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: tokens.surfaceLine),
       ),
       child: Column(
@@ -1191,7 +1198,7 @@ class ProfileCompletionMeterCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           ClipRRect(
             borderRadius: BorderRadius.circular(999),
             child: LayoutBuilder(builder: (ctx, c) {
@@ -1217,13 +1224,15 @@ class ProfileCompletionMeterCard extends StatelessWidget {
             }),
           ),
           if (suggestions.isNotEmpty) ...[
-            const SizedBox(height: 9),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
+            const SizedBox(height: 6),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
               children: suggestions
                   .map(
-                    (s) => GestureDetector(
+                    (s) => Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: GestureDetector(
                       onTap: s.onTap,
                       child: Container(
                         padding:
@@ -1246,8 +1255,10 @@ class ProfileCompletionMeterCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                    ),
                   )
                   .toList(),
+              ),
             ),
           ],
         ],
