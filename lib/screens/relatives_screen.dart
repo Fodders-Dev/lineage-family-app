@@ -1365,7 +1365,7 @@ class _RelativesScreenState extends State<RelativesScreen> {
       child: ListView.builder(
         key: key,
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.only(top: 4, bottom: 12),
+        padding: const EdgeInsets.only(top: 2, bottom: 12),
         itemCount: flatList.length,
         itemBuilder: (context, index) {
           final item = flatList[index];
@@ -1465,18 +1465,24 @@ class _RelativesScreenState extends State<RelativesScreen> {
                 buildAvatarImageProvider(relative.primaryPhotoUrl);
 
             final theme = Theme.of(context);
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surface.withValues(alpha: 0.72),
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
+            // Плотность (02.09.2026): строка списка — не карточка. Рамка,
+            // скругление 24 и вертикальные поля давали ~100dp на человека;
+            // плоская строка с волосяным разделителем — как в списке чатов
+            // и в Telegram — вмещает в полтора раза больше родных на экран.
+            return DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
                     color: theme.colorScheme.outlineVariant
-                        .withValues(alpha: 0.20),
+                        .withValues(alpha: 0.35),
+                    width: 0.6,
                   ),
                 ),
+              ),
+              child: Padding(
+                padding: EdgeInsets.zero,
                 child: ListTile(
+                  visualDensity: const VisualDensity(vertical: -1),
                   leading: MouseRegion(
                     cursor: SystemMouseCursors.click,
                     child: GestureDetector(
@@ -1492,11 +1498,11 @@ class _RelativesScreenState extends State<RelativesScreen> {
                         );
                       },
                       child: CircleAvatar(
-                        radius: 25,
+                        radius: 22,
                         backgroundImage: avatarImage,
                         child: avatarImage == null
                             ? Text(relative.initials,
-                                style: TextStyle(fontSize: 18))
+                                style: TextStyle(fontSize: 16))
                             : null,
                       ),
                     ),
@@ -1555,13 +1561,9 @@ class _RelativesScreenState extends State<RelativesScreen> {
                                   color:
                                       Theme.of(context).colorScheme.secondary,
                                 ),
-                              if (relative.primaryPhotoUrl != null)
-                                _buildRelativeInfoChip(
-                                  context,
-                                  icon: Icons.star_outline,
-                                  label: 'Основное фото',
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
+                              // Чип «Основное фото» убран: наличие фото и так
+                              // видно по аватару, а чип добавлял третью
+                              // строку каждому человеку с фотографией.
                             ],
                           ),
                         ),
@@ -1714,11 +1716,10 @@ class _RelativesScreenState extends State<RelativesScreen> {
                   },
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 14,
-                    vertical: 8,
+                    vertical: 4,
                   ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(24),
-                  ),
+                  // Плоская строка: ink без скругления, как у чатов.
+                  shape: const RoundedRectangleBorder(),
                 ),
               ),
             );

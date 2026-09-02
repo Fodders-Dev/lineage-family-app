@@ -1012,7 +1012,10 @@ class _TreeViewScreenState extends State<TreeViewScreen>
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(76),
+        // Тот же токен, что у пустого состояния выше: хардкод 76 резервировал
+        // меньше, чем занимает SafeArea + topbarContentHeight, и на телефонах
+        // с высоким статус-баром сжимал заголовок и пилюли.
+        preferredSize: Size.fromHeight(AppTheme.topbarHeight(context)),
         child: _buildTreeTopbar(
           theme: theme,
           tokens: tokens,
