@@ -56,9 +56,14 @@ paths:
   (TURN/TLS), 30000-40000/udp (релей TURN) — новый порт наружу требует
   `ufw allow`. env бэкенда — `/etc/rodnya-backend.env` (флаги читаются на
   старте — смена требует restart).
-- Старый сервер временно (до расхождения DNS) проксирует rodnya-tree.ru/
-  api./livekit./turn. на новый — прокси-блоки и проброс
-  `/.well-known/acme-challenge/*` в его Caddyfile снять через день-два. На
-  старом сервере остаётся VPN-стек (awg0/awg1/remnawave/xray/sing-box) — к
-  Родне отношения не имеет, не трогать. В DNS-зоне не трогать почтовые записи
-  Unisender (`_dmarc`, NS/SPF/DKIM); `wl.rodnya-tree.ru` — мёртвая запись.
+- Старый сервер (77.67.89.164, `ssh rodnya-vps`) от Родни отчищен 02.09.2026:
+  прокси-блоки rodnya-tree.ru/api./livekit./turn. и проброс acme-challenge
+  из его Caddyfile сняты (бэкап
+  `/etc/caddy/Caddyfile.bak-2026-09-02-pre-rodnya-cleanup`), юниты
+  rodnya-backend/rodnya-web-static/rodnya-livekit/rodnya-backup.timer —
+  `disable --now` (файлы юнитов, `/etc/rodnya-backend.env`, старая БД
+  Postgres 14 и MinIO оставлены как есть — данные не удалялись). Там же
+  остаётся VPN-стек (awg0/awg1/remnawave/xray/sing-box) и прокси RadioAtlas —
+  к Родне отношения не имеют, не трогать. В DNS-зоне не трогать почтовые
+  записи Unisender (`_dmarc`, NS/SPF/DKIM); `wl.rodnya-tree.ru` — мёртвая
+  запись.
