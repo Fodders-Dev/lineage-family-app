@@ -2409,20 +2409,18 @@ test("delete account cascades owned state and local media cleanup", async () => 
     const peerHeaders = {authorization: `Bearer ${peer.accessToken}`};
 
     async function uploadMedia(bucket, relativePath) {
-      const uploadResponse = await fetch(`${ctx.baseUrl}/v1/media/upload`, {
-        method: "POST",
-        headers: {
-          ...ownerHeaders,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          bucket,
-          path: relativePath,
-          fileBase64:
+      const uploadResponse = await fetch(
+        `${ctx.baseUrl}/v1/media/object?bucket=${encodeURIComponent(bucket)}` +
+          `&path=${encodeURIComponent(relativePath)}`,
+        {
+          method: "PUT",
+          headers: {...ownerHeaders, "content-type": "image/png"},
+          body: Buffer.from(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0uoAAAAASUVORK5CYII=",
-          contentType: "image/png",
-        }),
-      });
+            "base64",
+          ),
+        },
+      );
       assert.equal(uploadResponse.status, 201);
       return uploadResponse.json();
     }
@@ -4629,19 +4627,15 @@ test("profile notes and media endpoints work for authenticated user", async () =
     const updatedNotePayload = await updateNoteResponse.json();
     assert.equal(updatedNotePayload.note.title, "Обновлённая история");
 
-    const uploadResponse = await fetch(`${ctx.baseUrl}/v1/media/upload`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${token}`,
-        "content-type": "application/json",
+    const uploadResponse = await fetch(
+      `${ctx.baseUrl}/v1/media/object?bucket=avatars` +
+        `&path=${encodeURIComponent(`${userId}/avatar.txt`)}`,
+      {
+        method: "PUT",
+        headers: {authorization: `Bearer ${token}`, "content-type": "text/plain"},
+        body: Buffer.from("avatar"),
       },
-      body: JSON.stringify({
-        bucket: "avatars",
-        path: `${userId}/avatar.txt`,
-        contentType: "text/plain",
-        fileBase64: Buffer.from("avatar").toString("base64"),
-      }),
-    });
+    );
     assert.equal(uploadResponse.status, 201);
     const uploadedMedia = await uploadResponse.json();
     assert.match(uploadedMedia.url, /\/media\/avatars\//);

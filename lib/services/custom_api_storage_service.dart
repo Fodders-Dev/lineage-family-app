@@ -17,17 +17,14 @@ class CustomApiStorageService implements StorageServiceInterface {
     required CustomApiAuthService authService,
     required BackendRuntimeConfig runtimeConfig,
     http.Client? httpClient,
-    DateTime Function()? nowProvider,
   })  : _authService = authService,
         _runtimeConfig = runtimeConfig,
-        _httpClient = httpClient ?? http.Client(),
-        _now = nowProvider ?? DateTime.now;
+        _httpClient = httpClient ?? http.Client();
 
   final CustomApiAuthService _authService;
   final BackendRuntimeConfig _runtimeConfig;
   final http.Client _httpClient;
   final Uuid _uuid = const Uuid();
-  final DateTime Function() _now;
 
   @override
   Future<String?> uploadImage(XFile imageFile, String folder) async {
@@ -115,14 +112,6 @@ class CustomApiStorageService implements StorageServiceInterface {
   /// тело — мгновенная локальная ошибка ощутимо честнее.
   static const int _maxUploadBytes = 64 * 1024 * 1024;
 
-  /// Бэкенд ещё не умеет бинарный PUT (404/405 от старого прод-бэка в
-  /// первые минуты выкатки веба) — придерживаем бинарные попытки, но НЕ
-  /// навсегда: файлы 37.5–50 МБ через base64 структурно не проходят
-  /// (потолок тела 50 МБ у бэка), поэтому вечное залипание на фолбэке
-  /// хоронило бы большие видео даже после рестарта бэка.
-  DateTime? _binaryUploadRetryAt;
-  static const Duration _binaryUploadRetryAfter = Duration(minutes: 10);
-
   @override
   Future<String?> uploadBytes({
     required String bucket,
@@ -140,39 +129,28 @@ class CustomApiStorageService implements StorageServiceInterface {
     // Бинарный путь: тело = сами байты. Против base64-JSON экономит +33%
     // трафика и двойную память (мегабайтная строка + её парсинг на бэке),
     // а видео перестают упираться в потолок express.json(50mb).
-    final retryAt = _binaryUploadRetryAt;
-    if (retryAt == null || !_now().isBefore(retryAt)) {
-      final uri = _buildUri(
-        '/v1/media/object'
-        '?bucket=${Uri.encodeQueryComponent(bucket)}'
-        '&path=${Uri.encodeQueryComponent(path)}',
-      );
-      final response = await _httpClient.put(
-        uri,
-        headers: _binaryHeaders(fileOptions?.contentType),
-        body: fileBytes,
-      );
-      if (response.statusCode == 404 || response.statusCode == 405) {
-        _binaryUploadRetryAt = _now().add(_binaryUploadRetryAfter);
-      } else {
-        final payload = _decodeJsonResponse(response);
-        return UrlUtils.normalizeImageUrl(payload['url']?.toString());
-      }
-    }
-
-    // Легаси-путь для бэка без PUT /v1/media/object.
-    final response = await _requestJson(
-      method: 'POST',
-      path: '/v1/media/upload',
-      body: {
-        'bucket': bucket,
-        'path': path,
-        'contentType': fileOptions?.contentType,
-        'fileBase64': base64Encode(fileBytes),
-      },
+    // Фолбэка на base64 больше нет: бэкенд закрыл его 410 (02.09.2026), а
+    // единственный бэк без PUT /v1/media/object ушёл вместе со старым
+    // сервером. 404/405 здесь = сломанный/чужой бэкенд, и честнее сказать
+    // это сразу, чем молча слать мегабайтный base64 в никуда.
+    final uri = _buildUri(
+      '/v1/media/object'
+      '?bucket=${Uri.encodeQueryComponent(bucket)}'
+      '&path=${Uri.encodeQueryComponent(path)}',
     );
-
-    return UrlUtils.normalizeImageUrl(response['url']?.toString());
+    final response = await _httpClient.put(
+      uri,
+      headers: _binaryHeaders(fileOptions?.contentType),
+      body: fileBytes,
+    );
+    if (response.statusCode == 404 || response.statusCode == 405) {
+      throw CustomApiStorageException(
+        'Сервер не принимает загрузку файлов. Обновите приложение.',
+        statusCode: response.statusCode,
+      );
+    }
+    final payload = _decodeJsonResponse(response);
+    return UrlUtils.normalizeImageUrl(payload['url']?.toString());
   }
 
   Map<String, String> _binaryHeaders(String? contentType) {
@@ -185,29 +163,6 @@ class CustomApiStorageService implements StorageServiceInterface {
       'Accept': 'application/json',
       'Authorization': 'Bearer $token',
     };
-  }
-
-  Future<Map<String, dynamic>> _requestJson({
-    required String method,
-    required String path,
-    Map<String, dynamic>? body,
-  }) async {
-    final uri = _buildUri(path);
-    late http.Response response;
-
-    switch (method) {
-      case 'POST':
-        response = await _httpClient.post(
-          uri,
-          headers: _headers(),
-          body: jsonEncode(body ?? const {}),
-        );
-        break;
-      default:
-        throw const CustomApiStorageException('Неподдерживаемый HTTP-метод');
-    }
-
-    return _decodeJsonResponse(response);
   }
 
   Map<String, dynamic> _decodeJsonResponse(http.Response response) {

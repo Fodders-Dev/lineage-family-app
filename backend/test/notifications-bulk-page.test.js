@@ -160,36 +160,31 @@ test("read-all: один запрос гасит всё, идемпотенте�
   }
 });
 
-test("легаси base64-загрузка: повтор пути → 409, файл не перезаписан", async () => {
+test("легаси base64-загрузка закрыта: 410, файл не создаётся", async () => {
   const ctx = await startTestServer();
   try {
-    const owner = await makeUser(ctx.baseUrl, "legacy409@rodnya.app");
-    const headers = {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${owner.token}`,
-    };
-    const upload = (payload) =>
-      fetch(`${ctx.baseUrl}/v1/media/upload`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          bucket: "posts",
-          path: "legacy/fixed.bin",
-          contentType: "application/octet-stream",
-          fileBase64: Buffer.from(payload, "utf8").toString("base64"),
-        }),
-      });
-
-    const first = await upload("оригинал");
-    assert.equal(first.status, 201);
-    const second = await upload("подмена");
-    assert.equal(second.status, 409);
-
-    const saved = await fs.readFile(
-      path.join(ctx.tempDir, "uploads", "posts", "legacy", "fixed.bin"),
-      "utf8",
+    const owner = await makeUser(ctx.baseUrl, "legacy410@rodnya.app");
+    const res = await fetch(`${ctx.baseUrl}/v1/media/upload`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${owner.token}`,
+      },
+      body: JSON.stringify({
+        bucket: "posts",
+        path: "legacy/fixed.bin",
+        contentType: "application/octet-stream",
+        fileBase64: Buffer.from("оригинал", "utf8").toString("base64"),
+      }),
+    });
+    assert.equal(res.status, 410);
+    const body = await res.json();
+    assert.equal(body.code, "MEDIA_UPLOAD_LEGACY_SUNSET");
+    assert.match(body.message, /обновите приложение/i);
+    await assert.rejects(
+      fs.access(path.join(ctx.tempDir, "uploads", "posts", "legacy", "fixed.bin")),
+      "410 не должен ничего записывать на диск",
     );
-    assert.equal(saved, "оригинал");
   } finally {
     await shutdown(ctx);
   }

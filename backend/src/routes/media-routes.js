@@ -42,7 +42,7 @@ function registerPublicMediaRoutes(app, {mediaStorage}) {
 // Экономит +33% трафика и двойную память (JSON-строка + Buffer) на КАЖДОМ
 // фото/видео и снимает потолок express.json(50mb) с видео. Метаданные — в
 // query (bucket/path) и Content-Type. Старый POST /v1/media/upload с
-// fileBase64 остаётся: его шлют клиенты до этого OTA.
+// fileBase64 закрыт 02.09.2026 (410, см. ниже).
 const MAX_BINARY_UPLOAD_BYTES = 64 * 1024 * 1024;
 
 // До этого объёма хвост недочитанного тела дренируется, чтобы ошибка
@@ -147,60 +147,19 @@ function registerAuthenticatedMediaRoutes(app, {mediaStorage, requireAuth}) {
     }
   });
 
-  app.post("/v1/media/upload", requireAuth, async (req, res) => {
-    const {bucket, path: mediaPath, fileBase64, contentType} = req.body || {};
-
-    if (!bucket || !mediaPath || !fileBase64) {
-      res.status(400).json({
-        message: "Нужны bucket, path и fileBase64",
-      });
-      return;
-    }
-
-    try {
-      const fileBuffer = Buffer.from(String(fileBase64), "base64");
-      if (fileBuffer.length === 0) {
-        res.status(400).json({message: "Пустой fileBase64 payload"});
-        return;
-      }
-
-      // Sunset-телеметрия: по этому логу видно, когда волна OTA дообновит
-      // клиентов (1.0.29+ шлют бинарный PUT) и легаси-путь можно закрывать.
-      console.log(
-        "[legacy-media-upload]",
-        JSON.stringify({
-          userId: req.auth?.user?.id || null,
-          bucket: String(bucket),
-          bytes: fileBuffer.length,
-        }),
-      );
-      // Тот же гейт от перезаписи чужого файла, что у бинарного пути:
-      // пути легитимных клиентов уникальны (uuid/timestamp), повтор
-      // имени = чья-то попытка подменить файл по известному URL.
-      if (
-        typeof mediaStorage.objectExists === "function" &&
-        (await mediaStorage.objectExists(bucket, mediaPath))
-      ) {
-        res.status(409).json({message: "Файл уже существует"});
-        return;
-      }
-
-      const uploadResult = await mediaStorage.saveObject({
-        req,
-        bucket,
-        relativePath: mediaPath,
-        contentType,
-        fileBuffer,
-      });
-
-      res.status(201).json(uploadResult);
-    } catch (error) {
-      if (error.message === "INVALID_MEDIA_PATH") {
-        res.status(400).json({message: "Недопустимый media path"});
-        return;
-      }
-      res.status(500).json({message: "Не удалось сохранить файл"});
-    }
+  // Sunset (02.09.2026): base64-JSON путь закрыт. Клиенты 1.0.29+ шлют
+  // бинарный PUT /v1/media/object; за трое суток до закрытия по телеметрии
+  // [legacy-media-upload] не было ни одной легаси-загрузки. Отвечаем 410 с
+  // человеческим текстом, а не 404: древний клиент должен понять, что
+  // делать, а не считать сервер сломанным. Тело не парсим — 50 МБ base64
+  // ради отказа читать незачем (express.json уже прочитал, но хотя бы не
+  // декодируем).
+  app.post("/v1/media/upload", requireAuth, (req, res) => {
+    res.status(410).json({
+      code: "MEDIA_UPLOAD_LEGACY_SUNSET",
+      message:
+        "Этот способ загрузки больше не поддерживается — обновите приложение.",
+    });
   });
 
   app.delete("/v1/media", requireAuth, async (req, res) => {

@@ -1,6 +1,6 @@
 // Бинарная загрузка медиа: uploadBytes шлёт сами байты (PUT
-// /v1/media/object), а на бэк без этого роута (404/405) откатывается на
-// легаси base64-JSON и запоминает это на сессию.
+// /v1/media/object). Фолбэка на base64 нет с 02.09.2026 — бэк без этого
+// роута = ошибка пользователю, а не тихий base64-JSON.
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -24,9 +24,8 @@ void main() {
   /// Общая обвязка: настоящий auth-сервис логинится через тот же MockClient
   /// (storage-сервис требует конкретный CustomApiAuthService ради токена).
   Future<CustomApiStorageService> buildService(
-    Future<http.Response> Function(http.Request request) onMediaRequest, {
-    DateTime Function()? nowProvider,
-  }) async {
+    Future<http.Response> Function(http.Request request) onMediaRequest,
+  ) async {
     final client = MockClient((request) async {
       if (request.url.path == '/v1/auth/login') {
         return http.Response(
@@ -64,7 +63,6 @@ void main() {
       authService: authService,
       runtimeConfig: runtimeConfig,
       httpClient: client,
-      nowProvider: nowProvider,
     );
   }
 
@@ -97,73 +95,21 @@ void main() {
         reason: 'никакого base64 — байты уходят как есть');
   });
 
-  test('404 от старого бэка → фолбэк на base64-JSON, дальше без повторных PUT',
-      () async {
+  test('404/405 от бэка → понятная ошибка, base64 не шлётся', () async {
     final mediaCalls = <String>[];
     final service = await buildService((request) async {
       mediaCalls.add('${request.method} ${request.url.path}');
-      if (request.url.path == '/v1/media/object') {
-        return http.Response('Not found', 404);
-      }
-      final body = jsonDecode(request.body) as Map<String, dynamic>;
-      expect(base64Decode(body['fileBase64'] as String), bytes);
-      return http.Response(
-        jsonEncode({'url': 'https://api.rodnya-tree.ru/media/posts/b.jpg'}),
-        201,
-      );
+      return http.Response('Not found', 404);
     });
 
-    final first = await service.uploadBytes(
-      bucket: 'posts',
-      path: 'b.jpg',
-      fileBytes: bytes,
+    await expectLater(
+      service.uploadBytes(bucket: 'posts', path: 'b.jpg', fileBytes: bytes),
+      throwsA(isA<CustomApiStorageException>()
+          .having((e) => e.statusCode, 'statusCode', 404)
+          .having((e) => e.message, 'message', contains('Обновите'))),
     );
-    final second = await service.uploadBytes(
-      bucket: 'posts',
-      path: 'c.jpg',
-      fileBytes: bytes,
-    );
-
-    expect(first, isNotNull);
-    expect(second, isNotNull);
-    expect(mediaCalls, [
-      'PUT /v1/media/object',
-      'POST /v1/media/upload',
-      'POST /v1/media/upload',
-    ], reason: 'после 404 бинарный путь придерживается (TTL), фолбэк сразу');
-  });
-
-  test('придержка после 404 отпускает через TTL: большие видео не хоронятся '
-      'на base64-пути навсегда', () async {
-    var now = DateTime(2026, 8, 29, 3, 0);
-    final mediaCalls = <String>[];
-    var binaryAvailable = false;
-    final service = await buildService(
-      (request) async {
-        mediaCalls.add('${request.method} ${request.url.path}');
-        if (request.url.path == '/v1/media/object' && !binaryAvailable) {
-          return http.Response('Not found', 404);
-        }
-        return http.Response(
-          jsonEncode({'url': 'https://api.rodnya-tree.ru/media/posts/x.jpg'}),
-          201,
-        );
-      },
-      nowProvider: () => now,
-    );
-
-    await service.uploadBytes(bucket: 'posts', path: 'a.jpg', fileBytes: bytes);
-    // Бэк перезапустился с новым роутом, TTL прошёл — бинарный путь снова
-    // в деле (без этого файлы 37.5–50 МБ не прошли бы вообще).
-    binaryAvailable = true;
-    now = now.add(const Duration(minutes: 11));
-    await service.uploadBytes(bucket: 'posts', path: 'b.jpg', fileBytes: bytes);
-
-    expect(mediaCalls, [
-      'PUT /v1/media/object',
-      'POST /v1/media/upload',
-      'PUT /v1/media/object',
-    ]);
+    expect(mediaCalls, ['PUT /v1/media/object'],
+        reason: 'легаси POST /v1/media/upload закрыт — вторых попыток нет');
   });
 
   test('файл больше 64 МБ отклоняется локально, без отправки байтов',

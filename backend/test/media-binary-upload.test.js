@@ -1,6 +1,6 @@
 // Бинарная загрузка PUT /v1/media/object: тело = байты файла, метаданные в
-// query и Content-Type. Легаси base64-путь POST /v1/media/upload обязан
-// работать как раньше (его шлют клиенты до OTA).
+// query и Content-Type. Легаси base64-путь POST /v1/media/upload закрыт
+// 02.09.2026: отвечает 410 и ничего не пишет.
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -142,7 +142,7 @@ test("PUT /v1/media/object: валидация и авторизация", async
   }
 });
 
-test("легаси base64-путь работает как раньше", async () => {
+test("легаси base64-путь закрыт: 410 с кодом, файл не создаётся", async () => {
   const ctx = await startTestServer();
   try {
     const {token} = await makeUser(ctx.baseUrl);
@@ -160,16 +160,15 @@ test("легаси base64-путь работает как раньше", async 
         fileBase64: payload.toString("base64"),
       }),
     });
-    assert.equal(res.status, 201);
-    const saved = await fs.readFile(
-      path.join(ctx.tempDir, "uploads", "posts", "legacy", "file.bin"),
+    assert.equal(res.status, 410);
+    assert.equal((await res.json()).code, "MEDIA_UPLOAD_LEGACY_SUNSET");
+    await assert.rejects(
+      fs.access(path.join(ctx.tempDir, "uploads", "posts", "legacy", "file.bin")),
     );
-    assert.deepEqual(saved, payload);
   } finally {
     await shutdown(ctx);
   }
 });
-
 test("413 ДОСТАВЛЯЕТСЯ клиенту: заявленный размер сверх потолка не рвёт сокет", async () => {
   const ctx = await startTestServer();
   try {
