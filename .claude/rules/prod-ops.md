@@ -56,14 +56,17 @@ paths:
   (TURN/TLS), 30000-40000/udp (релей TURN) — новый порт наружу требует
   `ufw allow`. env бэкенда — `/etc/rodnya-backend.env` (флаги читаются на
   старте — смена требует restart).
-- Старый сервер (77.67.89.164, `ssh rodnya-vps`) от Родни отчищен 02.09.2026:
-  прокси-блоки rodnya-tree.ru/api./livekit./turn. и проброс acme-challenge
-  из его Caddyfile сняты (бэкап
-  `/etc/caddy/Caddyfile.bak-2026-09-02-pre-rodnya-cleanup`), юниты
-  rodnya-backend/rodnya-web-static/rodnya-livekit/rodnya-backup.timer —
-  `disable --now` (файлы юнитов, `/etc/rodnya-backend.env`, старая БД
-  Postgres 14 и MinIO оставлены как есть — данные не удалялись). Там же
-  остаётся VPN-стек (awg0/awg1/remnawave/xray/sing-box) и прокси RadioAtlas —
-  к Родне отношения не имеют, не трогать. В DNS-зоне не трогать почтовые
-  записи Unisender (`_dmarc`, NS/SPF/DKIM); `wl.rodnya-tree.ru` — мёртвая
-  запись.
+- Старый сервер (77.67.89.164, `ssh rodnya-vps`) от Родни выведен полностью
+  (02–03.09.2026): Caddy-блоки rodnya-tree.ru/api./livekit./turn. сняты
+  (бэкап `/etc/caddy/Caddyfile.bak-2026-09-02-pre-rodnya-cleanup`), юниты
+  rodnya-backend/rodnya-web-static/rodnya-livekit/rodnya-backup.timer,
+  postgresql@14-main и minio — `disable --now`. Перед этим полнота переноса
+  доказана пообъектно (все id блоба, сообщения по id, чат-таблицы по хэшу
+  строк, 211 медиа-файлов по пути и размеру — старое ⊆ новое), а финальный
+  архив старого сервера лежит на новом:
+  `/var/backups/rodnya/old-server-final-20260903/` (свежий pg_dump,
+  `/var/lib/minio/data`, env, последний ночной дамп). Файлы на старом не
+  удалялись — сервер сотрётся с концом аренды. Там остаётся VPN-стек
+  (awg0/awg1/remnawave/xray/sing-box) и прокси RadioAtlas — не трогать.
+  В DNS-зоне не трогать почтовые записи Unisender (`_dmarc`, NS/SPF/DKIM);
+  `wl.rodnya-tree.ru` — мёртвая запись.
