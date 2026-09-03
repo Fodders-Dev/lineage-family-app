@@ -245,6 +245,11 @@ class PostgresStore extends FileStore {
     this._chatRowMutationQueue = Promise.resolve();
     this._initializePromise = null;
     this._cachedState = null;
+    // SPEED-8a: version строки rodnya_state, которой соответствует
+    // _cachedState. null = кэш не подтверждён (после буста из sidecar,
+    // после fallback'а, после fake-pool без version) → _read идёт в БД.
+    this._cachedVersion = null;
+    this._loadedSnapshotVersion = null;
     this._snapshotLoadPromise = null;
     this.storageMode = "postgres";
     this.storageTarget = `${this._schema}.${this._table}:${this._rowId}`;
@@ -301,6 +306,26 @@ class PostgresStore extends FileStore {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
+    // SPEED-8a: монотонная версия строки. Инкрементится КАЖДЫМ писателем
+    // (UPSERT в _write и все точечные UPDATE ниже — статический тест в
+    // postgres-store.test.js это сторожит); _read() сверяет её с кэшем.
+    try {
+      await this._pool.query(`
+        ALTER TABLE ${this._qualifiedTableName}
+          ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0
+      `);
+    } catch (error) {
+      // Кэш — оптимизация: без колонки _selectStateVersion вернёт null и
+      // каждое чтение честно пойдёт в БД. Но молчать нельзя — это
+      // потеря ×10 на всех горячих путях.
+      console.warn(
+        "[backend] postgres-store version column unavailable — read cache disabled",
+        JSON.stringify({
+          table: `${this._schema}.${this._table}`,
+          message: String(error?.message || error || "unknown_error").slice(0, 200),
+        }),
+      );
+    }
     await this._pool.query(
       `
         INSERT INTO ${this._qualifiedTableName} (id, data)
@@ -793,7 +818,8 @@ class PostgresStore extends FileStore {
       await this._pool.query(
         `UPDATE ${this._qualifiedTableName}
             SET data = $2::jsonb,
-                updated_at = NOW()
+                updated_at = NOW(),
+                version = version + 1
           WHERE id = $1`,
         [this._rowId, JSON.stringify(nextState)],
       );
@@ -983,7 +1009,8 @@ class PostgresStore extends FileStore {
       await this._pool.query(
         `UPDATE ${this._qualifiedTableName}
             SET data = $2::jsonb,
-                updated_at = NOW()
+                updated_at = NOW(),
+                version = version + 1
           WHERE id = $1`,
         [this._rowId, JSON.stringify(nextState)],
       );
@@ -1113,7 +1140,8 @@ class PostgresStore extends FileStore {
       await this._pool.query(
         `UPDATE ${this._qualifiedTableName}
             SET data = $2::jsonb,
-                updated_at = NOW()
+                updated_at = NOW(),
+                version = version + 1
           WHERE id = $1`,
         [this._rowId, JSON.stringify(migration.snapshot)],
       );
@@ -1319,7 +1347,8 @@ class PostgresStore extends FileStore {
                 ),
                 true
               ),
-              updated_at = NOW()
+              updated_at = NOW(),
+              version = version + 1
         WHERE id = $1`,
       [this._rowId],
     );
@@ -1849,7 +1878,8 @@ class PostgresStore extends FileStore {
                   COALESCE(data->'personIdentities', '[]'::jsonb) || jsonb_build_array($4::jsonb),
                   true
                 ),
-                updated_at = NOW()
+                updated_at = NOW(),
+                version = version + 1
           WHERE id = $1
             AND EXISTS (
               SELECT 1
@@ -4489,6 +4519,21 @@ class PostgresStore extends FileStore {
 
     try {
       await this._awaitReadConsistency();
+      // SPEED-8a: если version строки совпала с версией кэша — мир не
+      // менялся, отдаём клон кэша (≈десятки мс вместо SELECT ~1 МБ +
+      // parse + graph-sync + sidecar). Сессии накладываем свежими: их
+      // проекционная таблица живёт отдельно от блоба.
+      const currentVersion = await this._selectStateVersion();
+      if (
+        currentVersion !== null &&
+        this._cachedState &&
+        this._cachedVersion === currentVersion
+      ) {
+        const cachedState = structuredClone(this._cachedState);
+        cachedState.sessions = await this._selectProjectedSessionsArray();
+        this._lastSessionsProjectionHash = computeProjectionHash(cachedState.sessions);
+        return cachedState;
+      }
       const normalizedState = await this._loadSnapshot();
       normalizedState.sessions = await this._selectProjectedSessionsArray();
       this._lastUsersProjectionHash = computeProjectionHash(normalizedState.users);
@@ -4506,6 +4551,7 @@ class PostgresStore extends FileStore {
       // when the graph already matches the legacy side.
       this._syncGraphFromLegacy(normalizedState);
       this._cachedState = structuredClone(normalizedState);
+      this._cachedVersion = this._loadedSnapshotVersion;
       await this._persistSnapshotCache(this._cachedState);
       return normalizedState;
     } catch (error) {
@@ -4547,15 +4593,20 @@ class PostgresStore extends FileStore {
       const nextUsersHash = computeProjectionHash(data?.users);
       const nextSessionsHash = computeProjectionHash(data?.sessions);
       const nextChatsHash = computeProjectionHash(data?.chats);
-      await this._pool.query(
+      const upsertResult = await this._pool.query(
         `
-          INSERT INTO ${this._qualifiedTableName} (id, data, updated_at)
-          VALUES ($1, $2::jsonb, NOW())
+          INSERT INTO ${this._qualifiedTableName} (id, data, updated_at, version)
+          VALUES ($1, $2::jsonb, NOW(), 1)
           ON CONFLICT (id) DO UPDATE
           SET data = EXCLUDED.data,
-              updated_at = NOW()
+              updated_at = NOW(),
+              version = ${this._qualifiedTableName}.version + 1
+          RETURNING version
         `,
         [this._rowId, JSON.stringify(data)],
+      );
+      const writtenVersion = PostgresStore._normalizeStateVersion(
+        upsertResult?.rows?.[0]?.version,
       );
       if (this._lastUsersProjectionHash !== nextUsersHash) {
         await this._replaceProjectedUsers(data.users);
@@ -4572,7 +4623,13 @@ class PostgresStore extends FileStore {
       } else {
         this._lastChatsProjectionHash = nextChatsHash;
       }
-      this._cachedState = normalizeDbState(data);
+      // Клон: `data` остаётся у вызывающего и может мутировать дальше —
+      // кэш, который теперь отдаётся на каждом чтении, обязан быть своим.
+      this._cachedState = structuredClone(normalizeDbState(data));
+      // Кэш = только что записанное состояние под его версией: следующее
+      // чтение после записи не перечитывает блоб. Без RETURNING (fake-pool)
+      // версия неизвестна → кэш не подтверждён → честное чтение.
+      this._cachedVersion = writtenVersion;
       await this._persistSnapshotCache(this._cachedState);
     });
   }
@@ -4583,12 +4640,49 @@ class PostgresStore extends FileStore {
     }
 
     this._snapshotLoadPromise = this._readSnapshotWithRetry()
-      .then((snapshot) => normalizeDbState(snapshot))
+      .then((row) => {
+        // Версия берётся из той же строки, что и данные, — кэш никогда
+        // не помечается версией, которой эти данные не соответствуют.
+        this._loadedSnapshotVersion = row.version;
+        return normalizeDbState(row.data);
+      })
       .finally(() => {
         this._snapshotLoadPromise = null;
       });
 
     return this._snapshotLoadPromise;
+  }
+
+  /// Строка снимка → {data, version}. version = null, если колонки нет
+  /// (fake-pool в тестах, БД до миграции) — тогда кэш просто не работает.
+  _snapshotRowFromResult(result) {
+    const row = result?.rows?.[0];
+    return {
+      data: row?.data ?? EMPTY_DB,
+      version: PostgresStore._normalizeStateVersion(row?.version),
+    };
+  }
+
+  static _normalizeStateVersion(raw) {
+    if (raw === null || raw === undefined) {
+      return null;
+    }
+    const numeric = Number(raw);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  /// Дешёвая проверка «мир изменился?»: только version, без блоба.
+  /// Любая ошибка → null → полное чтение (кэш никогда не маскирует БД).
+  async _selectStateVersion() {
+    try {
+      const result = await this._pool.query(
+        `SELECT version FROM ${this._qualifiedTableName} WHERE id = $1`,
+        [this._rowId],
+      );
+      return PostgresStore._normalizeStateVersion(result?.rows?.[0]?.version);
+    } catch (_) {
+      return null;
+    }
   }
 
   async _readSnapshotWithRetry() {
@@ -4611,12 +4705,12 @@ class PostgresStore extends FileStore {
   }
 
   async _readSnapshotFromDatabase() {
-    const queryText = `SELECT data FROM ${this._qualifiedTableName} WHERE id = $1`;
+    const queryText = `SELECT data, version FROM ${this._qualifiedTableName} WHERE id = $1`;
     const queryValues = [this._rowId];
 
     if (typeof this._pool.connect !== "function") {
       const result = await this._pool.query(queryText, queryValues);
-      return result.rows[0]?.data ?? EMPTY_DB;
+      return this._snapshotRowFromResult(result);
     }
 
     const client = await this._pool.connect();
@@ -4637,7 +4731,7 @@ class PostgresStore extends FileStore {
       if (this._readQueryTimeoutMs > 0) {
         await client.query("COMMIT");
       }
-      return result.rows[0]?.data ?? EMPTY_DB;
+      return this._snapshotRowFromResult(result);
     } catch (error) {
       if (this._readQueryTimeoutMs > 0) {
         try {

@@ -28,7 +28,7 @@ test("PostgresStore recovers from a failed write without poisoning the queue", a
   let writeAttempts = 0;
   const pool = {
     async query(sql, params = []) {
-      if (sql.includes("CREATE SCHEMA")) {
+      if (sql.includes("CREATE SCHEMA") || sql.includes("ALTER TABLE")) {
         return {rows: []};
       }
       if (sql.includes("CREATE TABLE") || sql.includes("CREATE INDEX")) {
@@ -1112,4 +1112,175 @@ test("PostgresStore communication hot paths avoid full state reads", async () =>
     queries.some((sql) => sql.includes("SELECT data FROM")),
     false,
   );
+});
+
+// ── SPEED-8a: кэш чтения по версии строки ──────────────────────────────────
+
+test("каждый UPDATE строки состояния инкрементит version (статический сторож кэша)", async () => {
+  const source = await fs.readFile(
+    path.join(__dirname, "../src/postgres-store.js"),
+    "utf8",
+  );
+  const updates = [...source.matchAll(/UPDATE \$\{this\._qualifiedTableName\}/g)];
+  assert.ok(updates.length >= 5, `ожидали точечные UPDATE, нашли ${updates.length}`);
+  for (const match of updates) {
+    const window = source.slice(match.index, match.index + 900);
+    assert.match(
+      window,
+      /version = /,
+      `UPDATE без version @${source.slice(0, match.index).split("\n").length}: кэш чтения отдаст устаревшее`,
+    );
+  }
+});
+
+function buildVersionedPool(initialState) {
+  let state = initialState;
+  let version = 3;
+  const counters = {snapshotSelects: 0, versionSelects: 0, upserts: 0};
+  const pool = {
+    counters,
+    bump(nextState) {
+      state = nextState;
+      version += 1;
+    },
+    async query(sql, params = []) {
+      if (sql.includes("CREATE SCHEMA") || sql.includes("CREATE TABLE") ||
+          sql.includes("CREATE INDEX") || sql.includes("ALTER TABLE")) {
+        return {rows: []};
+      }
+      if (sql.includes("ON CONFLICT (id) DO NOTHING")) {
+        return {rows: []};
+      }
+      if (sql.includes("DELETE FROM") || sql.includes("INSERT INTO \"public\".\"rodnya_state_auth")) {
+        return {rows: []};
+      }
+      if (sql.includes("SELECT session_data")) {
+        return {rows: []};
+      }
+      if (sql.includes("SELECT version FROM")) {
+        counters.versionSelects += 1;
+        return {rows: [{version}]};
+      }
+      if (sql.includes("SELECT data, version FROM")) {
+        counters.snapshotSelects += 1;
+        return {rows: [{data: state, version}]};
+      }
+      if (sql.includes("SELECT data FROM")) {
+        return {rows: [{data: state}]};
+      }
+      if (sql.includes("ON CONFLICT (id) DO UPDATE")) {
+        counters.upserts += 1;
+        state = JSON.parse(params[1]);
+        version += 1;
+        return {rows: [{version}]};
+      }
+      if (sql.includes("_chat") || sql.includes("_notification") || sql.includes("_push")) {
+        return {rows: []};
+      }
+      if (sql.startsWith("UPDATE") && sql.includes("SET data")) {
+        return {rows: [], rowCount: 1};
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+  };
+  return pool;
+}
+
+test("SPEED-8a: повторный _read без записей не перечитывает блоб", async () => {
+  const pool = buildVersionedPool({users: [{id: "u1", email: "a@b"}], trees: []});
+  const store = new PostgresStore({
+    connectionString: "postgresql://unused/rodnya",
+    pool,
+    snapshotCachePath: null,
+  });
+
+  const first = await store._read();
+  assert.equal(first.users[0].id, "u1");
+  assert.equal(pool.counters.snapshotSelects, 1);
+
+  const second = await store._read();
+  assert.equal(second.users[0].id, "u1");
+  assert.equal(pool.counters.snapshotSelects, 1, "версия совпала — блоб не читаем");
+  assert.ok(pool.counters.versionSelects >= 2);
+
+  // Клон, а не общий объект: мутация результата не портит кэш.
+  second.users.push({id: "u2"});
+  const third = await store._read();
+  assert.equal(third.users.length, 1);
+});
+
+test("SPEED-8a: после _write следующий _read отдаёт новое состояние без перечитывания", async () => {
+  const pool = buildVersionedPool({users: [{id: "u1", email: "a@b"}], trees: []});
+  const store = new PostgresStore({
+    connectionString: "postgresql://unused/rodnya",
+    pool,
+    snapshotCachePath: null,
+  });
+
+  const state = await store._read();
+  state.trees.push({id: "t1", name: "Наше дерево", memberIds: ["u1"]});
+  await store._write(state);
+  assert.equal(pool.counters.upserts, 1);
+
+  const after = await store._read();
+  assert.equal(after.trees.length, 1);
+  assert.equal(after.trees[0].id, "t1");
+  assert.equal(pool.counters.snapshotSelects, 1, "запись обновила кэш под новой версией");
+});
+
+test("SPEED-8a: чужая запись (version ушла вперёд) инвалидирует кэш", async () => {
+  const pool = buildVersionedPool({users: [{id: "u1", email: "a@b"}], trees: []});
+  const store = new PostgresStore({
+    connectionString: "postgresql://unused/rodnya",
+    pool,
+    snapshotCachePath: null,
+  });
+
+  await store._read();
+  pool.bump({users: [{id: "u1", email: "a@b"}, {id: "u2", email: "c@d"}], trees: []});
+  const after = await store._read();
+  assert.equal(after.users.length, 2);
+  assert.equal(pool.counters.snapshotSelects, 2);
+});
+
+test("SPEED-8a: без колонки version (старый pool) кэш выключен, чтение честное", async () => {
+  let state = {users: [{id: "u1", email: "a@b"}], trees: []};
+  let selects = 0;
+  const pool = {
+    async query(sql, params = []) {
+      if (sql.includes("CREATE") || sql.includes("ALTER TABLE") ||
+          sql.includes("ON CONFLICT (id) DO NOTHING") || sql.includes("DELETE FROM") ||
+          sql.includes("SELECT session_data") || sql.includes("_chat") ||
+          sql.includes("_notification") || sql.includes("_push") ||
+          sql.includes("INSERT INTO \"public\".\"rodnya_state_auth")) {
+        return {rows: []};
+      }
+      if (sql.includes("SELECT version FROM")) {
+        throw new Error("column version does not exist");
+      }
+      if (sql.includes("SELECT data")) {
+        // Считаем только чтения снимка из _read (бут-миграции тоже
+        // читают блоб — они не про кэш).
+        if (sql.includes("SELECT data, version FROM")) {
+          selects += 1;
+        }
+        return {rows: [{data: state}]};
+      }
+      if (sql.includes("ON CONFLICT (id) DO UPDATE")) {
+        state = JSON.parse(params[1]);
+        return {rows: []};
+      }
+      // Всё прочее (LATERAL-выборки миграций, проекции) этому тесту
+      // безразлично — важен только отказ колонки version.
+      return {rows: [], rowCount: 0};
+    },
+  };
+  const store = new PostgresStore({
+    connectionString: "postgresql://unused/rodnya",
+    pool,
+    snapshotCachePath: null,
+  });
+  await store._read();
+  await store._read();
+  assert.equal(selects, 2, "нет version — каждое чтение идёт в БД");
 });
