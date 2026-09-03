@@ -74,9 +74,11 @@ class CustomApiNotificationService implements NotificationServiceInterface {
     GenericNotificationCallback? onGenericNotification,
     BrowserNotificationBridge? browserNotificationBridge,
     AndroidIncomingCallService? androidIncomingCallService,
+    AndroidFlutterLocalNotificationsPlugin? androidPluginOverride,
     bool isWeb = kIsWeb,
   })  : _plugin = plugin,
         _preferences = preferences,
+        _androidPluginOverride = androidPluginOverride,
         _isWeb = isWeb,
         _authService = authService,
         _runtimeConfig = runtimeConfig,
@@ -111,6 +113,12 @@ class CustomApiNotificationService implements NotificationServiceInterface {
   // уведомления» — больше не показываем баннер в этой и будущих сессиях.
   static const String _notificationCtaDismissedStorageKey =
       'custom_api_notification_cta_dismissed_v1';
+  // Android 14+: запрос разрешения на полноэкранные уведомления ОТКРЫВАЕТ
+  // системные настройки. Спрашиваем один раз на установку — иначе
+  // приложение выкидывает в Settings при каждом холодном старте, пока
+  // пользователь не включит тумблер (так было в 1.0.30–1.0.31).
+  static const String _fullScreenIntentPromptedStorageKey =
+      'custom_api_full_screen_intent_prompted_v1';
 
   static Future<CustomApiNotificationService> create({
     FlutterLocalNotificationsPlugin? plugin,
@@ -128,12 +136,14 @@ class CustomApiNotificationService implements NotificationServiceInterface {
     GenericNotificationCallback? onGenericNotification,
     BrowserNotificationBridge? browserNotificationBridge,
     AndroidIncomingCallService? androidIncomingCallService,
+    AndroidFlutterLocalNotificationsPlugin? androidPluginOverride,
     bool isWeb = kIsWeb,
   }) async {
     return CustomApiNotificationService._(
       plugin: plugin ?? FlutterLocalNotificationsPlugin(),
       preferences: preferences ?? await SharedPreferences.getInstance(),
       authService: authService,
+      androidPluginOverride: androidPluginOverride,
       isWeb: isWeb,
       runtimeConfig: runtimeConfig,
       realtimeService: realtimeService,
@@ -152,6 +162,10 @@ class CustomApiNotificationService implements NotificationServiceInterface {
 
   final FlutterLocalNotificationsPlugin _plugin;
   final SharedPreferences _preferences;
+
+  /// Только для тестов: Android-плагин вместо
+  /// `resolvePlatformSpecificImplementation` (на хосте без Android он null).
+  final AndroidFlutterLocalNotificationsPlugin? _androidPluginOverride;
   final CustomApiAuthService? _authService;
   final BackendRuntimeConfig? _runtimeConfig;
   final CustomApiRealtimeService? _realtimeService;
@@ -253,8 +267,9 @@ class CustomApiNotificationService implements NotificationServiceInterface {
           onDidReceiveBackgroundCustomApiNotificationResponse,
     );
 
-    final androidPlugin = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final androidPlugin = _androidPluginOverride ??
+        _plugin.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
     // createNotificationChannel is idempotent — if MainActivity has
     // already registered them via RodnyaNotificationChannels these
     // calls are no-ops. The order goes urgent → quiet so the
@@ -404,7 +419,20 @@ class CustomApiNotificationService implements NotificationServiceInterface {
       debugPrintStack(stackTrace: stackTrace);
     }
 
+    // Полноэкранный входящий звонок без разрешения на уведомления всё
+    // равно не покажется — нет смысла вести в настройки. А спрашивать
+    // можно только однажды: у плагина нет «уже разрешено?», и повторный
+    // вызов = повторный прыжок в Settings на каждом запуске.
+    if (_androidNotificationsPermissionDenied) {
+      return;
+    }
+    if (_preferences.getBool(_fullScreenIntentPromptedStorageKey) == true) {
+      return;
+    }
     try {
+      // Флаг — ДО вызова: если Settings открылись и приложение убили,
+      // второй раз пользователя туда не отправим.
+      await _preferences.setBool(_fullScreenIntentPromptedStorageKey, true);
       await resolvedAndroidPlugin.requestFullScreenIntentPermission();
     } catch (error, stackTrace) {
       debugPrint(

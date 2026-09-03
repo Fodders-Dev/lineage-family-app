@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:get_it/get_it.dart';
@@ -1342,6 +1343,109 @@ void main() {
     expect(calls.where((entry) => entry.endsWith('/read')).length, 2);
   });
 
+
+  group('full-screen intent: один запрос на установку', () {
+    Future<CustomApiNotificationService> buildService(
+      SharedPreferences prefs,
+      _FakeAndroidNotificationsPlugin androidPlugin,
+    ) async {
+      final client = MockClient((request) async {
+        if (request.url.path == '/v1/auth/login') {
+          return http.Response(
+            jsonEncode({
+              'accessToken': 'access-token',
+              'refreshToken': 'refresh-token',
+              'user': {
+                'id': 'user-1',
+                'email': 'dev@rodnya.app',
+                'displayName': 'Dev User',
+                'providerIds': ['password'],
+              },
+              'profileStatus': {'isComplete': true, 'missingFields': []},
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('{"message":"not found"}', 404);
+      });
+      await prefs.setString(
+        'custom_api_session_v1',
+        jsonEncode({
+          'accessToken': 'access-token',
+          'refreshToken': 'refresh-token',
+          'userId': 'user-1',
+          'email': 'dev@rodnya.app',
+          'displayName': 'Dev User',
+          'providerIds': ['password'],
+          'isProfileComplete': true,
+          'missingFields': const [],
+        }),
+      );
+      final authService = await CustomApiAuthService.create(
+        httpClient: client,
+        preferences: prefs,
+        runtimeConfig: const BackendRuntimeConfig(
+          apiBaseUrl: 'https://api.example.ru',
+        ),
+        invitationService: InvitationService(),
+      );
+      if (!GetIt.I.isRegistered<CallCoordinatorService>()) {
+        GetIt.I.registerSingleton<CallCoordinatorService>(
+          _FakeNotificationCallCoordinator(),
+        );
+      }
+      return CustomApiNotificationService.create(
+        preferences: prefs,
+        authService: authService,
+        runtimeConfig: const BackendRuntimeConfig(
+          apiBaseUrl: 'https://api.example.ru',
+        ),
+        httpClient: client,
+        androidPluginOverride: androidPlugin,
+        isWeb: false,
+      );
+    }
+
+    setUp(() {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    });
+    tearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    test('первый старт спрашивает, второй холодный старт — уже нет', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final androidPlugin = _FakeAndroidNotificationsPlugin(enabled: true);
+
+      final first = await buildService(prefs, androidPlugin);
+      await first.initialize();
+      expect(androidPlugin.fullScreenIntentRequests, 1);
+      await first.stopForegroundSync();
+
+      // Новый инстанс = новый процесс: prefs те же, память — нет.
+      final second = await buildService(prefs, androidPlugin);
+      await second.initialize();
+      expect(androidPlugin.fullScreenIntentRequests, 1,
+          reason: 'повторный запрос = прыжок в системные настройки на '
+              'каждом запуске (1.0.30–1.0.31)');
+      await second.stopForegroundSync();
+    });
+
+    test('уведомления запрещены → в настройки не ведём', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final androidPlugin = _FakeAndroidNotificationsPlugin(enabled: false);
+
+      final service = await buildService(prefs, androidPlugin);
+      await service.initialize();
+      expect(androidPlugin.fullScreenIntentRequests, 0);
+      expect(prefs.getBool('custom_api_full_screen_intent_prompted_v1'),
+          isNot(true),
+          reason: 'разрешат уведомления — спросим тогда');
+      await service.stopForegroundSync();
+    });
+  });
+
 }
 
 class _FakeFlutterLocalNotificationsPlatform
@@ -1469,4 +1573,31 @@ class _FakeNotificationCallService implements CallServiceInterface {
   Future<void> stopRealtimeBridge() async {}
 
 
+}
+
+
+/// Android-плагин без platform-channel: считает запросы full-screen-intent.
+class _FakeAndroidNotificationsPlugin
+    extends AndroidFlutterLocalNotificationsPlugin {
+  _FakeAndroidNotificationsPlugin({required this.enabled});
+
+  final bool enabled;
+  int fullScreenIntentRequests = 0;
+
+  @override
+  Future<void> createNotificationChannel(
+    AndroidNotificationChannel notificationChannel,
+  ) async {}
+
+  @override
+  Future<bool?> areNotificationsEnabled() async => enabled;
+
+  @override
+  Future<bool?> requestNotificationsPermission() async => enabled;
+
+  @override
+  Future<bool?> requestFullScreenIntentPermission() async {
+    fullScreenIntentRequests += 1;
+    return true;
+  }
 }
