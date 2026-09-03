@@ -36,8 +36,11 @@ paths:
 - Сначала ВСЕГДА репетиция на scratch-БД, восстановленной из свежего дампа;
   встроенные проверки скриптов местами тавтологичны — ключевые инварианты
   сверять своим SQL.
-- Откат SPEED-6: `restore-chat-collections-to-blob.js` (guard по маркеру,
-  бэкенд остановлен).
+- Откат SPEED-6: `restore-chat-collections-to-blob.js`, SPEED-7:
+  `restore-notifications-to-blob.js`, SPEED-8b:
+  `restore-tree-change-records-to-blob.js` (все — guard по маркеру, бэкенд
+  остановлен; откат SPEED-8b сам инкрементит version строки, чтобы кэш
+  чтения SPEED-8a увидел новый блоб).
 
 ## Топология
 

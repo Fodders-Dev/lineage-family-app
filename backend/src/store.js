@@ -5336,6 +5336,33 @@ function normalizePersonPhotoGallery(photoGallery, {
   };
 }
 
+// SPEED-8b: общие для блоба и таблиц правила ретенции.
+function stripTreeChangeRecordDetails(record, {cutoffTs, dryRun = false}) {
+  if (!record || typeof record !== "object") return false;
+  if (typeof record.type === "string" && record.type.startsWith("article.")) {
+    return false;
+  }
+  const createdTs = record.createdAt ? Date.parse(record.createdAt) : NaN;
+  if (!Number.isFinite(createdTs) || createdTs >= cutoffTs) return false;
+  const details = record.details;
+  if (!details || typeof details !== "object") return false;
+  let stripped = false;
+  for (const heavyKey of ["before", "after", "mergedFrom"]) {
+    if (Object.prototype.hasOwnProperty.call(details, heavyKey)) {
+      if (!dryRun) delete details[heavyKey];
+      stripped = true;
+    }
+  }
+  return stripped;
+}
+
+function isHardDeleteAuditEntryExpired(entry, cutoffTs) {
+  const hardDeletedTs = entry?.hardDeletedAt
+    ? Date.parse(entry.hardDeletedAt)
+    : NaN;
+  return Number.isFinite(hardDeletedTs) && hardDeletedTs < cutoffTs;
+}
+
 function createTreeChangeRecord({
   treeId,
   actorId = null,
@@ -6420,6 +6447,70 @@ class FileStore {
     return record;
   }
 
+  // ── SPEED-8b: хуки над журналом изменений и аудитом hard-delete ──────
+  // На FileStore коллекции живут в блобе — хуки правят массивы на месте.
+  // PostgresStore держит их в таблицах и переопределяет хуки: массивы в
+  // блобе после миграции пусты, а табличная часть операции уходит в очередь,
+  // которую применяет _write (хуки зовутся из _mutate-applyFn — там нельзя
+  // await'ить SQL).
+  _rewriteTreeChangeRecordsForMerge(db, {
+    treeId,
+    duplicatePersonId,
+    preferredPersonId,
+  }) {
+    for (const record of db.treeChangeRecords || []) {
+      if (record.treeId !== treeId) {
+        continue;
+      }
+      if (record.personId === duplicatePersonId) {
+        record.personId = preferredPersonId;
+      }
+      record.personIds = normalizeParticipantIds(
+        (record.personIds || []).map((personId) =>
+          personId === duplicatePersonId ? preferredPersonId : personId,
+        ),
+      );
+    }
+  }
+
+  _pseudonymizeTreeChangeActor(db, userId) {
+    for (const record of db.treeChangeRecords || []) {
+      if (record.actorId === userId) {
+        record.actorId = "deleted-user";
+        record.actorName = null;
+      }
+    }
+  }
+
+  /// Срезает before/after/mergedFrom у НЕ-article записей старше cutoffTs
+  /// (сама запись остаётся — таймлайн цел). Возвращает число затронутых.
+  _stripTreeChangeDetails(db, {cutoffTs, dryRun = false}) {
+    let stripped = 0;
+    for (const record of db.treeChangeRecords || []) {
+      if (stripTreeChangeRecordDetails(record, {cutoffTs, dryRun})) {
+        stripped += 1;
+      }
+    }
+    return stripped;
+  }
+
+  /// Аудит hard-delete: записи старше cutoffTs выбывают. Возвращает
+  /// {surviving, pruned}; при dryRun ничего не меняет, только считает.
+  _pruneHardDeleteAudit(db, {cutoffTs, dryRun = false}) {
+    const existing = Array.isArray(db.hardDeleteAudit) ? db.hardDeleteAudit : [];
+    const surviving = [];
+    let pruned = 0;
+    for (const entry of existing) {
+      if (isHardDeleteAuditEntryExpired(entry, cutoffTs)) {
+        pruned += 1;
+        if (dryRun) surviving.push(entry);
+      } else {
+        surviving.push(entry);
+      }
+    }
+    return {surviving, pruned};
+  }
+
   // Phase B Ship 6: public wrapper для route-layer additive audit
   // entries (e.g. person.pulled-from-semya). Existing pattern —
   // change records appended inside store mutation methods. Когда
@@ -6860,19 +6951,11 @@ class FileStore {
       }
     }
 
-    for (const record of db.treeChangeRecords) {
-      if (record.treeId !== treeId) {
-        continue;
-      }
-      if (record.personId === duplicatePerson.id) {
-        record.personId = preferredPerson.id;
-      }
-      record.personIds = normalizeParticipantIds(
-        (record.personIds || []).map((personId) =>
-          personId === duplicatePerson.id ? preferredPerson.id : personId,
-        ),
-      );
-    }
+    this._rewriteTreeChangeRecordsForMerge(db, {
+      treeId,
+      duplicatePersonId: duplicatePerson.id,
+      preferredPersonId: preferredPerson.id,
+    });
 
     db.persons = db.persons.filter((entry) => entry.id !== duplicatePerson.id);
     this._appendTreeChangeRecord(db, {
@@ -8254,19 +8337,12 @@ class FileStore {
       }
       db.calls = filteredCalls;
     }
-    if (Array.isArray(db.treeChangeRecords)) {
-      // Anonymize rather than delete — change records are an audit
-      // log; preserving them as "deleted user changed X" keeps the
-      // tree's history intact while removing the personal identifier.
-      // Right-to-erasure under GDPR allows pseudonymization for
-      // legitimate-interest audit logs (recital 26).
-      for (const record of db.treeChangeRecords) {
-        if (record.actorId === userId) {
-          record.actorId = "deleted-user";
-          record.actorName = null;
-        }
-      }
-    }
+    // Anonymize rather than delete — change records are an audit
+    // log; preserving them as "deleted user changed X" keeps the
+    // tree's history intact while removing the personal identifier.
+    // Right-to-erasure under GDPR allows pseudonymization for
+    // legitimate-interest audit logs (recital 26).
+    this._pseudonymizeTreeChangeActor(db, userId);
     if (Array.isArray(db.identityFieldConflicts)) {
       // Phase 1.3: drop conflict rows that touch trees or persons
       // we just removed (the surface they referred to is gone),
@@ -21234,29 +21310,11 @@ class FileStore {
     //   family-memory north-star) are left fully intact.
     const treeDetailMs =
       Math.max(0, Number(retention.treeChangeDetailDays ?? 30)) * DAY;
-    if (
-      treeDetailMs > 0 &&
-      Array.isArray(db.treeChangeRecords) &&
-      db.treeChangeRecords.length
-    ) {
-      for (const record of db.treeChangeRecords) {
-        if (!record || typeof record !== "object") continue;
-        if (typeof record.type === "string" && record.type.startsWith("article.")) {
-          continue;
-        }
-        const createdTs = parseTs(record.createdAt);
-        if (createdTs === null || nowTs - createdTs <= treeDetailMs) continue;
-        const details = record.details;
-        if (!details || typeof details !== "object") continue;
-        let stripped = false;
-        for (const heavyKey of ["before", "after", "mergedFrom"]) {
-          if (Object.prototype.hasOwnProperty.call(details, heavyKey)) {
-            if (!dryRun) delete details[heavyKey];
-            stripped = true;
-          }
-        }
-        if (stripped) counts.treeChangeDetailsStripped += 1;
-      }
+    if (treeDetailMs > 0) {
+      counts.treeChangeDetailsStripped += this._stripTreeChangeDetails(db, {
+        cutoffTs: nowTs - treeDetailMs,
+        dryRun,
+      });
     }
 
     return counts;
@@ -21494,21 +21552,12 @@ class FileStore {
     }
 
     // Audit prune — entries старше `auditRetentionDays` от now.
-    const existingAudit = Array.isArray(db.hardDeleteAudit)
-      ? db.hardDeleteAudit
-      : [];
-    const auditCutoffTs = startedTs - auditRetentionMs;
-    const survivingAudit = [];
-    for (const entry of existingAudit) {
-      const hardDeletedTs = entry?.hardDeletedAt
-        ? Date.parse(entry.hardDeletedAt)
-        : NaN;
-      if (Number.isFinite(hardDeletedTs) && hardDeletedTs < auditCutoffTs) {
-        deletedCounts.auditPruned += 1;
-      } else {
-        survivingAudit.push(entry);
-      }
-    }
+    const auditPrune = this._pruneHardDeleteAudit(db, {
+      cutoffTs: startedTs - auditRetentionMs,
+      dryRun,
+    });
+    const survivingAudit = auditPrune.surviving;
+    deletedCounts.auditPruned += auditPrune.pruned;
 
     const totalDeleted =
       deletedCounts.graphPersons +
@@ -21584,6 +21633,8 @@ class FileStore {
 
 module.exports = {
   EMPTY_DB,
+  stripTreeChangeRecordDetails,
+  isHardDeleteAuditEntryExpired,
   FileStore,
   buildCommentReactionNotificationPlan,
   buildCommentReplyNotificationPlan,
