@@ -743,12 +743,15 @@ class ProfileSection extends StatelessWidget {
             ? RodnyaDesignTokens.dark
             : RodnyaDesignTokens.light);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 18, 12, 0),
+      // Плотность: 4 такие секции подряд (Основное/Образование/Семья/
+      // Кругозор) — 18dp сверху у каждой съедало почти строку экрана
+      // на заполненном профиле.
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+            padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
