@@ -1026,6 +1026,19 @@ function collectReachablePersonIds(startPersonId, adjacency) {
   return result;
 }
 
+// Авто-кругам от бэкфилла идентичностей нужно одно: identityId у людей ЭТОГО
+// дерева (membership кругов считается по person.identityId). Сам
+// backfillPersonIdentities хэширует ВСЕ persons+identities базы (stableSerialize
+// + sha256, дважды) — вызываемый на каждое дерево из ensureCirclesForAllTrees
+// он давал 77% CPU GET /posts при неизменных данных. Поэтому зовём его только
+// когда у дерева реально есть человек без идентичности.
+function treeHasPersonsWithoutIdentity(db, treeId) {
+  return (Array.isArray(db.persons) ? db.persons : []).some(
+    (person) =>
+      person.treeId === treeId && !normalizeNullableString(person.identityId),
+  );
+}
+
 function identityIdsForPersonIds(db, treeId, personIds) {
   const personsById = new Map(
     (Array.isArray(db.persons) ? db.persons : [])
@@ -1198,8 +1211,9 @@ function ensureAutoCirclesForTree(db, treeOrTreeId) {
 
   db.circles = Array.isArray(db.circles) ? db.circles : [];
   db.circleMembers = Array.isArray(db.circleMembers) ? db.circleMembers : [];
-  const identityMigration = backfillPersonIdentities(db);
-  let changed = identityMigration.changed;
+  let changed = treeHasPersonsWithoutIdentity(db, treeId)
+    ? backfillPersonIdentities(db).changed
+    : false;
   const specs = buildAutoCircleSpecsForTree(db, tree);
   const desiredIds = new Set(specs.keys());
   const removedCircleIds = new Set();
@@ -16656,6 +16670,11 @@ class FileStore {
     };
   }
 
+  // Ленты (posts/stories/gatherings/polls) НЕ зовут ensureCirclesForAllTrees:
+  // круги нужного дерева лениво сверяет _canUserViewCircleContent, а сверка
+  // всех деревьев на каждое чтение — лишний CPU и запись блоба из читающего
+  // пути в обход _mutate (lost-update). Хранимое состояние кругов чинят
+  // мутации графа и listCircles/findCircle.
   async listPosts({
     treeId = null,
     authorId = null,
@@ -16663,10 +16682,6 @@ class FileStore {
     viewerUserId = null,
   } = {}) {
     const db = await this._read();
-    const defaultCirclesChanged = ensureCirclesForAllTrees(db);
-    if (defaultCirclesChanged) {
-      await this._write(db);
-    }
     return db.posts
       .filter((entry) => {
         // Phase 3.4 multi-branch visibility. If `treeId` filter is
@@ -16714,7 +16729,6 @@ class FileStore {
 
   async listStories({treeId = null, authorId = null, viewerUserId = null} = {}) {
     const db = await this._read();
-    const defaultCirclesChanged = ensureCirclesForAllTrees(db);
     const now = Date.now();
     const activeStories = [];
     let removedExpiredStories = false;
@@ -16727,7 +16741,7 @@ class FileStore {
       activeStories.push(story);
     }
 
-    if (removedExpiredStories || defaultCirclesChanged) {
+    if (removedExpiredStories) {
       db.stories = activeStories;
       await this._write(db);
     }
@@ -17278,10 +17292,6 @@ class FileStore {
 
   async listGatherings({treeId = null, viewerUserId = null} = {}) {
     const db = await this._read();
-    const defaultCirclesChanged = ensureCirclesForAllTrees(db);
-    if (defaultCirclesChanged) {
-      await this._write(db);
-    }
     return db.gatherings
       .filter((entry) => {
         // Same tree/branch match posts use: if a treeId filter is set,
@@ -17487,10 +17497,6 @@ class FileStore {
 
   async listPolls({treeId = null, viewerUserId = null} = {}) {
     const db = await this._read();
-    const defaultCirclesChanged = ensureCirclesForAllTrees(db);
-    if (defaultCirclesChanged) {
-      await this._write(db);
-    }
     return db.polls
       .filter((entry) => {
         if (treeId) {
