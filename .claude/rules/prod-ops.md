@@ -24,6 +24,15 @@ paths:
   требует предварительного бампа `version:` в pubspec (workflow сверяет
   versionCode эндпоинта). `regen-tree-goldens.yml` пушит бот-коммит в main
   (только goldens-пути — деплой не триггерит).
+- Скрипт активации бэкенда — `deploy/backend/activate_backend_release.sh`
+  В РЕПО; оба workflow (`backend-deploy`, `production-watch`) заливают его
+  на сервер при каждом запуске. Серверная копия
+  `/usr/local/bin/rodnya-activate-backend-release` нужна только ручному
+  `deploy/backend/deploy_backend.ps1` и обязана совпадать с репо (04.09.2026
+  она отстала на 5 месяцев без `--no-audit`, и деплой повис на лежащем
+  audit-эндпоинте registry; старая копия — рядом, `.bak-20260904`). `npm ci`
+  в деплое — всегда `--no-audit`: активация не должна зависеть от
+  доступности audit-сервиса npm.
 
 ## Миграции прод-БД
 
