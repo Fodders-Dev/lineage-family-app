@@ -204,7 +204,7 @@ extension _RelativeDetailsScreenSections on _RelativeDetailsScreenState {
             ],
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 5),
         Text(
           contactStatus.description,
           style: AppTheme.sans(
@@ -246,7 +246,7 @@ extension _RelativeDetailsScreenSections on _RelativeDetailsScreenState {
                 canInvite: canInvite,
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
                 child: headerStatus,
               ),
               // «Основная информация» — key structured facts, right under
@@ -398,12 +398,12 @@ extension _RelativeDetailsScreenSections on _RelativeDetailsScreenState {
     final canEditStory = _canDirectEditProfile();
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           _buildHeaderAvatar(photoUrl, initials),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           Text(
             isDeceased ? '† Память: $fullName' : fullName,
             key: const Key('profile-name'),
@@ -457,64 +457,71 @@ extension _RelativeDetailsScreenSections on _RelativeDetailsScreenState {
               ),
             ),
           ],
-          const SizedBox(height: 18),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              key: const Key('profile-ask-story'),
-              onPressed: () => _askFamilyStory(
-                name: fullName,
-                relation: directRelationLabel,
-                gender: person.gender.name,
-              ),
-              icon: const Icon(Icons.question_answer_outlined, size: 18),
-              label: const Text('Спросить историю'),
+          const SizedBox(height: 12),
+          // Действия — один ряд компактных плиток (как в профиле Telegram),
+          // а не столбик кнопок во всю ширину: три-четыре кнопки съедали
+          // 150–200dp первого экрана. Ключи и подписи сохранены.
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: _HeroActionTile(
+                    key: const Key('profile-ask-story'),
+                    icon: Icons.question_answer_outlined,
+                    label: 'Спросить историю',
+                    primary: true,
+                    onTap: () => _askFamilyStory(
+                      name: fullName,
+                      relation: directRelationLabel,
+                      gender: person.gender.name,
+                    ),
+                  ),
+                ),
+                if (canEditStory) ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _HeroActionTile(
+                      key: const Key('profile-add-story'),
+                      icon: Icons.edit_outlined,
+                      label: isDeceased
+                          ? 'Добавить воспоминание'
+                          : 'Добавить историю',
+                      onTap: () => _openBiographyEditor(
+                        name: fullName,
+                        relation: directRelationLabel,
+                        gender: person.gender.name,
+                      ),
+                    ),
+                  ),
+                ],
+                if (canStartChat) ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _HeroActionTile(
+                      key: const Key('profile-write'),
+                      icon: Icons.message_outlined,
+                      label: 'Написать',
+                      onTap: _openChatWithPerson,
+                    ),
+                  ),
+                ],
+                if (canInvite) ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _HeroActionTile(
+                      key: const Key('profile-invite'),
+                      icon: Icons.person_add_alt_1_outlined,
+                      label: _isGeneratingLink ? 'Готовим…' : 'Пригласить в Родню',
+                      onTap: _isGeneratingLink
+                          ? null
+                          : _generateAndShareInviteLink,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
-          if (canEditStory) const SizedBox(height: 8),
-          if (canEditStory)
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                key: const Key('profile-add-story'),
-                onPressed: () => _openBiographyEditor(
-                  name: fullName,
-                  relation: directRelationLabel,
-                  gender: person.gender.name,
-                ),
-                icon: const Icon(Icons.edit_outlined, size: 18),
-                label: Text(
-                  isDeceased ? 'Добавить воспоминание' : 'Добавить историю',
-                ),
-              ),
-            ),
-          if (canStartChat) ...[
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                key: const Key('profile-write'),
-                onPressed: _openChatWithPerson,
-                icon: const Icon(Icons.message_outlined, size: 18),
-                label: const Text('Написать'),
-              ),
-            ),
-          ],
-          if (canInvite) ...[
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                key: const Key('profile-invite'),
-                onPressed:
-                    _isGeneratingLink ? null : _generateAndShareInviteLink,
-                icon: const Icon(Icons.person_add_alt_1_outlined, size: 18),
-                label: Text(
-                  _isGeneratingLink ? 'Готовим…' : 'Пригласить в Родню',
-                ),
-              ),
-            ),
-          ],
         ],
       ),
     );
@@ -523,12 +530,12 @@ extension _RelativeDetailsScreenSections on _RelativeDetailsScreenState {
   Widget _buildHeaderAvatar(String? photoUrl, String initials) {
     final theme = Theme.of(context);
     return Container(
-      width: 120,
-      height: 120,
+      width: 96,
+      height: 96,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: theme.colorScheme.primary.withValues(alpha: 0.12),
-        border: Border.all(color: theme.colorScheme.surface, width: 4),
+        border: Border.all(color: theme.colorScheme.surface, width: 3),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.18),
@@ -542,8 +549,8 @@ extension _RelativeDetailsScreenSections on _RelativeDetailsScreenState {
         child: (photoUrl != null && photoUrl.isNotEmpty)
             ? CachedNetworkImage(
                 imageUrl: photoUrl,
-                width: 120,
-                height: 120,
+                width: 96,
+                height: 96,
                 fit: BoxFit.cover,
                 // M2: декод под 120dp-аватар.
                 memCacheWidth: decodeCacheWidth(context, 120),
@@ -561,7 +568,7 @@ extension _RelativeDetailsScreenSections on _RelativeDetailsScreenState {
       child: Text(
         initials,
         style: TextStyle(
-          fontSize: 38,
+          fontSize: 32,
           fontWeight: FontWeight.w800,
           color: theme.colorScheme.primary,
         ),
@@ -1016,7 +1023,7 @@ extension _RelativeDetailsScreenSections on _RelativeDetailsScreenState {
 
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1169,7 +1176,7 @@ extension _RelativeDetailsScreenSections on _RelativeDetailsScreenState {
     final tokens = AppTheme.tokensOf(context);
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
       child: Material(
         color: tokens.accentSoft.withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(14),
@@ -1178,7 +1185,7 @@ extension _RelativeDetailsScreenSections on _RelativeDetailsScreenState {
           borderRadius: BorderRadius.circular(14),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
             child: Row(
               children: [
                 Icon(
@@ -1567,6 +1574,9 @@ extension _RelativeDetailsScreenSections on _RelativeDetailsScreenState {
 
   Widget _buildGallerySection(List<Map<String, dynamic>> galleryEntries) {
     final canManageGallery = _canEditOrDelete();
+    // Пустое состояние — одной короткой строкой рядом с кнопкой: раньше под
+    // ней шла ещё карточка-подсказка о том же, а мотивация «добавьте фото»
+    // и так есть в плашке заполненности выше.
     final countLabel = galleryEntries.isEmpty
         ? 'Фотографий пока нет'
         : galleryEntries.length == 1
@@ -1596,26 +1606,8 @@ extension _RelativeDetailsScreenSections on _RelativeDetailsScreenState {
             ),
         ],
       ),
-      const SizedBox(height: 12),
-      if (galleryEntries.isEmpty)
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerLowest,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: Theme.of(context).colorScheme.outlineVariant,
-            ),
-          ),
-          child: Text(
-            canManageGallery
-                ? 'Добавьте первое фото, чтобы у родственника появилась медиакарточка.'
-                : 'У этого родственника пока нет загруженных фотографий.',
-            style: TextStyle(color: Colors.grey[700], height: 1.35),
-          ),
-        )
-      else
+      if (galleryEntries.isNotEmpty) const SizedBox(height: 10),
+      if (galleryEntries.isNotEmpty)
         SizedBox(
           height: 146,
           child: ListView.separated(
@@ -2568,6 +2560,73 @@ class _DeleteRelativeButton extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Плитка действия в шапке карточки: иконка + подпись в две строки,
+/// одинаковая высота в ряду (IntrinsicHeight у родителя). Первичная —
+/// заливка акцентом, остальные — тихая поверхность с тонкой рамкой.
+class _HeroActionTile extends StatelessWidget {
+  const _HeroActionTile({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.primary = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  final bool primary;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = AppTheme.tokensOf(context);
+    final enabled = onTap != null;
+    final background = primary ? tokens.accent : tokens.surfaceStrong;
+    final foreground = primary ? tokens.accentInk : tokens.ink;
+    return Opacity(
+      opacity: enabled ? 1 : 0.55,
+      child: Material(
+        color: background,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Container(
+            decoration: primary
+                ? null
+                : BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: tokens.surfaceLine, width: 0.8),
+                  ),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 22, color: foreground),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.sans(
+                    color: foreground,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0,
+                    height: 1.15,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
