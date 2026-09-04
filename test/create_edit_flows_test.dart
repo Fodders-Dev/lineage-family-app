@@ -665,7 +665,12 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.text('Управление аккаунтом'), findsOneWidget);
+    // Плотность (чанк 9): убрали шапку-дублёр «Управление аккаунтом» —
+    // экран и так называется «Настройки» в AppBar, а версия приложения
+    // уже показана строкой ниже, в «О приложении». Проверяем, что обе
+    // остались доступны из своих единственных мест.
+    expect(find.text('Настройки'), findsOneWidget);
+    expect(find.textContaining('Версия 1.0.0'), findsOneWidget);
     expect(find.text('Внешний вид'), findsOneWidget);
     expect(find.text('Звонки'), findsOneWidget);
     expect(find.text('Микрофон по умолчанию'), findsOneWidget);
