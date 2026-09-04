@@ -7,6 +7,13 @@ extension _RelativesScreenSections on _RelativesScreenState {
     required bool isFriendsTree,
   }) {
     return [
+      if (!_isWideLayout(context))
+        IconButton(
+          key: const ValueKey<String>('relatives-search-toggle'),
+          icon: const Icon(Icons.search),
+          tooltip: 'Поиск',
+          onPressed: _openSearch,
+        ),
       IconButton(
         icon: const Icon(Icons.account_tree_outlined),
         // Ведёт на вкладку с уже выбранным деревом — «выбрать другое»

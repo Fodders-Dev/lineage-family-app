@@ -596,6 +596,11 @@ void main() {
     await pumpRelativesScreen(tester);
     expect(find.text('Кузнецов Анатолий Степанович'), findsNothing);
 
+    // Поиск на телефоне спрятан за иконкой в топбаре (как в чатах).
+    await tester.tap(
+      find.byKey(const ValueKey<String>('relatives-search-toggle')),
+    );
+    await tester.pump();
     await tester.enterText(
       find.widgetWithText(TextField, 'Поиск среди родных'),
       'Анатолий Степанович',

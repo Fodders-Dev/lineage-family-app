@@ -104,6 +104,10 @@ class _RelativesScreenState extends State<RelativesScreen> {
   bool _isPendingRequestsLoading = true;
   String _searchQuery = '';
   late final TextEditingController _searchController;
+  // Мобильный поиск живёт в топбаре за иконкой (как в чатах) и
+  // раскрывается на месте заголовка — отдельной строки поиска нет.
+  final FocusNode _searchFocusNode = FocusNode();
+  bool _isSearchOpen = false;
 
   // F3: «Нужно пригласить» свёрнута по умолчанию; решение пользователя
   // живёт сессию (static — переживает переключение вкладок/экранов).
@@ -166,6 +170,7 @@ class _RelativesScreenState extends State<RelativesScreen> {
     _cancelSubscriptions();
     _treeProviderInstance?.removeListener(_handleTreeChange);
     _searchController.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -566,7 +571,11 @@ class _RelativesScreenState extends State<RelativesScreen> {
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 1420),
                         child: Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                          // На телефоне список идёт сразу под шапкой:
+                          // строка поиска переехала в топбар.
+                          padding: isWideLayout
+                              ? const EdgeInsets.fromLTRB(16, 12, 16, 16)
+                              : const EdgeInsets.fromLTRB(10, 0, 10, 8),
                           child: isWideLayout
                               ? Column(
                                   children: [
@@ -619,19 +628,18 @@ class _RelativesScreenState extends State<RelativesScreen> {
                                     ),
                                   ],
                                 )
-                              : Column(
+                              : PopScope(
+                                  canPop: !_isSearchOpen,
+                                  onPopInvokedWithResult: (didPop, _) {
+                                    if (!didPop) _closeSearch();
+                                  },
+                                  child: Column(
                                   children: [
                                     _maybeConflictTreeBanner(),
                                     if (_showSecondaryLoadingStrip) ...[
                                       const SizedBox(height: 10),
                                       _buildSecondaryLoadingStrip(),
                                     ],
-                                    const SizedBox(height: 12),
-                                    _buildRelativesSearchField(
-                                      theme: theme,
-                                      tokens: tokens,
-                                    ),
-                                    const SizedBox(height: 12),
                                     Expanded(
                                       child: _buildRelativesList(
                                         key: ValueKey(
@@ -642,6 +650,7 @@ class _RelativesScreenState extends State<RelativesScreen> {
                                       ),
                                     ),
                                   ],
+                                ),
                                 ),
                         ),
                       ),
@@ -987,6 +996,69 @@ class _RelativesScreenState extends State<RelativesScreen> {
         ],
       ),
     );
+  }
+
+  void _openSearch() {
+    if (_isSearchOpen) return;
+    setState(() => _isSearchOpen = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _searchFocusNode.requestFocus();
+    });
+  }
+
+  void _closeSearch() {
+    if (!_isSearchOpen) return;
+    _searchFocusNode.unfocus();
+    _searchController.clear();
+    setState(() => _isSearchOpen = false);
+  }
+
+  /// Раскрытый поиск в топбаре: стрелка «назад» + поле во всю ширину.
+  List<Widget> _buildTopbarSearchRow(RodnyaDesignTokens tokens) {
+    return [
+      IconButton(
+        tooltip: 'Закрыть поиск',
+        icon: const Icon(Icons.arrow_back),
+        onPressed: _closeSearch,
+      ),
+      Expanded(
+        child: TextField(
+          key: const ValueKey<String>('relatives-search-field'),
+          controller: _searchController,
+          focusNode: _searchFocusNode,
+          autofocus: true,
+          textAlignVertical: TextAlignVertical.center,
+          style: AppTheme.sans(
+            color: tokens.ink,
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+          ),
+          cursorColor: tokens.accent,
+          decoration: InputDecoration(
+            isCollapsed: true,
+            filled: false,
+            border: InputBorder.none,
+            enabledBorder: InputBorder.none,
+            focusedBorder: InputBorder.none,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+            hintText: 'Поиск среди родных',
+            hintStyle: AppTheme.sans(
+              color: tokens.inkMuted,
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+            ),
+            suffixIcon: _searchQuery.isNotEmpty
+                ? IconButton(
+                    tooltip: 'Очистить поиск',
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: _searchController.clear,
+                  )
+                : null,
+          ),
+        ),
+      ),
+    ];
   }
 
   Widget _buildRelativesSearchField({
@@ -1388,13 +1460,13 @@ class _RelativesScreenState extends State<RelativesScreen> {
                 onTap: item.onToggle,
                 child: Padding(
                   // ≥44dp тап-цель: 18+8 вертикальных отступов + строка.
-                  padding: const EdgeInsets.fromLTRB(4, 18, 4, 8),
+                  padding: const EdgeInsets.fromLTRB(4, 10, 4, 6),
                   child: headerRow,
                 ),
               );
             }
             return Padding(
-              padding: const EdgeInsets.fromLTRB(4, 18, 4, 8),
+              padding: const EdgeInsets.fromLTRB(4, 10, 4, 6),
               child: headerRow,
             );
           } else if (item is FamilyPerson) {
@@ -1978,29 +2050,45 @@ class _RelativesScreenState extends State<RelativesScreen> {
         child: SizedBox(
           height: AppTheme.topbarContentHeight,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 3, 12, 3),
+            padding: const EdgeInsets.fromLTRB(14, 3, 4, 3),
             child: Row(
               children: [
-                Text(
-                  isFriendsTree ? 'Круг' : 'Родные',
-                  style: AppTheme.serif(
-                    color: tokens.ink,
-                    fontSize: AppTheme.tabTitleFontSize,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -0.22,
+                if (_isSearchOpen && !_isWideLayout(context))
+                  ..._buildTopbarSearchRow(tokens)
+                else ...[
+                  // Заголовок и чип дерева — во вложенном Row внутри
+                  // Expanded: рядом со Spacer два Flexible делили бы
+                  // свободное место на троих, и заголовок резался в «Родн…».
+                  Expanded(
+                    child: Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            isFriendsTree ? 'Круг' : 'Родные',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.serif(
+                              color: tokens.ink,
+                              fontSize: AppTheme.tabTitleFontSize,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: -0.22,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        // Phase 6.1: branch switcher chip in the relatives
+                        // top bar so the user can flip "родители папа /
+                        // папина / семья жены" without leaving the screen.
+                        const Flexible(child: BranchSwitcherChip()),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                // Phase 6.1: branch switcher chip in the relatives
-                // top bar so the user can flip "родители папа /
-                // папина / семья жены" without leaving the screen.
-                const Flexible(child: BranchSwitcherChip()),
-                const Spacer(),
-                ..._buildRelativesAppBarActions(
-                  treeProvider: treeProvider,
-                  selectedTreeId: selectedTreeId,
-                  isFriendsTree: isFriendsTree,
-                ),
+                  ..._buildRelativesAppBarActions(
+                    treeProvider: treeProvider,
+                    selectedTreeId: selectedTreeId,
+                    isFriendsTree: isFriendsTree,
+                  ),
+                ],
               ],
             ),
           ),
