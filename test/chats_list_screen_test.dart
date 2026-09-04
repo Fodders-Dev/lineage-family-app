@@ -516,8 +516,9 @@ void main() {
     await tester.pumpWidget(buildApp());
     await tester.pumpAndSettle();
 
-    expect(find.byTooltip('Поиск'), findsNothing);
-    for (final tip in const ['Новый чат']) {
+    // Поиск снова в топбаре (раскрывается на месте заголовка, как в
+    // Telegram) — отдельной строки поиска под шапкой больше нет.
+    for (final tip in const ['Поиск', 'Новый чат']) {
       final size = tester.getSize(find.byTooltip(tip));
       expect(size.width, greaterThanOrEqualTo(48.0), reason: tip);
       expect(size.height, greaterThanOrEqualTo(48.0), reason: tip);
@@ -569,6 +570,11 @@ void main() {
     await tester.pump();
 
     expect(find.text('Чаты'), findsOneWidget);
+    // Мобильный поиск спрятан за иконкой в топбаре (как в Telegram):
+    // поле появляется только после тапа.
+    expect(find.byType(TextField), findsNothing);
+    await tester.tap(find.byKey(const ValueKey<String>('chats-search-toggle')));
+    await tester.pump();
     expect(find.byType(TextField), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsWidgets);
     expect(find.text('Пока нет чатов'), findsNothing);

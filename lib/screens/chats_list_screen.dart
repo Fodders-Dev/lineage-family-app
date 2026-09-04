@@ -133,6 +133,9 @@ class _ChatsListScreenState extends State<ChatsListScreen>
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   String _searchQuery = '';
+  // Мобильный поиск живёт в топбаре за иконкой (как в Telegram) и
+  // раскрывается на месте заголовка — отдельной строки поиска нет.
+  bool _isSearchOpen = false;
   _ChatsVisibilityFilter _activeFilter = _ChatsVisibilityFilter.all;
   TreeProvider? _treeProvider;
   String? _observedTreeId;
@@ -894,6 +897,21 @@ class _ChatsListScreenState extends State<ChatsListScreen>
     _setSearchQuery('');
   }
 
+  void _openSearch() {
+    if (_isSearchOpen) return;
+    setState(() => _isSearchOpen = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _searchFocusNode.requestFocus();
+    });
+  }
+
+  void _closeSearch() {
+    if (!_isSearchOpen) return;
+    _searchFocusNode.unfocus();
+    _clearSearchQuery();
+    setState(() => _isSearchOpen = false);
+  }
+
   void _setActiveFilter(_ChatsVisibilityFilter filter) {
     setState(() {
       _activeFilter = filter;
@@ -947,6 +965,111 @@ class _ChatsListScreenState extends State<ChatsListScreen>
     );
   }
 
+  /// Содержимое топбара: заголовок + переключатель дерева + иконки, либо
+  /// (мобильный, поиск открыт) стрелка «назад» + поле поиска во всю ширину.
+  /// Обзорной строки и отдельной строки поиска под шапкой нет — первый чат
+  /// начинается сразу под табами фильтров.
+  List<Widget> _buildChatsTopbarChildren(RodnyaDesignTokens tokens) {
+    final isWide = _isWideLayout(context);
+    if (_isSearchOpen && !isWide) {
+      final isFriends =
+          context.read<TreeProvider>().selectedTreeKind == TreeKind.friends;
+      return [
+        _buildTopbarPillButton(
+          tokens: tokens,
+          tooltip: 'Закрыть поиск',
+          onTap: _closeSearch,
+          child: Icon(Icons.arrow_back, size: 18, color: tokens.accent),
+        ),
+        const SizedBox(width: 2),
+        Expanded(
+          child: TextField(
+            key: const ValueKey<String>('chats-search-field'),
+            controller: _searchController,
+            focusNode: _searchFocusNode,
+            autofocus: true,
+            textAlignVertical: TextAlignVertical.center,
+            onChanged: (value) {
+              _setSearchQuery(value.trim().toLowerCase());
+            },
+            style: AppTheme.sans(
+              color: tokens.ink,
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+            ),
+            decoration: InputDecoration(
+              isCollapsed: true,
+              filled: false,
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+              hintText:
+                  isFriends ? 'Поиск чатов и людей круга' : 'Поиск чатов и людей',
+              hintStyle: AppTheme.sans(
+                color: tokens.inkMuted,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      tooltip: 'Очистить поиск',
+                      icon: const Icon(Icons.close, size: 18),
+                      onPressed: _clearSearchQuery,
+                    )
+                  : null,
+            ),
+          ),
+        ),
+      ];
+    }
+    return [
+      // Переключатель дерева — в топбаре, как на главной.
+      Expanded(
+        child: Row(
+          children: [
+            Flexible(
+              child: Text(
+                'Чаты',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTheme.serif(
+                  color: tokens.ink,
+                  fontSize: AppTheme.tabTitleFontSize,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.22,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Flexible(child: BranchSwitcherChip()),
+          ],
+        ),
+      ),
+      if (!isWide)
+        KeyedSubtree(
+          key: const ValueKey<String>('chats-search-toggle'),
+          child: _buildTopbarPillButton(
+            tokens: tokens,
+            tooltip: 'Поиск',
+            onTap: _openSearch,
+            child: Icon(Icons.search, size: 18, color: tokens.accent),
+          ),
+        ),
+      _buildTopbarPillButton(
+        tokens: tokens,
+        tooltip: 'Новый чат',
+        onTap: _openChatComposer,
+        child: Icon(
+          Icons.edit_outlined,
+          size: 18,
+          color: tokens.accent,
+        ),
+      ),
+    ];
+  }
+
   Widget _buildChatsTopbar({
     required ThemeData theme,
     required RodnyaDesignTokens tokens,
@@ -977,41 +1100,7 @@ class _ChatsListScreenState extends State<ChatsListScreen>
             // Q3: 6pt vertical (was 8) so the 48pt touch targets fit.
             padding: const EdgeInsets.fromLTRB(14, 3, 8, 3),
             child: Row(
-              children: [
-                // Переключатель дерева — в топбаре, как на главной: обзорная
-                // строка под шапкой убрана ради первого экрана чатов.
-                Expanded(
-                  child: Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          'Чаты',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTheme.serif(
-                            color: tokens.ink,
-                            fontSize: AppTheme.tabTitleFontSize,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: -0.22,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      const Flexible(child: BranchSwitcherChip()),
-                    ],
-                  ),
-                ),
-                _buildTopbarPillButton(
-                  tokens: tokens,
-                  tooltip: 'Новый чат',
-                  onTap: _openChatComposer,
-                  child: Icon(
-                    Icons.edit_outlined,
-                    size: 18,
-                    color: tokens.accent,
-                  ),
-                ),
-              ],
+              children: _buildChatsTopbarChildren(tokens),
             ),
           ),
         ),

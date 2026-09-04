@@ -240,18 +240,24 @@ extension _ChatsListScreenSections on _ChatsListScreenState {
     // Мобильный список без «обзорной» строки: переключатель дерева живёт в
     // топбаре (как на главной), счётчик новых — на бейдже вкладки. Первый
     // чат должен начинаться сразу под поиском и табами, как в Telegram.
-    return Column(
-      children: [
-        _buildSearchBar(theme, compact: true),
-        _buildFilterBar(theme, compact: true),
-        Expanded(
-          child: showInitialLoading
-              ? _buildInitialLoadingState(theme)
-              : _chatPreviews.isEmpty && _searchQuery.isEmpty
-                  ? _buildEmptyState(theme)
-                  : _buildChatList(theme, currentUserId),
-        ),
-      ],
+    // Системный «назад» при открытом поиске закрывает поиск, а не вкладку.
+    return PopScope(
+      canPop: !_isSearchOpen,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _closeSearch();
+      },
+      child: Column(
+        children: [
+          _buildFilterBar(theme, compact: true),
+          Expanded(
+            child: showInitialLoading
+                ? _buildInitialLoadingState(theme)
+                : _chatPreviews.isEmpty && _searchQuery.isEmpty
+                    ? _buildEmptyState(theme)
+                    : _buildChatList(theme, currentUserId),
+          ),
+        ],
+      ),
     );
   }
 
@@ -497,7 +503,12 @@ extension _ChatsListScreenSections on _ChatsListScreenState {
   Widget _buildFilterBar(ThemeData theme, {bool compact = false}) {
     final archivedCount = _archivedPreviewCount();
     return Padding(
-      padding: EdgeInsets.fromLTRB(compact ? 4 : 12, 0, 12, compact ? 0 : 12),
+      padding: EdgeInsets.fromLTRB(
+        compact ? 4 : 12,
+        compact ? 2 : 0,
+        12,
+        compact ? 0 : 12,
+      ),
       child: compact
           ? _buildFilterTabs(theme, archivedCount: archivedCount)
           : Wrap(
