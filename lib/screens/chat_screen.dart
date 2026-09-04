@@ -3421,6 +3421,19 @@ class _ChatScreenState extends State<ChatScreen> {
   /// "show date while scrolling" pattern.
   void _updateFloatingDayHeader() {
     if (!mounted) return;
+    // Плавающая плашка дня дублирует разделитель в списке, когда тот и так
+    // на экране: история короткая (не скроллится) или проскроллена до
+    // самого начала, где первый разделитель стоит прямо под шапкой.
+    if (_messagesScrollController.hasClients) {
+      final position = _messagesScrollController.position;
+      if (position.maxScrollExtent <= 0 ||
+          position.pixels >= position.maxScrollExtent - 4) {
+        if (_floatingHeaderVisible) {
+          setState(() => _floatingHeaderVisible = false);
+        }
+        return;
+      }
+    }
     DateTime? bestDay;
     ChatMessage? bestMessage;
     double bestDy = double.infinity;
@@ -5106,16 +5119,18 @@ class _ChatScreenState extends State<ChatScreen> {
   /// change — this is the composer that used to be inlined.
   Widget _buildIdleComposer(bool canSend, bool isLockedRecording) {
     final recordingState = _recordingController.state;
+    // Одна рамка, а не «овал в овале»: капсула композера и есть поле ввода
+    // (как у Telegram), кнопки — плоские иконки внутри неё.
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        8,
-        4,
-        8,
-        MediaQuery.of(context).padding.bottom + 8,
+        6,
+        2,
+        6,
+        MediaQuery.of(context).padding.bottom + 6,
       ),
       child: GlassPanel(
-        padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-        borderRadius: BorderRadius.circular(28),
+        padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
+        borderRadius: BorderRadius.circular(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -5327,9 +5342,8 @@ class _ChatScreenState extends State<ChatScreen> {
               // multi-line still grows downward via TextField.maxLines.
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Attach button — flat 38x38 surface pill, matches reference
-                // `.iconbtn`. The previous IconButton.filledTonal looked too
-                // heavy next to the new pill input.
+                // Кнопка вложений — плоская иконка без рамки (44dp
+                // тач-таргет остаётся): рамок внутри капсулы быть не должно.
                 _ComposerIconButton(
                   icon: Icons.attach_file_rounded,
                   tooltip: 'Добавить вложение',
@@ -5337,40 +5351,16 @@ class _ChatScreenState extends State<ChatScreen> {
                       ? null
                       : _openAttachmentPicker,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 2),
                 Expanded(
                   child: Container(
-                    // Reference `.composer .input`: 42 height, soft
-                    // 22dp rounded corners, surface-strong bg,
-                    // surface-line border.
-                    //
-                    // Was `borderRadius: 999` (full stadium) — that
-                    // looked great single-line but on multi-line the
-                    // pill stayed stadium-shaped which pulled the
-                    // rounded corners INTO the text area. Letters at
-                    // the start of the first / last lines visually
-                    // clipped against the curve ("буквы убегают за
-                    // рамки"). Telegram / WhatsApp use a fixed
-                    // medium-rounded shape that stays consistent as
-                    // the composer grows — same approach here.
-                    constraints: const BoxConstraints(minHeight: 42),
+                    // Поле без собственной рамки и фона: раньше внутри
+                    // капсулы композера был второй овал («овал в овале»,
+                    // жалоба пользователя). Скругление одно — у капсулы.
+                    constraints: const BoxConstraints(minHeight: 40),
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .surface
-                          .withValues(alpha: 0.95),
-                      borderRadius: BorderRadius.circular(22),
-                      border: Border.all(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .outlineVariant
-                            .withValues(alpha: 0.55),
-                        width: 0.7,
-                      ),
+                      horizontal: 10,
+                      vertical: 9,
                     ),
                     // Focus wrapper owns the key event interception;
                     // TextField gets its own internal FocusNode.
@@ -5629,8 +5619,8 @@ class _ChatScreenState extends State<ChatScreen> {
               ? 'Зажмите для кружочка, тап чтобы переключить на голосовое'
               : 'Зажмите для голосового, тап чтобы переключить на кружочек',
           child: Container(
-            width: 48,
-            height: 48,
+            width: 44,
+            height: 44,
             decoration: BoxDecoration(
               color: scheme.primary,
               shape: BoxShape.circle,
@@ -10579,21 +10569,14 @@ class _ComposerIconButton extends StatelessWidget {
           customBorder: const CircleBorder(),
           onTap: onPressed,
           child: Container(
-            // M3 (50+): 44dp вместо 38 — тач-таргет вложений по гайдлайну.
+            // M3 (50+): 44dp тач-таргет; без фона и рамки — плоская иконка
+            // внутри капсулы композера.
             width: 44,
             height: 44,
-            decoration: BoxDecoration(
-              color: scheme.surface.withValues(alpha: 0.92),
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: scheme.outlineVariant.withValues(alpha: 0.55),
-                width: 0.7,
-              ),
-            ),
             alignment: Alignment.center,
             child: Icon(
               icon,
-              size: 20,
+              size: 22,
               color: isEnabled
                   ? scheme.onSurface.withValues(alpha: 0.78)
                   : scheme.onSurface.withValues(alpha: 0.32),

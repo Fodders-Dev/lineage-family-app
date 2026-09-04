@@ -680,11 +680,17 @@ void main() {
 
   testWidgets('ChatsListScreen склоняет overview counts корректно',
       (tester) async {
+    // Обзорная строка (контекст дерева + счётчик новых) осталась только в
+    // десктопной панели; на мобильном первый чат идёт сразу под табами.
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
     await tester.pumpWidget(buildApp());
     await tester.pumpAndSettle();
 
     expect(find.text('Семья Кузнецовых'), findsAtLeastNWidgets(1));
-    expect(find.text('Новых нет'), findsOneWidget);
+    expect(find.text('Нет непрочитанных'), findsOneWidget);
   });
 
   testWidgets('Mobile chat filters stay in one compact row', (tester) async {
@@ -910,7 +916,7 @@ void main() {
     expect(find.text('Мария Понькина'), findsOneWidget);
     expect(find.text('1 чат в архиве'), findsWidgets);
 
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Архив (1)'));
+    await tester.tap(find.byKey(const ValueKey<String>('chats-filter-archive')));
     await tester.pumpAndSettle();
 
     expect(find.text('Иван Кузнецов'), findsOneWidget);
@@ -942,7 +948,7 @@ void main() {
     await tester.pumpWidget(buildApp(archiveStore: archiveStore));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Архив (1)'));
+    await tester.tap(find.byKey(const ValueKey<String>('chats-filter-archive')));
     await tester.pumpAndSettle();
 
     expect(find.text('Иван Кузнецов'), findsOneWidget);

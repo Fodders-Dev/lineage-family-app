@@ -30,6 +30,7 @@ import '../theme/app_theme.dart';
 import '../utils/date_parser.dart';
 import '../utils/photo_url.dart';
 import '../utils/user_facing_error.dart';
+import '../widgets/branch_switcher_chip.dart';
 import '../widgets/glass_panel.dart';
 import '../widgets/rodnya_avatar.dart';
 import 'chat_screen.dart';
@@ -974,19 +975,32 @@ class _ChatsListScreenState extends State<ChatsListScreen>
           height: AppTheme.topbarContentHeight,
           child: Padding(
             // Q3: 6pt vertical (was 8) so the 48pt touch targets fit.
-            padding: const EdgeInsets.fromLTRB(18, 3, 12, 3),
+            padding: const EdgeInsets.fromLTRB(14, 3, 8, 3),
             child: Row(
               children: [
-                Text(
-                  'Чаты',
-                  style: AppTheme.serif(
-                    color: tokens.ink,
-                    fontSize: AppTheme.tabTitleFontSize,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -0.22,
+                // Переключатель дерева — в топбаре, как на главной: обзорная
+                // строка под шапкой убрана ради первого экрана чатов.
+                Expanded(
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          'Чаты',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.serif(
+                            color: tokens.ink,
+                            fontSize: AppTheme.tabTitleFontSize,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: -0.22,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Flexible(child: BranchSwitcherChip()),
+                    ],
                   ),
                 ),
-                const Spacer(),
                 _buildTopbarPillButton(
                   tokens: tokens,
                   tooltip: 'Новый чат',
@@ -1416,7 +1430,7 @@ class _ChatsListScreenState extends State<ChatsListScreen>
         await Future<void>.delayed(const Duration(milliseconds: 600));
       },
       child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(10, 2, 10, 12),
+        padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
         itemCount: totalCount,
         // Each tile gets its own RepaintBoundary so repaints triggered by
         // unread-count animation, timestamp ticking, or selection state on
@@ -1636,7 +1650,7 @@ class _ChatsListScreenState extends State<ChatsListScreen>
         _selectedChat?.chatId == chat.chatId && _isWideLayout(context);
     return Padding(
       key: ValueKey<String>('chat-tile-${chat.chatId}'),
-      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Material(
         color: isOpenInPane
             ? tokens.accent.withValues(alpha: 0.12)
@@ -1655,7 +1669,7 @@ class _ChatsListScreenState extends State<ChatsListScreen>
           ),
           onLongPress: () => _openChatActions(chat),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+            padding: const EdgeInsets.fromLTRB(12, 7, 12, 7),
             child: Row(
               children: [
                 Stack(

@@ -237,15 +237,11 @@ extension _ChatsListScreenSections on _ChatsListScreenState {
     required String? selectedTreeName,
     required bool showInitialLoading,
   }) {
+    // Мобильный список без «обзорной» строки: переключатель дерева живёт в
+    // топбаре (как на главной), счётчик новых — на бейдже вкладки. Первый
+    // чат должен начинаться сразу под поиском и табами, как в Telegram.
     return Column(
       children: [
-        _buildChatsOverview(
-          theme,
-          isFriendsTree: isFriendsTree,
-          selectedTreeName: selectedTreeName,
-          showLoadingPulse: showInitialLoading,
-          compact: true,
-        ),
         _buildSearchBar(theme, compact: true),
         _buildFilterBar(theme, compact: true),
         Expanded(
@@ -454,14 +450,14 @@ extension _ChatsListScreenSections on _ChatsListScreenState {
 
   Widget _buildSearchBar(ThemeData theme, {bool compact = false}) {
     return Padding(
-      padding: EdgeInsets.fromLTRB(12, compact ? 5 : 8, 12, compact ? 6 : 10),
+      padding: EdgeInsets.fromLTRB(10, compact ? 6 : 8, 10, compact ? 4 : 10),
       child: GlassPanel(
         padding: EdgeInsets.zero,
         blur: 12,
-        borderRadius: BorderRadius.circular(compact ? 16 : 18),
+        borderRadius: BorderRadius.circular(compact ? 14 : 18),
         color: theme.colorScheme.surface.withValues(alpha: 0.72),
         child: SizedBox(
-          height: compact ? 44 : null,
+          height: compact ? 40 : null,
           child: TextField(
             controller: _searchController,
             focusNode: _searchFocusNode,
@@ -501,20 +497,9 @@ extension _ChatsListScreenSections on _ChatsListScreenState {
   Widget _buildFilterBar(ThemeData theme, {bool compact = false}) {
     final archivedCount = _archivedPreviewCount();
     return Padding(
-      padding: EdgeInsets.fromLTRB(12, 0, 12, compact ? 4 : 12),
+      padding: EdgeInsets.fromLTRB(compact ? 4 : 12, 0, 12, compact ? 0 : 12),
       child: compact
-          ? SizedBox(
-              height: 38,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(),
-                children: _buildFilterChips(
-                  theme,
-                  archivedCount: archivedCount,
-                  compact: true,
-                ),
-              ),
-            )
+          ? _buildFilterTabs(theme, archivedCount: archivedCount)
           : Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -524,6 +509,79 @@ extension _ChatsListScreenSections on _ChatsListScreenState {
               ),
             ),
     );
+  }
+
+  /// Мобильные фильтры — текстовые табы с подчёркиванием (как папки в
+  /// Telegram), а не чипы: та же функция, вдвое ниже и без рамок.
+  Widget _buildFilterTabs(ThemeData theme, {required int archivedCount}) {
+    final entries = <MapEntry<_ChatsVisibilityFilter, String>>[
+      const MapEntry(_ChatsVisibilityFilter.all, 'Все'),
+      const MapEntry(_ChatsVisibilityFilter.unread, 'Непрочитанные'),
+      MapEntry(
+        _ChatsVisibilityFilter.archived,
+        archivedCount > 0 ? 'Архив ($archivedCount)' : 'Архив',
+      ),
+    ];
+    return SizedBox(
+      height: 34,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        children: [
+          for (final entry in entries)
+            _buildFilterTab(theme, filter: entry.key, label: entry.value),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterTab(
+    ThemeData theme, {
+    required _ChatsVisibilityFilter filter,
+    required String label,
+  }) {
+    final selected = _activeFilter == filter;
+    final color = selected
+        ? theme.colorScheme.primary
+        : theme.colorScheme.onSurfaceVariant;
+    return InkWell(
+      key: ValueKey<String>('chats-filter-${_filterKeySuffix(filter)}'),
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => _setActiveFilter(filter),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              label,
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: color,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 3),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              curve: Curves.easeOutCubic,
+              height: 2.5,
+              width: selected ? 22 : 0,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Ключи табов совпадают с ключами десктопных чипов — на них завязаны тесты.
+  String _filterKeySuffix(_ChatsVisibilityFilter filter) {
+    if (filter == _ChatsVisibilityFilter.unread) return 'unread';
+    if (filter == _ChatsVisibilityFilter.archived) return 'archive';
+    return 'all';
   }
 
   List<Widget> _buildFilterChips(

@@ -13,6 +13,21 @@
         "--dart-define=RODNYA_RUNTIME_PRESET=prod_custom_api"
       ],
       "port": 8090
+    },
+    {
+      "name": "rodnya-web-local",
+      "runtimeExecutable": "flutter",
+      "runtimeArgs": [
+        "run",
+        "-d",
+        "web-server",
+        "--web-port",
+        "8090",
+        "--dart-define=RODNYA_RUNTIME_PRESET=prod_custom_api",
+        "--dart-define=RODNYA_API_BASE_URL=http://localhost:8095",
+        "--dart-define=RODNYA_PUBLIC_APP_URL=http://localhost:8090"
+      ],
+      "port": 8090
     }
   ]
 }
