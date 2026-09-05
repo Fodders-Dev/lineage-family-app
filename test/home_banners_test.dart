@@ -136,7 +136,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Разрешите автозапуск «Родне»'), findsOneWidget);
-      expect(find.text('Разрешить автозапуск'), findsOneWidget);
+      // Плотность, чанк 17: полноширинная кнопка «Разрешить автозапуск» →
+      // компактная «Настроить» в строке (тот же обработчик _openSettings).
+      expect(find.text('Настроить'), findsOneWidget);
 
       final closeSize = tester.getSize(find.byTooltip('Скрыть'));
       expect(closeSize.width, greaterThanOrEqualTo(44.0));

@@ -104,71 +104,63 @@ class _BatteryOptimizationCardState extends State<BatteryOptimizationCard> {
     final tokens = theme.extension<RodnyaDesignTokens>() ??
         (isDark ? RodnyaDesignTokens.dark : RodnyaDesignTokens.light);
 
-    // Keep this practical: the target user needs to know exactly which
-    // Android switches to look for, especially on Huawei/Honor firmware.
+    // Плотность, чанк 17 (05.09.2026): рамка-карточка + заголовок + 4-строчный
+    // абзац с точными названиями вендорских меню + полноширинная кнопка
+    // (~150dp) → одна-две строки. Точные названия пунктов меню
+    // (Huawei/Honor «Запуск приложений», Xiaomi «Автозапуск») по-прежнему
+    // важны — их не выбросили, а перенесли из текста плашки в комментарий:
+    // кнопка «Настроить» ведёт на нужный экран настроек напрямую, так что
+    // навигация по названиям меню тут не нужна вовсе. Показ/дисмисс/
+    // обработчик кнопки — без изменений.
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
       child: Material(
-        color: tokens.surfaceStrong.withValues(alpha: isDark ? 0.92 : 0.96),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(tokens.radiusMd),
-          side: BorderSide(color: tokens.warm.withValues(alpha: 0.45)),
-        ),
+        color: tokens.warm.withValues(alpha: isDark ? 0.16 : 0.10),
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+          padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Icon(
-                  Icons.battery_alert_rounded,
-                  size: 18,
-                  color: tokens.warm,
-                ),
+              Icon(
+                Icons.battery_alert_rounded,
+                size: 20,
+                color: tokens.warm,
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       'Разрешите автозапуск «Родне»',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w800,
                         color: tokens.ink,
                       ),
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 1),
                     Text(
-                      'Иначе звонки и сообщения не придут, когда приложение '
-                      'закрыто. Нажмите кнопку и включите «Родню» в списке '
-                      'автозапуска (на Huawei/Honor — «Запуск приложений», на '
-                      'Xiaomi — «Автозапуск»). Заодно поставьте батарею — '
-                      '«Без ограничений».',
+                      'Иначе звонки и сообщения не дойдут, пока приложение закрыто.',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: tokens.inkSecondary,
-                        height: 1.3,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: FilledButton.icon(
-                        onPressed: _openSettings,
-                        icon: const Icon(Icons.settings_rounded, size: 18),
-                        label: const Text('Разрешить автозапуск'),
-                        style: FilledButton.styleFrom(
-                          visualDensity: VisualDensity.compact,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                        ),
                       ),
                     ),
                   ],
                 ),
+              ),
+              const SizedBox(width: 6),
+              TextButton(
+                onPressed: _openSettings,
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(0, 44),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+                child: const Text('Настроить'),
               ),
               // ≥44dp тап-таргет закрытия (2c-ритм).
               IconButton(
