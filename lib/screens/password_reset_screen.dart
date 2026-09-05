@@ -92,34 +92,20 @@ class _PasswordResetScreenState extends State<PasswordResetScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Container(
-                        width: 52,
-                        height: 52,
-                        decoration: BoxDecoration(
-                          color:
-                              theme.colorScheme.primary.withValues(alpha: 0.14),
-                          borderRadius: BorderRadius.circular(18),
-                        ),
-                        child: Icon(
-                          Icons.lock_reset_rounded,
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Сброс пароля',
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
+                      // Density chunk 18: AppBar title already says
+                      // «Сброс пароля» — the 52dp icon box + a second,
+                      // identical headline underneath it duplicated that
+                      // (~106dp of card height for nothing new). One
+                      // explanatory line is enough; field + button follow
+                      // immediately (no card-in-card).
                       Text(
                         'Введите email, на который вы регистрировались. Если такой адрес есть в системе, мы пришлём ссылку на сброс пароля. Ссылка действительна 24 часа.',
                         style: theme.textTheme.bodyMedium?.copyWith(
+                          fontSize: 14,
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 14),
                       TextFormField(
                         controller: _emailController,
                         decoration: InputDecoration(
