@@ -195,7 +195,7 @@ class AppUpdateBanner extends StatelessWidget {
                         const SizedBox(height: 1),
                         Text(
                           subtitle,
-                          maxLines: 1,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
                             fontSize: 13,

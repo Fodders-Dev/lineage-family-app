@@ -90,7 +90,37 @@ class _BatteryOptimizationCardState extends State<BatteryOptimizationCard> {
     //    vendor, firmware drift, missing permission), open the general app
     //    settings so the user always lands on *some* useful screen.
     if (!openedAutostart) {
-      await openAppSettings();
+      // Прямого перехода нет (современные Huawei/HarmonyOS блокируют
+      // deep-link, неизвестный вендор) — человек попадёт в общие настройки
+      // приложения и без подсказки не найдёт нужный пункт. Названия меню
+      // по вендорам раньше жили в тексте плашки на всех телефонах; теперь
+      // их видят только те, кому они реально нужны — здесь.
+      if (!mounted) return;
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Включите автозапуск вручную'),
+          content: const Text(
+            'Сейчас откроются настройки приложения. Найдите там пункт '
+            '«Запуск приложений» (Huawei, Honor) или «Автозапуск» '
+            '(Xiaomi) и включите «Родню», а батарею поставьте '
+            '«Без ограничений».',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Открыть настройки'),
+            ),
+          ],
+        ),
+      );
+      if (proceed == true) {
+        await openAppSettings();
+      }
     }
   }
 
@@ -144,9 +174,10 @@ class _BatteryOptimizationCardState extends State<BatteryOptimizationCard> {
                     const SizedBox(height: 1),
                     Text(
                       'Иначе звонки и сообщения не дойдут, пока приложение закрыто.',
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
+                        fontSize: 13,
                         color: tokens.inkSecondary,
                       ),
                     ),

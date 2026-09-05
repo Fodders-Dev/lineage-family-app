@@ -49,69 +49,82 @@ class OfflineIndicator extends StatelessWidget {
           message = issue?.message ?? 'Не удалось обновить данные.';
         }
 
-        return Material(
-          color: Colors.transparent,
-          child: Container(
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: backgroundColor,
-              border: Border(
-                bottom: BorderSide(
-                  color: foregroundColor.withValues(alpha: 0.18),
+        // В мобильном шелле полоса — самый верхний элемент без инсета
+        // (как у AppUpdateBanner, FX-A): без SafeArea текст уходит под
+        // статус-бар. Под AppBar чата и внутри SafeArea экрана входа
+        // MediaQuery.padding.top уже снят, и этот SafeArea ничего не
+        // добавляет.
+        return SafeArea(
+          top: true,
+          bottom: false,
+          left: false,
+          right: false,
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: backgroundColor,
+                border: Border(
+                  bottom: BorderSide(
+                    color: foregroundColor.withValues(alpha: 0.18),
+                  ),
                 ),
               ),
-            ),
-            padding: const EdgeInsets.fromLTRB(14, 2, 6, 2),
-            child: Row(
-              children: [
-                Icon(icon, color: foregroundColor, size: 20),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    message,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
+              padding: const EdgeInsets.fromLTRB(14, 2, 6, 2),
+              child: Row(
+                children: [
+                  Icon(icon, color: foregroundColor, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      message,
+                      // issue?.message приходит с сервера и бывает длинным —
+                      // две строки, чтобы не резать смысл многоточием.
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: foregroundColor,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                  if (showRetryAction)
+                    TextButton(
+                      onPressed: appStatusService.requestRetry,
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(0, 44),
+                        foregroundColor: foregroundColor,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                      child: const Text('Повторить'),
+                    ),
+                  if (showLoginAction)
+                    TextButton(
+                      onPressed: () {
+                        appStatusService.clearSessionIssue();
+                        context.go('/login');
+                      },
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(0, 44),
+                        foregroundColor: foregroundColor,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                      child: const Text('Войти'),
+                    )
+                  else if (!appStatusService.isOffline)
+                    IconButton(
+                      tooltip: 'Скрыть',
+                      onPressed: appStatusService.clearIssue,
+                      icon: const Icon(Icons.close, size: 18),
                       color: foregroundColor,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
+                      constraints:
+                          const BoxConstraints(minWidth: 44, minHeight: 44),
+                      padding: EdgeInsets.zero,
                     ),
-                  ),
-                ),
-                if (showRetryAction)
-                  TextButton(
-                    onPressed: appStatusService.requestRetry,
-                    style: TextButton.styleFrom(
-                      minimumSize: const Size(0, 44),
-                      foregroundColor: foregroundColor,
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                    ),
-                    child: const Text('Повторить'),
-                  ),
-                if (showLoginAction)
-                  TextButton(
-                    onPressed: () {
-                      appStatusService.clearSessionIssue();
-                      context.go('/login');
-                    },
-                    style: TextButton.styleFrom(
-                      minimumSize: const Size(0, 44),
-                      foregroundColor: foregroundColor,
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                    ),
-                    child: const Text('Войти'),
-                  )
-                else if (!appStatusService.isOffline)
-                  IconButton(
-                    tooltip: 'Скрыть',
-                    onPressed: appStatusService.clearIssue,
-                    icon: const Icon(Icons.close, size: 18),
-                    color: foregroundColor,
-                    constraints:
-                        const BoxConstraints(minWidth: 44, minHeight: 44),
-                    padding: EdgeInsets.zero,
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         );

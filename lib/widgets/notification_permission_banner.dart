@@ -102,10 +102,12 @@ class _NotificationPermissionBannerState
           Expanded(
             child: Text(
               message,
-              maxLines: 1,
+              // Две строки, а не многоточие: на телефоне 360–412dp рядом с
+              // кнопкой и крестиком одна строка вмещает ~30 символов.
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodyMedium?.copyWith(
-                fontSize: 14,
+                fontSize: 15,
                 fontWeight: FontWeight.w600,
                 color: tokens.ink,
               ),
