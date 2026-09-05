@@ -813,13 +813,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               padding: EdgeInsets.only(right: isWide ? 356 : 0),
               child: CustomScrollView(
                 slivers: _buildProfileSlivers(
-                  theme: theme,
-                  scheme: scheme,
                   tokens: tokens,
                   isWide: isWide,
                   selectedTreeId: selectedTreeId,
-                  selectedTreeName: selectedTreeName,
-                  isFriendsTree: isFriendsTree,
                 ),
               ),
             ),
@@ -857,13 +853,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   List<Widget> _buildProfileSlivers({
-    required ThemeData theme,
-    required ColorScheme scheme,
     required RodnyaDesignTokens tokens,
     required bool isWide,
     required String? selectedTreeId,
-    required String? selectedTreeName,
-    required bool isFriendsTree,
   }) {
     return [
       // Redesign hero card — cover gradient + avatar
@@ -1000,106 +992,64 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
         ),
-      // Quick «Карточки в дереве» entry — keeps the
-      // legacy /profile/offline_profiles button
-      // discoverable now that the dossier action row
-      // has been replaced by hero pills.
-      SliverToBoxAdapter(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 680),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-              child: PillButton(
-                label: _graphProfilesLabel(context),
-                icon: Icons.people_outline,
-                variant: PillButtonVariant.outlined,
-                onPressed: () {
-                  if (selectedTreeId == null) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          _graphSelectionHint(context),
+      // Wide layout only: «Профили» stays a standalone pill in the main
+      // column (the sidebar has its own boxed cards for tree-card /
+      // account / stories / profile-code — see
+      // `_buildProfileSidebarColumn`). Narrow layout folds this into the
+      // unified quick-actions list below instead.
+      if (isWide)
+        SliverToBoxAdapter(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 680),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                child: PillButton(
+                  label: _graphProfilesLabel(context),
+                  icon: Icons.people_outline,
+                  variant: PillButtonVariant.outlined,
+                  onPressed: () {
+                    if (selectedTreeId == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            _graphSelectionHint(context),
+                          ),
+                          action: SnackBarAction(
+                            label: 'Выбрать',
+                            onPressed: () => context.go('/tree'),
+                          ),
                         ),
-                        action: SnackBarAction(
-                          label: 'Выбрать',
-                          onPressed: () => context.go('/tree'),
-                        ),
-                      ),
-                    );
-                  } else {
-                    context.push(
-                      '/profile/offline_profiles',
-                    );
-                  }
-                },
+                      );
+                    } else {
+                      context.push(
+                        '/profile/offline_profiles',
+                      );
+                    }
+                  },
+                ),
               ),
             ),
           ),
         ),
-      ),
-      // The next four sections move to the right
-      // sidebar when we're in wide layout — they're
-      // about *the user* (their tree slot, their
-      // account, their completion progress, their
-      // stories) rather than *their content*, so
-      // they read better as a contextual rail
-      // beside the posts feed.
-      if (!isWide && _selectedTreePerson != null)
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              16,
-              0,
-              16,
-              0,
-            ),
-            child: _buildTreeCardCompact(
-              context,
-              person: _selectedTreePerson!,
-              isFriendsTree: isFriendsTree,
-            ),
-          ),
-        ),
-      if (!isWide && _accountLinkingStatus != null)
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              16,
-              8,
-              16,
-              0,
-            ),
-            child: _buildAccountSettingsLink(scheme, theme),
-          ),
-        ),
-      // The ProfileCompletionMeterCard already lives
-      // inline with the hero (above), so nothing else
-      // needs the legacy meter widget here.
+      // Narrow layout: «Профили» / «Карточка в дереве» / «Настройки
+      // аккаунта» / «Истории» / «Профильный код» used to be five
+      // separate bordered cards stacked with 8-16dp gaps — a wall of
+      // single-row cards below the completion meter. Chunk 14 density
+      // pass merges them into one flat Telegram-style list (hairline
+      // dividers inside a single surface) via `_buildQuickActionsSection`
+      // in profile_screen_sections.dart. Wide layout is untouched —
+      // its sidebar column keeps the same four items in their own
+      // boxed cards (more room, different rhythm).
       if (!isWide)
         SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              16.0,
-              10.0,
-              16.0,
-              0,
-            ),
-            child: _buildStoriesRailSection(),
-          ),
-        ),
-      if (!isWide && _profileCodeLabel() != null)
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              16.0,
-              10.0,
-              16.0,
-              0,
-            ),
-            child: _buildProfileConnectionSection(
-              selectedTreeId: selectedTreeId,
-              selectedTreeName: selectedTreeName,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 680),
+              child: _buildQuickActionsSection(
+                tokens: tokens,
+                selectedTreeId: selectedTreeId,
+              ),
             ),
           ),
         ),

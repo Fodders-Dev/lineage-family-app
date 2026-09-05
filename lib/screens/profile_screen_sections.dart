@@ -141,13 +141,10 @@ extension _ProfileScreenSections on _ProfileScreenState {
     required String? selectedTreeId,
     required String? selectedTreeName,
   }) {
-    final profileCode = _profileCodeLabel();
-    if (profileCode == null) {
+    final content = _buildProfileCodeRowContent(selectedTreeId: selectedTreeId);
+    if (content == null) {
       return const SizedBox.shrink();
     }
-
-    final connectionLink =
-        _buildProfileConnectionLink(selectedTreeId, profileCode);
     final tokens = Theme.of(context).extension<RodnyaDesignTokens>() ??
         (Theme.of(context).brightness == Brightness.dark
             ? RodnyaDesignTokens.dark
@@ -160,75 +157,97 @@ extension _ProfileScreenSections on _ProfileScreenState {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: tokens.surfaceLine),
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: tokens.warmSoft,
-              borderRadius: BorderRadius.circular(13),
-            ),
-            child: Icon(
-              Icons.qr_code_2_rounded,
-              color: tokens.warm,
-              size: 21,
-            ),
+      child: content,
+    );
+  }
+
+  /// Row content shared by [_buildProfileConnectionSection] (wide
+  /// sidebar, boxed) and the flat quick-actions row in the narrow
+  /// layout — qr icon + «Профильный код» + copy/share (or a fallback
+  /// «Дерево» button when no tree is selected to link into). Returns
+  /// null when the user has no profile code yet — callers decide how
+  /// to skip the row (empty box vs. omitting it from a row list).
+  Widget? _buildProfileCodeRowContent({required String? selectedTreeId}) {
+    final profileCode = _profileCodeLabel();
+    if (profileCode == null) {
+      return null;
+    }
+
+    final connectionLink =
+        _buildProfileConnectionLink(selectedTreeId, profileCode);
+    final tokens = Theme.of(context).extension<RodnyaDesignTokens>() ??
+        (Theme.of(context).brightness == Brightness.dark
+            ? RodnyaDesignTokens.dark
+            : RodnyaDesignTokens.light);
+
+    return Row(
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: tokens.warmSoft,
+            borderRadius: BorderRadius.circular(13),
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Профильный код',
-                  style: AppTheme.sans(
-                    color: tokens.ink,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '@$profileCode',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTheme.sans(
-                    color: tokens.inkMuted,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0,
-                  ),
-                ),
-              ],
-            ),
+          child: Icon(
+            Icons.qr_code_2_rounded,
+            color: tokens.warm,
+            size: 21,
           ),
-          if (connectionLink == null)
-            OutlinedButton(
-              onPressed: () => context.go('/trees'),
-              style: OutlinedButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Профильный код',
+                style: AppTheme.sans(
+                  color: tokens.ink,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0,
+                ),
               ),
-              child: const Text('Дерево'),
-            )
-          else ...[
-            IconButton(
+              const SizedBox(height: 2),
+              Text(
+                '@$profileCode',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTheme.sans(
+                  color: tokens.inkMuted,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (connectionLink == null)
+          OutlinedButton(
+            onPressed: () => context.go('/trees'),
+            style: OutlinedButton.styleFrom(
               visualDensity: VisualDensity.compact,
-              tooltip: 'Скопировать ссылку',
-              onPressed: () => _copyProfileConnectionLink(connectionLink),
-              icon: const Icon(Icons.copy_outlined, size: 20),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              tooltip: 'Поделиться',
-              onPressed: () => _shareProfileConnectionLink(connectionLink),
-              icon: const Icon(Icons.share_outlined, size: 20),
-            ),
-          ],
+            child: const Text('Дерево'),
+          )
+        else ...[
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: 'Скопировать ссылку',
+            onPressed: () => _copyProfileConnectionLink(connectionLink),
+            icon: const Icon(Icons.copy_outlined, size: 20),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: 'Поделиться',
+            onPressed: () => _shareProfileConnectionLink(connectionLink),
+            icon: const Icon(Icons.share_outlined, size: 20),
+          ),
         ],
-      ),
+      ],
     );
   }
 
@@ -441,87 +460,102 @@ extension _ProfileScreenSections on _ProfileScreenState {
   // profile_screen.dart) so those helpers are gone.
 
   /// Compact "tree card" row — replaces the old big GraphContextBanner.
+  /// Used on the wide-layout sidebar, which keeps its own boxed rhythm
+  /// (see `_buildProfileSidebarColumn`); the narrow-layout quick-actions
+  /// list below reuses [_buildTreeCardRowContent] directly without the
+  /// extra GlassPanel border.
   Widget _buildTreeCardCompact(
     BuildContext context, {
     required FamilyPerson person,
     required bool isFriendsTree,
   }) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final photoCount = person.photoGallery.length;
-    final avatarImage = buildAvatarImageProvider(person.primaryPhotoUrl);
-
     return Padding(
       padding: const EdgeInsets.only(top: 10),
       child: GlassPanel(
         padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
         borderRadius: BorderRadius.circular(20),
         plain: true,
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundImage: avatarImage,
-              backgroundColor: scheme.primary.withValues(alpha: 0.12),
-              foregroundColor: scheme.primary,
-              child: avatarImage == null
-                  ? Text(
-                      person.initials,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 13,
-                      ),
-                    )
-                  : null,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Карточка в дереве',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 1),
-                  Text(
-                    person.displayName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              tooltip: photoCount == 0 ? 'Фото пока нет' : 'Фото ($photoCount)',
-              icon: const Icon(Icons.photo_library_outlined, size: 19),
-              onPressed: photoCount == 0
-                  ? null
-                  : () => _showSelectedTreePersonGallery(person),
-            ),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              tooltip: 'История',
-              icon: const Icon(Icons.history_outlined, size: 19),
-              onPressed: () => _showSelectedTreePersonHistory(person),
-            ),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              tooltip: 'Открыть карточку',
-              icon: const Icon(Icons.open_in_new_rounded, size: 19),
-              onPressed: () => context.push(
-                relativeDetailsRoute(person.id, treeId: person.treeId),
-              ),
-            ),
-          ],
-        ),
+        child: _buildTreeCardRowContent(context, person: person),
       ),
+    );
+  }
+
+  /// Row content shared by [_buildTreeCardCompact] (wide sidebar, boxed)
+  /// and the flat quick-actions row in the narrow (mobile) layout —
+  /// avatar + name + three compact icon actions.
+  Widget _buildTreeCardRowContent(
+    BuildContext context, {
+    required FamilyPerson person,
+  }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final photoCount = person.photoGallery.length;
+    final avatarImage = buildAvatarImageProvider(person.primaryPhotoUrl);
+
+    return Row(
+      children: [
+        CircleAvatar(
+          radius: 18,
+          backgroundImage: avatarImage,
+          backgroundColor: scheme.primary.withValues(alpha: 0.12),
+          foregroundColor: scheme.primary,
+          child: avatarImage == null
+              ? Text(
+                  person.initials,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                )
+              : null,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Карточка в дереве',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                person.displayName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+        // 40dp square icon actions (спека чанка 14) вместо IconButton с
+        // VisualDensity.compact — тот всё ещё тянул к дефолтным 48dp
+        // Material-констрейнтам, три штуки подряд плюс имя не влезали
+        // на 360dp без сжатия колонки с именем до нечитаемого хвоста.
+        _CompactSquareIconButton(
+          tooltip: photoCount == 0 ? 'Фото пока нет' : 'Фото ($photoCount)',
+          icon: Icons.photo_library_outlined,
+          onPressed: photoCount == 0
+              ? null
+              : () => _showSelectedTreePersonGallery(person),
+        ),
+        _CompactSquareIconButton(
+          tooltip: 'История',
+          icon: Icons.history_outlined,
+          onPressed: () => _showSelectedTreePersonHistory(person),
+        ),
+        _CompactSquareIconButton(
+          tooltip: 'Открыть карточку',
+          icon: Icons.open_in_new_rounded,
+          onPressed: () => context.push(
+            relativeDetailsRoute(person.id, treeId: person.treeId),
+          ),
+        ),
+      ],
     );
   }
 
@@ -597,6 +631,230 @@ extension _ProfileScreenSections on _ProfileScreenState {
           ),
         ],
       ),
+    );
+  }
+
+  // ── Chunk 14 density pass: unified quick-actions list ──────────────────
+  //
+  // «Профили» / «Карточка в дереве» / «Настройки аккаунта» / «Истории» /
+  // «Профильный код» used to be five separate bordered cards stacked with
+  // 8-16dp gaps between them on the narrow (mobile) layout — each one
+  // mostly white space around a single line of real content. Telegram
+  // groups exactly this kind of «about the account, not the content» rows
+  // into one flat list with hairline dividers inside a single surface —
+  // `_buildQuickActionsSection` is that list for the narrow layout. The
+  // wide layout keeps its own boxed sidebar column (`_buildAccountSettingsLink`
+  // / `_buildProfileConnectionSection` above, `_buildStoriesRailSection`
+  // elsewhere in this file) untouched — different rhythm, more room.
+
+  /// One row in [_buildQuickActionsSection]. `ListTile` + `VisualDensity
+  /// (vertical: -1)` is the row primitive already established for
+  /// settings/sessions density passes (see `settings_screen._buildActionRow`,
+  /// commit 46038c3) — reused here so the row picks up the theme's own
+  /// 16sp title / 13-14sp subtitle instead of hand-rolled font sizes.
+  Widget _buildMenuRow({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    Widget? trailing,
+    VoidCallback? onTap,
+  }) {
+    final tokens = Theme.of(context).extension<RodnyaDesignTokens>() ??
+        (Theme.of(context).brightness == Brightness.dark
+            ? RodnyaDesignTokens.dark
+            : RodnyaDesignTokens.light);
+    return ListTile(
+      visualDensity: const VisualDensity(vertical: -1),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+      onTap: onTap,
+      leading: Icon(icon, size: 24, color: tokens.accent),
+      title: Text(title),
+      subtitle: subtitle == null ? null : Text(subtitle),
+      trailing: trailing ??
+          (onTap != null
+              ? Icon(Icons.chevron_right_rounded, color: tokens.inkMuted)
+              : null),
+    );
+  }
+
+  /// «Настройки аккаунта» as a chevron row (spec: item 2) instead of the
+  /// boxed card + trailing «Настройки» button used on the wide sidebar
+  /// (`_buildAccountSettingsLink` above) — same title/subtitle logic.
+  Widget _buildAccountSettingsMenuRow() {
+    final status = _accountLinkingStatus;
+    final hasLinkedChannel =
+        status?.primaryTrustedChannel?.label.isNotEmpty == true;
+    return _buildMenuRow(
+      icon: Icons.shield_outlined,
+      title: hasLinkedChannel ? 'Аккаунт защищён' : 'Настройки аккаунта',
+      subtitle: hasLinkedChannel
+          ? 'Основной канал: ${status!.primaryTrustedChannel?.label}'
+          : null,
+      onTap: () => context.push('/profile/settings'),
+    );
+  }
+
+  /// «Истории · N» summary row + «Создать» action (spec: item 2) —
+  /// replaces the full `StoryRail` avatar strip on the narrow layout.
+  /// Browsing isn't lost: tapping the row opens the latest story via
+  /// [_openOwnStories], same route the rail's avatar tap used.
+  Widget _buildStoriesMenuRow() {
+    final count = _userStories.length;
+    String? subtitle;
+    if (_isLoadingStories && _userStories.isEmpty) {
+      subtitle = 'Загружаем…';
+    } else if (_storiesUnavailable) {
+      subtitle = 'Истории недоступны';
+    } else if (count == 0) {
+      subtitle = 'Добавьте первую историю';
+    }
+    return _buildMenuRow(
+      icon: Icons.auto_stories_outlined,
+      title: count == 0 ? 'Истории' : 'Истории · $count',
+      subtitle: subtitle,
+      trailing: TextButton.icon(
+        onPressed: _createOwnStory,
+        style: TextButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        icon: const Icon(Icons.add_rounded, size: 18),
+        label: const Text('Создать'),
+      ),
+      onTap: count == 0 ? null : _openOwnStories,
+    );
+  }
+
+  /// Same navigation the old `StoryRail`'s add-tile used
+  /// (`_buildStoriesRailSection.onCreateStory`), duplicated here rather
+  /// than shared because the two call sites diverge in surrounding UI
+  /// (rail vs. menu row) and this is the whole body.
+  Future<void> _createOwnStory() async {
+    final result = await context.push('/stories/create');
+    if (!mounted) return;
+    if (result == true && _currentUserId != null) {
+      _loadStoriesForContext(
+        selectedTreeId: context.read<TreeProvider>().selectedTreeId,
+        currentUserId: _currentUserId!,
+      );
+    }
+  }
+
+  /// Opens the most recently created own story — mirrors
+  /// `_buildStoriesRailSection.onOpenStories`'s «last after ascending
+  /// sort» pick, since the quick row has no per-story avatar to tap.
+  Future<void> _openOwnStories() async {
+    if (_userStories.isEmpty) return;
+    final sorted = List<Story>.from(_userStories)
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    final story = sorted.last;
+    await context.push('/stories/view/${story.treeId}/${story.authorId}');
+    if (!mounted) return;
+    if (_currentUserId != null) {
+      _loadStoriesForContext(
+        selectedTreeId: context.read<TreeProvider>().selectedTreeId,
+        currentUserId: _currentUserId!,
+      );
+    }
+  }
+
+  /// The merged flat list itself — one bordered surface, hairline
+  /// dividers between rows, radius 20 (spec: item 1's «скругление 20+»).
+  Widget _buildQuickActionsSection({
+    required RodnyaDesignTokens tokens,
+    required String? selectedTreeId,
+  }) {
+    final profileCodeRow =
+        _buildProfileCodeRowContent(selectedTreeId: selectedTreeId);
+
+    final rows = <Widget>[
+      _buildMenuRow(
+        icon: Icons.people_outline,
+        title: _graphProfilesLabel(context),
+        onTap: () {
+          if (selectedTreeId == null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(_graphSelectionHint(context)),
+                action: SnackBarAction(
+                  label: 'Выбрать',
+                  onPressed: () => context.go('/tree'),
+                ),
+              ),
+            );
+          } else {
+            context.push('/profile/offline_profiles');
+          }
+        },
+      ),
+      if (_selectedTreePerson != null)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          child: _buildTreeCardRowContent(context, person: _selectedTreePerson!),
+        ),
+      if (_accountLinkingStatus != null) _buildAccountSettingsMenuRow(),
+      _buildStoriesMenuRow(),
+      if (profileCodeRow != null)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          child: profileCodeRow,
+        ),
+    ];
+
+    final divider = Container(
+      margin: const EdgeInsets.only(left: 52),
+      height: 0.7,
+      color: tokens.surfaceLine.withValues(alpha: 0.7),
+    );
+    final spacedRows = <Widget>[];
+    for (var i = 0; i < rows.length; i++) {
+      spacedRows.add(rows[i]);
+      if (i != rows.length - 1) {
+        spacedRows.add(divider);
+      }
+    }
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      decoration: BoxDecoration(
+        color: tokens.surfaceStrong,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: tokens.surfaceLine),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Column(children: spacedRows),
+      ),
+    );
+  }
+}
+
+/// 40×40 icon action used inside the «Карточка в дереве» row (spec:
+/// item 1 — «три компактные иконки-действия (по 40dp)»). A plain
+/// `IconButton` even with `VisualDensity.compact` still measures near
+/// Material3's default 48dp minimum; tight constraints pin it to 40dp so
+/// three of these plus the name column fit a 360dp-wide screen without
+/// truncating the person's name.
+class _CompactSquareIconButton extends StatelessWidget {
+  const _CompactSquareIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      icon: Icon(icon, size: 18),
+      onPressed: onPressed,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+      visualDensity: VisualDensity.compact,
     );
   }
 }
