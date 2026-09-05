@@ -278,6 +278,20 @@ class AppTheme {
   /// крупнее только имя человека и заголовок дерева (осознанные акценты).
   static const double tabTitleFontSize = 20.0;
 
+  /// M3 (50+) — типографика полей ввода на уровне темы. Чанк 12 форм
+  /// нашёл разнобой: глобальная `InputDecorationTheme` держала подсказку
+  /// на 14sp и лейбл по факту ~13sp в фокусе, а экраны точечно отбивали
+  /// это до 16 кто как — где-то да, где-то нет. Текст ввода и подсказка
+  /// должны читаться наравне с обычным текстом (≥16sp); лейбл, когда
+  /// «уезжает» вверх при фокусе/заполнении, компактнее, но не мельче
+  /// helper/error — иначе разница в размере кажется случайной, а не
+  /// намеренной. Эмпирически проверено виджет-тестом: `floatingLabelStyle
+  /// .fontSize` — это и есть итоговый видимый размер (никакого скрытого
+  /// доп. сжатия от фреймворка сверху нет).
+  static const double formInputFontSize = 16.0;
+  static const double formFloatingLabelFontSize = 13.5;
+  static const double formHelperFontSize = 13.0;
+
   /// Токены бренда с фоллбеком по яркости — один шорткат вместо
   /// повторяющегося `theme.extension<RodnyaDesignTokens>() ?? (...)`
   /// boilerplate'а в каждом билдере (чанк C).
@@ -551,8 +565,21 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: RodnyaDesignTokens.light.surfaceStrong,
-        hintStyle:
-            textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+        // M3 (50+): ввод/подсказка 16sp — раньше подсказка была на
+        // bodyMedium (14). Лейбл в покое — тоже 16 (читается как ввод),
+        // floatingLabelStyle сжимает его до 13.5 при фокусе/заполнении.
+        // Цвет каждого стиля оставлен null там, где нужно сохранить
+        // адаптивную M3-раскраску (фокус/ошибка/disabled) — задаём только
+        // fontSize, поверх дефолтной раскраски, а не вместо неё.
+        hintStyle: textTheme.bodyLarge?.copyWith(
+          fontSize: formInputFontSize,
+          color: RodnyaDesignTokens.light.inkMuted,
+        ),
+        labelStyle: const TextStyle(fontSize: formInputFontSize),
+        floatingLabelStyle:
+            const TextStyle(fontSize: formFloatingLabelFontSize),
+        helperStyle: const TextStyle(fontSize: formHelperFontSize),
+        errorStyle: const TextStyle(fontSize: formHelperFontSize),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         border: OutlineInputBorder(
@@ -749,14 +776,24 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: scheme.surfaceContainerLow.withValues(alpha: 0.94),
-        hintStyle:
-            textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
-        labelStyle:
-            textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+        // M3 (50+): см. комментарий у светлой темы — тот же расклад
+        // размеров. Раньше лейбл был жёстко на bodyMedium (14) со
+        // сплошным цветом — заодно это убирало M3-подсветку лейбла при
+        // фокусе/ошибке (цвет менялся на primary/error). Задаём только
+        // fontSize — цвет снова берётся из адаптивного M3-дефолта.
+        hintStyle: textTheme.bodyLarge?.copyWith(
+          fontSize: formInputFontSize,
+          color: RodnyaDesignTokens.dark.inkMuted,
+        ),
+        labelStyle: const TextStyle(fontSize: formInputFontSize),
+        floatingLabelStyle:
+            const TextStyle(fontSize: formFloatingLabelFontSize),
+        helperStyle: const TextStyle(fontSize: formHelperFontSize),
+        errorStyle: const TextStyle(fontSize: formHelperFontSize),
         prefixIconColor: scheme.onSurfaceVariant,
         suffixIconColor: scheme.onSurfaceVariant,
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(22),
           borderSide: BorderSide(color: scheme.outlineVariant),

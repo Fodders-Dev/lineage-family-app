@@ -1087,15 +1087,17 @@ class _RelativesScreenState extends State<RelativesScreen> {
                 contentPadding: EdgeInsets.zero,
                 border: InputBorder.none,
                 hintText: 'Поиск среди родных',
+                // M3 (50+): было 14 — десктопная пилюля-поиск отстала от
+                // мобильной строки в топбаре (та уже на 16, см. ниже).
                 hintStyle: AppTheme.sans(
                   color: tokens.inkMuted,
-                  fontSize: 14,
+                  fontSize: AppTheme.formInputFontSize,
                   fontWeight: FontWeight.w500,
                 ),
               ),
               style: AppTheme.sans(
                 color: tokens.ink,
-                fontSize: 14,
+                fontSize: AppTheme.formInputFontSize,
                 fontWeight: FontWeight.w500,
               ),
               cursorColor: tokens.accent,

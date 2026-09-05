@@ -503,9 +503,11 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                   children: [
                     Text(
                       _countryCode ?? '+7',
+                      // M3 (50+): держим тот же размер, что и у поля
+                      // телефона рядом — иначе «+7» выглядит мельче ввода.
                       style: AppTheme.sans(
                         color: tokens.ink,
-                        fontSize: 14.5,
+                        fontSize: AppTheme.formInputFontSize,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0,
                       ),
@@ -515,9 +517,10 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                       child: TextFormField(
                         controller: _phoneController,
                         keyboardType: TextInputType.phone,
+                        // M3 (50+): было 14.5 — ниже общей планки ≥16sp.
                         style: AppTheme.sans(
                           color: tokens.ink,
-                          fontSize: 14.5,
+                          fontSize: AppTheme.formInputFontSize,
                           fontWeight: FontWeight.w600,
                           letterSpacing: 0,
                         ),
@@ -525,7 +528,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                           hintText: '999 123 45 67',
                           hintStyle: AppTheme.sans(
                             color: tokens.inkMuted,
-                            fontSize: 14,
+                            fontSize: AppTheme.formInputFontSize,
                             fontWeight: FontWeight.w500,
                             letterSpacing: 0,
                           ),
@@ -751,9 +754,10 @@ class _RegistrationInput extends StatelessWidget {
     return TextFormField(
       controller: controller,
       validator: validator,
+      // M3 (50+): было 14.5 — ниже общей планки «ввод/подсказка ≥16sp».
       style: AppTheme.sans(
         color: tokens.ink,
-        fontSize: 14.5,
+        fontSize: AppTheme.formInputFontSize,
         fontWeight: FontWeight.w600,
         letterSpacing: 0,
       ),
@@ -761,7 +765,7 @@ class _RegistrationInput extends StatelessWidget {
         hintText: hint,
         hintStyle: AppTheme.sans(
           color: tokens.inkMuted,
-          fontSize: 14.5,
+          fontSize: AppTheme.formInputFontSize,
           fontWeight: FontWeight.w500,
           letterSpacing: 0,
         ),
