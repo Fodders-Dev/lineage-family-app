@@ -607,7 +607,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         final historyIndex = groupIndex - groupedNotifications.length;
         if (historyIndex == 0) {
           return Padding(
-            padding: const EdgeInsets.only(top: 8),
+            padding: const EdgeInsets.only(top: 6),
             child: Text(
               'Ранее',
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
@@ -1070,66 +1070,74 @@ class _NotificationsMessageState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // Center the state card so it doesn't pin against the left edge
-    // on desktop / tablet viewports (where the previous left-aligned
-    // ListView read as half a screen of empty space). Cap at 480 so
-    // the title doesn't sprawl across a 1920px monitor.
-    return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(24, 64, 24, 24),
-      children: [
-        Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                    shape: BoxShape.circle,
+    // Плотность: было — фиксированный padding-top 64 + иконка 72dp +
+    // headlineSmall (24sp, заметно крупнее titleMedium остальных пустых
+    // состояний приложения). Контент был прижат к верху и не заполнял
+    // высоту — под кнопкой оставался блок пустоты на весь остаток
+    // экрана. Центрируем по реальной высоте вьюпорта и приводим иконку/
+    // заголовок к общему размеру (как «Корзина», «Доступы»).
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color:
+                          theme.colorScheme.primary.withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child:
+                        Icon(icon, size: 26, color: theme.colorScheme.primary),
                   ),
-                  child: Icon(icon, size: 34, color: theme.colorScheme.primary),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  title,
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
+                  const SizedBox(height: 14),
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  description,
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                    height: 1.4,
+                  const SizedBox(height: 8),
+                  Text(
+                    description,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      height: 1.35,
+                    ),
                   ),
-                ),
-                if (showProgress) ...[
-                  const SizedBox(height: 24),
-                  const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2.4),
-                  ),
+                  if (showProgress) ...[
+                    const SizedBox(height: 18),
+                    const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2.4),
+                    ),
+                  ],
+                  if (actionLabel != null && onPressed != null) ...[
+                    const SizedBox(height: 18),
+                    FilledButton(
+                      onPressed: onPressed,
+                      child: Text(actionLabel!),
+                    ),
+                  ],
                 ],
-                if (actionLabel != null && onPressed != null) ...[
-                  const SizedBox(height: 24),
-                  FilledButton(
-                    onPressed: onPressed,
-                    child: Text(actionLabel!),
-                  ),
-                ],
-              ],
+              ),
             ),
           ),
         ),
-      ],
+      ),
     );
   }
 }

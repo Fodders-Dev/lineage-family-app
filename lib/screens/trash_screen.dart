@@ -244,7 +244,7 @@ class _TrashScreenState extends State<TrashScreen>
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(vertical: 8),
         itemCount: _persons.length,
-        separatorBuilder: (_, __) => const Divider(height: 0),
+        separatorBuilder: (_, __) => _rowDivider(context),
         itemBuilder: (_, i) => _buildPersonRow(_persons[i]),
       ),
     );
@@ -261,11 +261,20 @@ class _TrashScreenState extends State<TrashScreen>
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(vertical: 8),
         itemCount: _posts.length,
-        separatorBuilder: (_, __) => const Divider(height: 0),
+        separatorBuilder: (_, __) => _rowDivider(context),
         itemBuilder: (_, i) => _buildPostRow(_posts[i]),
       ),
     );
   }
+
+  // Hairline вместо непрозрачной Divider() по умолчанию — тот же
+  // разделитель, что в «Заблокированных»/«Активных сеансах».
+  Widget _rowDivider(BuildContext context) => Divider(
+        height: 1,
+        thickness: 0.7,
+        indent: 72,
+        color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.6),
+      );
 
   Widget _buildPersonRow(DeletedPerson row) {
     final theme = Theme.of(context);

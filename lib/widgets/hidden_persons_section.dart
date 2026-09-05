@@ -183,7 +183,7 @@ class _HiddenPersonsSectionState extends State<HiddenPersonsSection> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 6),
           child: Row(
             children: [
               Icon(
@@ -210,7 +210,7 @@ class _HiddenPersonsSectionState extends State<HiddenPersonsSection> {
   Widget _buildBody(BuildContext context) {
     if (_isLoading && !_hasLoaded) {
       return const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         child: Center(
           child: SizedBox(
             width: 22,
@@ -222,7 +222,7 @@ class _HiddenPersonsSectionState extends State<HiddenPersonsSection> {
     }
     if (_errorMessage != null) {
       return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         child: Row(
           children: [
             Expanded(
@@ -244,7 +244,7 @@ class _HiddenPersonsSectionState extends State<HiddenPersonsSection> {
     }
     if (_rows.isEmpty) {
       return const Padding(
-        padding: EdgeInsets.fromLTRB(20, 4, 20, 16),
+        padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
         child: Text(
           'Никого не скрыто. Чтобы скрыть родственника от себя, '
           'нажмите на его карточку в дереве и выберите «Скрыть от меня».',

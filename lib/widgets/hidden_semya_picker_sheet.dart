@@ -38,7 +38,7 @@ class _HiddenSemyaPickerSheet extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
               child: Text(
                 'В какой семье?',
                 style: theme.textTheme.titleMedium?.copyWith(
@@ -47,7 +47,7 @@ class _HiddenSemyaPickerSheet extends StatelessWidget {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
               child: Text(
                 'Скрытые родственники — отдельный список '
                 'для каждой семьи. Выберите семью.',
@@ -59,6 +59,8 @@ class _HiddenSemyaPickerSheet extends StatelessWidget {
             ...semyi.map(
               (s) => ListTile(
                 key: Key('hidden-semya-picker-${s.id}'),
+                visualDensity: const VisualDensity(vertical: -1),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 4),
                 leading: const Icon(Icons.family_restroom_rounded),
                 title: Text(s.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                 trailing: const Icon(Icons.chevron_right_rounded),

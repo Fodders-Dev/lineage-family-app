@@ -165,55 +165,67 @@ class _StoryArchiveScreenState extends State<StoryArchiveScreen> {
         ),
       );
     }
+    // Плотность: оба состояния были top-anchored ListView с фиксированным
+    // паддингом (пустое — ещё и лишний SizedBox(32) сверху, итого 64dp
+    // до иконки) — контент прижат к верху, а низ экрана пустует. Центр
+    // по реальной высоте вьюпорта; иконка/заголовок уменьшены до размера,
+    // принятого в остальных пустых состояниях приложения (48dp/titleLarge).
     if (_error != null) {
-      return ListView(
-        padding: const EdgeInsets.all(24),
-        children: [
-          Icon(Icons.cloud_off_outlined, size: 56, color: tokens.inkSecondary),
-          const SizedBox(height: 12),
-          Text(
-            'Не удалось загрузить архив. $_error',
-            textAlign: TextAlign.center,
-            style: AppTheme.sans(color: tokens.inkSecondary, fontSize: 14),
+      return _scrollSafeCenter(
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.cloud_off_outlined, size: 48, color: tokens.inkSecondary),
+              const SizedBox(height: 10),
+              Text(
+                'Не удалось загрузить архив. $_error',
+                textAlign: TextAlign.center,
+                style: AppTheme.sans(color: tokens.inkSecondary, fontSize: 14),
+              ),
+              const SizedBox(height: 14),
+              FilledButton.tonalIcon(
+                onPressed: _load,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Повторить'),
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
-          Center(
-            child: FilledButton.tonalIcon(
-              onPressed: _load,
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('Повторить'),
-            ),
-          ),
-        ],
+        ),
       );
     }
     if (_archived.isEmpty) {
-      return ListView(
-        padding: const EdgeInsets.all(32),
-        children: [
-          const SizedBox(height: 32),
-          Icon(Icons.history_rounded, size: 64, color: tokens.inkSecondary),
-          const SizedBox(height: 16),
-          Text(
-            'Архив пуст',
-            textAlign: TextAlign.center,
-            style: AppTheme.serif(
-              color: tokens.ink,
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-            ),
+      return _scrollSafeCenter(
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.history_rounded, size: 48, color: tokens.inkSecondary),
+              const SizedBox(height: 12),
+              Text(
+                'Архив пуст',
+                textAlign: TextAlign.center,
+                style: AppTheme.serif(
+                  color: tokens.ink,
+                  fontSize: 19,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Истории, которым больше 24 часов, появятся здесь автоматически. Так вы сможете пересматривать их в любое время.',
+                textAlign: TextAlign.center,
+                style: AppTheme.sans(
+                  color: tokens.inkSecondary,
+                  fontSize: 14,
+                  height: 1.4,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 10),
-          Text(
-            'Истории, которым больше 24 часов, появятся здесь автоматически. Так вы сможете пересматривать их в любое время.',
-            textAlign: TextAlign.center,
-            style: AppTheme.sans(
-              color: tokens.inkSecondary,
-              fontSize: 14,
-              height: 1.4,
-            ),
-          ),
-        ],
+        ),
       );
     }
 
@@ -228,6 +240,21 @@ class _StoryArchiveScreenState extends State<StoryArchiveScreen> {
       itemCount: _archived.length,
       itemBuilder: (context, index) => _ArchivedStoryTile(
           story: _archived[index], onTap: () => _openStory(index)),
+    );
+  }
+
+  // Центрирует error/empty-контент по реальной высоте вьюпорта вместо
+  // фиксированных отступов сверху (см. family_calendar_screen), сохраняя
+  // pull-to-refresh — RefreshIndicator требует прокручиваемый потомок.
+  Widget _scrollSafeCenter(Widget child) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(child: child),
+        ),
+      ),
     );
   }
 }

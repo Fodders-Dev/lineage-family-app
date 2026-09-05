@@ -145,13 +145,20 @@ class _AccessGrantsOutgoingTabState extends State<AccessGrantsOutgoingTab> {
     }
     final grants = _grants ?? const <EditGrant>[];
     if (grants.isEmpty) {
+      // Плотность: было — фиксированный SizedBox(80) сверху, который
+      // на высоких экранах оставлял пустоту и сверху, и снизу (контент
+      // не центрирован, просто отодвинут). Центрируем относительно
+      // реальной высоты вьюпорта, pull-to-refresh остаётся доступен.
       return RefreshIndicator(
         onRefresh: _load,
-        child: ListView(
-          children: const [
-            SizedBox(height: 80),
-            _EmptyOutgoingState(),
-          ],
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: const Center(child: _EmptyOutgoingState()),
+            ),
+          ),
         ),
       );
     }
@@ -241,12 +248,12 @@ class _GraphPersonGroupCard extends StatelessWidget {
         ? preview!.displayName
         : 'Карточка без имени';
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
             child: Row(
               children: [
                 _Avatar(photoUrl: preview?.photoUrl, displayName: headerName),
@@ -269,7 +276,6 @@ class _GraphPersonGroupCard extends StatelessWidget {
               isRevoking: revokingIds.contains(grant.id),
               onRevoke: onRevoke,
             ),
-          const SizedBox(height: 4),
         ],
       ),
     );
