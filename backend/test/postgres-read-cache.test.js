@@ -68,21 +68,30 @@ test("pg-mem: version есть после бутстрапа и растёт н�
 
 test("pg-mem: повторные чтения не трогают блоб, запись обновляет кэш", async () => {
   const {store, pool} = buildStore(SEED);
+  // SPEED-9 C-boot: _bootstrap() сам читает строку один раз (backfill +
+  // миграции без migrationStatus-маркеров реально выполняются на этом
+  // SEED) и, зная version записи, прогревает _cachedState/_cachedVersion
+  // ДО того, как вызывающий код успел позвать хоть один _read(). Поэтому
+  // даже ПЕРВЫЙ настоящий _read() ниже — это попадание в кэш (0 SELECT
+  // data, version FROM), а не гарантированный промах, как было раньше.
   const first = await store._read();
   const second = await store._read();
   assert.equal(first.users[0].id, "user-1");
   assert.equal(second.users[0].id, "user-1");
-  assert.equal(pool.counters.snapshotSelects, 1, "второе чтение — из кэша");
+  assert.equal(pool.counters.snapshotSelects, 0, "бут уже прогрел кэш — оба чтения из кэша");
 
   second.trees.push({id: "tree-1", name: "Наше дерево", memberIds: ["user-1"]});
   await store._write(second);
   const third = await store._read();
   assert.equal(third.trees.length, 1);
-  assert.equal(pool.counters.snapshotSelects, 1, "после записи кэш актуален без перечитывания");
+  assert.equal(pool.counters.snapshotSelects, 0, "после записи кэш актуален без перечитывания");
 });
 
 test("pg-mem: сторонняя запись в строку (version + 1) инвалидирует кэш", async () => {
   const {store, pool, rawPool} = buildStore(SEED);
+  // SPEED-9 C-boot: первый _read() ниже — попадание в кэш, прогретый
+  // бутом (см. комментарий в тесте выше), поэтому старт отсчёта — 0,
+  // не 1.
   await store._read();
   await rawPool.query(
     `UPDATE "public"."rodnya_state"
@@ -92,5 +101,5 @@ test("pg-mem: сторонняя запись в строку (version + 1) ин
   );
   const after = await store._read();
   assert.equal(after.users.length, 2);
-  assert.equal(pool.counters.snapshotSelects, 2);
+  assert.equal(pool.counters.snapshotSelects, 1, "сторонняя запись инвалидировала кэш — ровно один перечит");
 });

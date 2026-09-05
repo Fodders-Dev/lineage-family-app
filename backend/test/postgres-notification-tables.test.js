@@ -539,13 +539,21 @@ test("скип миграции (БД моргнула) → полная дел�
   const memDb = newDb();
   const {Pool} = memDb.adapters.createPg();
   const rawPool = new Pool();
-  // Одна транзиентная ошибка ровно на SELECT миграции: пропускаем
-  // бутстрап-инфраструктуру (CREATE/INSERT/hydrate) и роняем первый
-  // SELECT data, который делает _migrateNotificationCollectionsToTables.
-  // Порядок SELECT data в бутстрапе (снят трассировкой): #1 backfill
-  // identities, #2 auth-hydrate, #3 чат-миграция, #4 notification-миграция,
-  // #5 chat-projection hydrate. Валим ровно #4 — транзиентная ошибка именно
-  // на чтении состояния notification-миграции.
+  // Одна транзиентная ошибка ровно на SELECT миграции notification'ов.
+  // SPEED-9 C-boot: _bootstrap() теперь сначала делает ОДИН общий SELECT
+  // data FROM (см. _readBootStateRow в postgres-store.js) и прокидывает
+  // разобранное состояние через backfill/миграции опциональным
+  // параметром — на здоровом пути ни один из шагов ниже больше не читает
+  // блоб самостоятельно. Чтобы всё-таки проверить «БД моргнула ровно на
+  // notification-миграции», сначала валим этот самый общий снимок —
+  // это переводит бут в режим ДО SPEED-9 C-boot, где каждый шаг снова
+  // читает сам и независим от соседей. Порядок SELECT data В ЭТОМ РЕЖИМЕ
+  // (снят трассировкой): #1 backfill identities, #2 auth-hydrate
+  // (fallback — LATERAL недоступен на pg-mem), #3 чат-миграция,
+  // #4 notification-миграция, #5 tree-change-миграция, #6 chat-projection
+  // hydrate. Валим ровно #4 — транзиентная ошибка именно на чтении
+  // состояния notification-миграции.
+  let failedTop = false;
   let failedOnce = false;
   let stateSelects = 0;
   const pool = {
@@ -560,6 +568,10 @@ test("скип миграции (БД моргнула) → полная дел�
         effectiveParams = [params[0], JSON.stringify(seeded)];
       }
       if (text.replace(/\s+/g, " ").trim().startsWith("SELECT data FROM")) {
+        if (!failedTop) {
+          failedTop = true;
+          return Promise.reject(new Error("connection reset (boot snapshot)"));
+        }
         stateSelects += 1;
         if (stateSelects === 4 && !failedOnce) {
           failedOnce = true;
