@@ -853,7 +853,8 @@ class _CompactSquareIconButton extends StatelessWidget {
       icon: Icon(icon, size: 18),
       onPressed: onPressed,
       padding: EdgeInsets.zero,
-      constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+      // 44dp — планка тач-таргета для 50+ (в брифе стояло 40, ревью подняло).
+      constraints: const BoxConstraints.tightFor(width: 44, height: 44),
       visualDensity: VisualDensity.compact,
     );
   }
