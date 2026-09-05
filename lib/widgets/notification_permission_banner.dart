@@ -70,10 +70,27 @@ class _NotificationPermissionBannerState
   @override
   Widget build(BuildContext context) {
     final service = _service;
-    if (service == null || !service.shouldShowPermissionCta) {
+    if (service == null) {
       return const SizedBox.shrink();
     }
+    // Подписка на ревизию CTA: Android-проверка разрешения в сервисе
+    // асинхронная, и без неё баннер появлялся только если успевал первый
+    // build после проверки.
+    return ValueListenableBuilder<int>(
+      valueListenable: service.permissionCtaRevision,
+      builder: (context, _, __) {
+        if (!service.shouldShowPermissionCta) {
+          return const SizedBox.shrink();
+        }
+        return _buildBanner(context, service);
+      },
+    );
+  }
 
+  Widget _buildBanner(
+    BuildContext context,
+    CustomApiNotificationService service,
+  ) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final tokens = theme.extension<RodnyaDesignTokens>() ??

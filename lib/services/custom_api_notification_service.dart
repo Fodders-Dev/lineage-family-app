@@ -199,6 +199,13 @@ class CustomApiNotificationService implements NotificationServiceInterface {
   final StreamController<int> _unreadNotificationsCountController =
       StreamController<int>.broadcast();
 
+  /// Ревизия состояния CTA «включите уведомления»: растёт после
+  /// асинхронной Android-проверки разрешения и после дисмисса. Баннер
+  /// подписан на неё — иначе он читал [shouldShowPermissionCta] один раз
+  /// при build и показывался только если проверка успевала раньше
+  /// (на живом запуске — то есть, то нет).
+  final ValueNotifier<int> permissionCtaRevision = ValueNotifier<int>(0);
+
   // Channel IDs mirror RodnyaNotificationChannels.kt 1:1 — same
   // entries in Android Settings whether the notification was rendered
   // by VKPNS in the background or replayed locally from Dart, so the
@@ -418,6 +425,7 @@ class CustomApiNotificationService implements NotificationServiceInterface {
       );
       debugPrintStack(stackTrace: stackTrace);
     }
+    permissionCtaRevision.value += 1;
 
     // Полноэкранный входящий звонок без разрешения на уведомления всё
     // равно не покажется — нет смысла вести в настройки. А спрашивать
@@ -627,6 +635,7 @@ class CustomApiNotificationService implements NotificationServiceInterface {
 
   Future<void> dismissNotificationCta() async {
     await _preferences.setBool(_notificationCtaDismissedStorageKey, true);
+    permissionCtaRevision.value += 1;
   }
 
   Future<int> refreshUnreadNotificationsCount() async {
@@ -2244,7 +2253,8 @@ class _ChannelMeta {
 
 /// Страница ленты активности: элементы + курсор продолжения (null = конец).
 class NotificationsPageResult {
-  const NotificationsPageResult({required this.items, required this.nextCursor});
+  const NotificationsPageResult(
+      {required this.items, required this.nextCursor});
 
   final List<AppNotificationItem> items;
   final String? nextCursor;
