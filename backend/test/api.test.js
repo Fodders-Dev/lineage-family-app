@@ -2634,7 +2634,10 @@ test("file store stays readable during queued writes", async () => {
       ),
     );
   } finally {
-    await fs.rm(tempDir, {recursive: true, force: true});
+    // removeTempDir (not a bare fs.rm) — see its comment: retries ENOTEMPTY/
+    // EBUSY/EPERM, the transient Windows errors a directory delete can hit
+    // under parallel test runs.
+    await removeTempDir(tempDir);
   }
 });
 
@@ -5111,7 +5114,8 @@ test("password reset request issues a single-use token, emails it, and confirm r
     if (typeof store.close === "function") {
       await store.close();
     }
-    await fs.rm(tempDir, {recursive: true, force: true});
+    // removeTempDir (not a bare fs.rm) — retries ENOTEMPTY/EBUSY/EPERM.
+    await removeTempDir(tempDir);
   }
 });
 
@@ -14467,14 +14471,33 @@ test("rustore push delivery sends notification through RuStore API", async () =>
       "chat_message",
     );
 
-    const deliveriesResponse = await fetch(
-      `${ctx.baseUrl}/v1/push/deliveries?limit=10`,
-      {
-        headers: {authorization: `Bearer ${recipient.accessToken}`},
-      },
-    );
-    assert.equal(deliveriesResponse.status, 200);
-    const deliveriesPayload = await deliveriesResponse.json();
+    // The httpClient mock resolves synchronously, but _deliverRustorePush
+    // still has an `await this.store.updatePushDelivery(...)` AFTER that
+    // resolve — status flips "queued" → "sent" on its own tick, not the one
+    // that appended to observedRequests. Polling here (not a single fetch)
+    // is what makes this deterministic instead of racing the store write.
+    let deliveriesPayload = {deliveries: []};
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const deliveriesResponse = await fetch(
+        `${ctx.baseUrl}/v1/push/deliveries?limit=10`,
+        {
+          headers: {authorization: `Bearer ${recipient.accessToken}`},
+        },
+      );
+      assert.equal(deliveriesResponse.status, 200);
+      deliveriesPayload = await deliveriesResponse.json();
+      if (
+        deliveriesPayload.deliveries.some(
+          (delivery) =>
+            delivery.provider === "rustore" &&
+            delivery.status === "sent" &&
+            delivery.responseCode === 200,
+        )
+      ) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
     assert.ok(
       deliveriesPayload.deliveries.some(
         (delivery) =>
@@ -14604,14 +14627,32 @@ test("fcm push delivery sends notification through FCM HTTP v1 (lowercase priori
     );
     assert.equal(observedRequests[0].body.message.data.type, "chat_message");
 
-    const deliveriesResponse = await fetch(
-      `${ctx.baseUrl}/v1/push/deliveries?limit=10`,
-      {
-        headers: {authorization: `Bearer ${recipient.accessToken}`},
-      },
-    );
-    assert.equal(deliveriesResponse.status, 200);
-    const deliveriesPayload = await deliveriesResponse.json();
+    // Same store-write race as the RuStore test above: the mocked httpClient
+    // resolving is not the same tick as `updatePushDelivery` persisting
+    // status:"sent" — poll the actual delivery record instead of a single
+    // fetch right after observedRequests fills in.
+    let deliveriesPayload = {deliveries: []};
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const deliveriesResponse = await fetch(
+        `${ctx.baseUrl}/v1/push/deliveries?limit=10`,
+        {
+          headers: {authorization: `Bearer ${recipient.accessToken}`},
+        },
+      );
+      assert.equal(deliveriesResponse.status, 200);
+      deliveriesPayload = await deliveriesResponse.json();
+      if (
+        deliveriesPayload.deliveries.some(
+          (delivery) =>
+            delivery.provider === "fcm" &&
+            delivery.status === "sent" &&
+            delivery.responseCode === 200,
+        )
+      ) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
     assert.ok(
       deliveriesPayload.deliveries.some(
         (delivery) =>
