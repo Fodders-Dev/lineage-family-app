@@ -22,10 +22,13 @@ function registerStoryRoutes(
 
     const accessibleTrees = await store.listUserTrees(req.auth.user.id);
     const accessibleTreeIds = new Set(accessibleTrees.map((tree) => tree.id));
+    // SPEED-9 B: переиспользуем снимок requireTreeAccess, если он есть
+    // (федеративное дерево, treeId задан) — 2 _read() на запрос → 1.
     const stories = await store.listStories({
       treeId,
       authorId,
       viewerUserId: req.auth.user.id,
+      db: req.storeSnapshot || null,
     });
     const visibleStories = stories.filter((story) =>
       accessibleTreeIds.has(story.treeId),

@@ -36,9 +36,12 @@ function registerGatheringRoutes(
 
     const accessibleTrees = await store.listUserTrees(req.auth.user.id);
     const accessibleTreeIds = new Set(accessibleTrees.map((entry) => entry.id));
+    // SPEED-9 B: переиспользуем снимок requireTreeAccess, если он есть
+    // (федеративное дерево) — 2 _read() на запрос → 1.
     const gatherings = await store.listGatherings({
       treeId,
       viewerUserId: req.auth.user.id,
+      db: req.storeSnapshot || null,
     });
     // Same audience model as posts: visible if the primary tree OR any
     // multi-branch fan-out target is accessible to the viewer.
