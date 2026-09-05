@@ -176,12 +176,20 @@ class _SemyaDeletedPersonsScreenState
     }
     if (_errorMessage != null) return _buildError();
     if (_persons.isEmpty) return _buildEmpty();
+    final theme = Theme.of(context);
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(vertical: 8),
         itemCount: _persons.length,
-        separatorBuilder: (_, __) => const Divider(height: 0),
+        // Hairline вместо непрозрачной Divider() по умолчанию — тот же
+        // разделитель, что в глобальной «Корзине».
+        separatorBuilder: (_, __) => Divider(
+          height: 1,
+          thickness: 0.7,
+          indent: 72,
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
+        ),
         itemBuilder: (_, i) => _buildRow(_persons[i]),
       ),
     );

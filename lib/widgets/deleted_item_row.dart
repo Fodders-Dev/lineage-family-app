@@ -47,6 +47,9 @@ class DeletedItemRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return ListTile(
+      // Плотность −1 без dense: default two-line ListTile ≈72dp — выше
+      // планки 56–64dp для строки с аватаром (см. чанк 9b, settings).
+      visualDensity: const VisualDensity(vertical: -1),
       leading: leading,
       title: Text(
         title,
