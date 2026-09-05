@@ -165,7 +165,7 @@ extension _AddRelativeScreenSections on _AddRelativeScreenState {
         (isPastUnion || _showDivorceDateField || _divorceDate != null);
 
     return [
-      const SizedBox(height: 16),
+      const SizedBox(height: 10),
       InkWell(
         onTap: _pickMarriageDate,
         child: InputDecorator(
@@ -183,7 +183,7 @@ extension _AddRelativeScreenSections on _AddRelativeScreenState {
         ),
       ),
       if (!statusSelectorOwnsSeparation) ...[
-        const SizedBox(height: 16),
+        const SizedBox(height: 10),
         if (showDivorceField)
           InkWell(
             key: const Key('divorce-date-field'),
@@ -558,54 +558,59 @@ extension _AddRelativeScreenSections on _AddRelativeScreenState {
             style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
           )
         else
+          // Плотность (чанк 12): раньше каждая запись сидела в своём
+          // скруглённом боксе — а внутри уже жили два поля с собственной
+          // рамкой (тема красит enabledBorder). Рамка на рамке. Записи
+          // разделены hairline-чертой, поля остаются с одной своей рамкой.
           Column(
-            children: _importantEventDrafts.map((draft) {
-              return Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerLowest,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: theme.colorScheme.outlineVariant),
-                  ),
-                  child: Column(
-                    children: [
-                      TextFormField(
-                        controller: draft.titleController,
-                        decoration: InputDecoration(
-                          labelText: 'Название события',
-                          border: const OutlineInputBorder(),
-                          prefixIcon: const Icon(Icons.event_note_outlined),
-                          suffixIcon: IconButton(
-                            tooltip: 'Удалить событие',
-                            onPressed: () => _removeImportantEventDraft(draft),
-                            icon: const Icon(Icons.close),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      InkWell(
-                        onTap: () => _pickImportantEventDate(draft),
-                        child: InputDecorator(
-                          decoration: const InputDecoration(
-                            labelText: 'Дата события',
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.calendar_today_outlined),
-                          ),
-                          child: Text(
-                            draft.date != null
-                                ? DateFormat('dd.MM.yyyy').format(draft.date!)
-                                : 'Выберите дату',
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
+            children: [
+              for (int i = 0; i < _importantEventDrafts.length; i++) ...[
+                if (i > 0) ...[
+                  const SizedBox(height: 12),
+                  Divider(height: 1, color: theme.colorScheme.outlineVariant),
+                  const SizedBox(height: 12),
+                ] else
+                  const SizedBox(height: 10),
+                _buildImportantEventDraftRow(_importantEventDrafts[i]),
+              ],
+            ],
           ),
+      ],
+    );
+  }
+
+  Widget _buildImportantEventDraftRow(_RelativeImportantEventDraft draft) {
+    return Column(
+      children: [
+        TextFormField(
+          controller: draft.titleController,
+          decoration: InputDecoration(
+            labelText: 'Название события',
+            border: const OutlineInputBorder(),
+            prefixIcon: const Icon(Icons.event_note_outlined),
+            suffixIcon: IconButton(
+              tooltip: 'Удалить событие',
+              onPressed: () => _removeImportantEventDraft(draft),
+              icon: const Icon(Icons.close),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        InkWell(
+          onTap: () => _pickImportantEventDate(draft),
+          child: InputDecorator(
+            decoration: const InputDecoration(
+              labelText: 'Дата события',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.calendar_today_outlined),
+            ),
+            child: Text(
+              draft.date != null
+                  ? DateFormat('dd.MM.yyyy').format(draft.date!)
+                  : 'Выберите дату',
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -618,7 +623,7 @@ extension _AddRelativeScreenSections on _AddRelativeScreenState {
           'Расширенные сведения',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 10),
         if (_selectedGender == Gender.female) ...[
           TextFormField(
             controller: _maidenNameController,
@@ -628,10 +633,10 @@ extension _AddRelativeScreenSections on _AddRelativeScreenState {
               prefixIcon: Icon(Icons.person_outline),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
         ],
         ..._buildUnionDateFields(),
-        const SizedBox(height: 16),
+        const SizedBox(height: 10),
         TextFormField(
           controller: _birthPlaceController,
           decoration: const InputDecoration(
@@ -640,7 +645,7 @@ extension _AddRelativeScreenSections on _AddRelativeScreenState {
             prefixIcon: Icon(Icons.location_on_outlined),
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 10),
         TextFormField(
           controller: _educationController,
           decoration: const InputDecoration(
@@ -649,7 +654,7 @@ extension _AddRelativeScreenSections on _AddRelativeScreenState {
             prefixIcon: Icon(Icons.school_outlined),
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 10),
         TextFormField(
           controller: _bioController,
           decoration: const InputDecoration(
@@ -659,7 +664,7 @@ extension _AddRelativeScreenSections on _AddRelativeScreenState {
           ),
           maxLines: 4,
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
         _buildImportantEventsSection(),
       ],
     );
@@ -905,6 +910,10 @@ extension _AddRelativeScreenSections on _AddRelativeScreenState {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Плотность (чанк 12): поле поиска живёт внутри уже
+                  // оформленной карточки-раскрывашки — своя рамка поверх
+                  // рамки карточки была лишней. Без обводки, но с
+                  // заливкой, чтобы поле оставалось читаемым на фоне.
                   TextField(
                     controller: _otherTreesSearchController,
                     onChanged: _onOtherTreesSearchChanged,
@@ -912,8 +921,19 @@ extension _AddRelativeScreenSections on _AddRelativeScreenState {
                       hintText: 'Имя или фамилия',
                       prefixIcon: const Icon(Icons.search),
                       isDense: true,
+                      filled: true,
+                      fillColor: theme.colorScheme.surface,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide.none,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide.none,
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide(color: theme.colorScheme.primary),
                       ),
                     ),
                   ),
@@ -995,7 +1015,7 @@ extension _AddRelativeScreenSections on _AddRelativeScreenState {
           'Родственная связь',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
-        SizedBox(height: 16),
+        SizedBox(height: 10),
 
         // ---- Виджет связи с КОНКРЕТНЫМ человеком (контекстным или relatedTo) ----
         if (anchorPerson != null)
@@ -1007,7 +1027,7 @@ extension _AddRelativeScreenSections on _AddRelativeScreenState {
                 )
               : _buildEditableRelationshipCard(anchorPerson: anchorPerson),
 
-        SizedBox(height: 24),
+        SizedBox(height: 20),
 
         // ---- Виджет связи с ТЕКУЩИМ ПОЛЬЗОВАТЕЛЕМ (если нет anchorPerson ИЛИ режим редактирования) ----
         if (anchorPerson == null || isEditingMode)
@@ -1068,7 +1088,7 @@ extension _AddRelativeScreenSections on _AddRelativeScreenState {
                   return null;
                 },
               ),
-              SizedBox(height: 24), // Добавим отступ
+              SizedBox(height: 20), // Добавим отступ
             ],
           ),
       ],
@@ -1385,13 +1405,30 @@ extension _AddRelativeScreenSections on _AddRelativeScreenState {
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
+          // Плотность (чанк 12): дропдаун живёт внутри уже обведённой
+          // карточки — своя контурная рамка поверх карточкиной была
+          // рамкой в рамке. Заливка отличает поле от фона карточки без
+          // второго контура; на фокусе виден акцентный контур.
           DropdownButtonFormField<RelationType>(
             initialValue: _selectedRelationType,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Связь с этим человеком',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.family_restroom),
+              prefixIcon: const Icon(Icons.family_restroom),
+              filled: true,
+              fillColor: theme.colorScheme.surface,
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: theme.colorScheme.primary),
+              ),
             ),
             items: _getRelationTypeItems(_selectedGender),
             onChanged: (newValue) {
