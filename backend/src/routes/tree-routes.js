@@ -365,7 +365,12 @@ function registerTreeRoutes(
       return;
     }
 
-    let persons = await store.listPersons(tree.id);
+    // SPEED-9 B: горячий маршрут бёрста входа. Если requireTreeAccess
+    // уже прочитал блоб (федеративное дерево — прод-default), тот же
+    // снимок идёт и в listPersons, и в listHiddenPersonIdsForCaller —
+    // вместо 2-3 отдельных _read() на запрос остаётся максимум 1.
+    const db = req.storeSnapshot || null;
+    let persons = await store.listPersons(tree.id, db);
 
     // Phase B Ship 8: per-user hide filter. Applies whenever tree
     // bound к семя (tree.semyaId set) и caller has hide rows для
@@ -376,6 +381,7 @@ function registerTreeRoutes(
       const hiddenIds = await store.listHiddenPersonIdsForCaller(
         tree.semyaId,
         req.auth.user.id,
+        db,
       );
       if (hiddenIds.length > 0) {
         const hiddenSet = new Set(hiddenIds);
@@ -852,7 +858,13 @@ function registerTreeRoutes(
         return;
       }
 
-      const person = await store.findPerson(tree.id, req.params.personId);
+      // SPEED-9 B: переиспользуем снимок requireTreeAccess, если он
+      // есть (федеративное дерево) — 2 _read() на запрос → 1.
+      const person = await store.findPerson(
+        tree.id,
+        req.params.personId,
+        req.storeSnapshot || null,
+      );
       if (!person) {
         res.status(404).json({message: "Человек не найден"});
         return;
@@ -1184,8 +1196,11 @@ function registerTreeRoutes(
       return;
     }
 
+    // SPEED-9 B: переиспользуем снимок requireTreeAccess, если он есть
+    // (федеративное дерево) — 2 _read() на запрос → 1.
     const snapshot = await store.getTreeGraphSnapshot(tree.id, {
       viewerUserId: req.auth.user.id,
+      db: req.storeSnapshot || null,
     });
     if (!snapshot) {
       res.status(404).json({message: "Дерево не найдено"});
