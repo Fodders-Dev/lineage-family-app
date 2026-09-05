@@ -1670,7 +1670,7 @@ class PostgresStore extends FileStore {
         return null;
       }
       const session = structuredClone(storedSession);
-      const allowedKeys = ["deviceName", "platform", "appVersion"];
+      const allowedKeys = ["deviceName", "platform", "osVersion", "appVersion"];
       for (const key of allowedKeys) {
         if (patch[key] === undefined) continue;
         const normalized = String(patch[key] ?? "").trim();

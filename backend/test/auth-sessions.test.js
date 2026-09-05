@@ -90,7 +90,13 @@ test("login records device info and exposes it via /v1/auth/sessions", async () 
     await registerWithDevice(
       ctx.baseUrl,
       "alice",
-      {deviceName: "Alice iPhone", platform: "ios", appVersion: "1.0.0"},
+      {
+        deviceName: "Alice iPhone",
+        platform: "ios",
+        // No osVersion here on purpose — mirrors an old client build that
+        // predates the field; must show up as null, not crash the route.
+        appVersion: "1.0.0",
+      },
       "instance-alice-1",
     );
 
@@ -98,7 +104,12 @@ test("login records device info and exposes it via /v1/auth/sessions", async () 
       ctx.baseUrl,
       "user-alice@rodnya.app",
       "secret123",
-      {deviceName: "Alice MacBook", platform: "macos", appVersion: "1.0.0"},
+      {
+        deviceName: "Alice MacBook",
+        platform: "macos",
+        osVersion: "14.4.1",
+        appVersion: "1.0.0",
+      },
       "instance-alice-2",
     );
 
@@ -118,8 +129,10 @@ test("login records device info and exposes it via /v1/auth/sessions", async () 
     const other = listed.sessions.find((s) => !s.isCurrent);
     assert.equal(current.deviceName, "Alice MacBook");
     assert.equal(current.platform, "macos");
+    assert.equal(current.osVersion, "14.4.1");
     assert.equal(other.deviceName, "Alice iPhone");
     assert.equal(other.platform, "ios");
+    assert.equal(other.osVersion, null);
     assert.notEqual(current.sessionPublicId, other.sessionPublicId);
   } finally {
     await stopServer(ctx);
@@ -298,6 +311,7 @@ test("QR login: device A approves device B's QR token, B polls and gets auth", a
         deviceInfo: {
           deviceName: "New Mac",
           platform: "macos",
+          osVersion: "14.5",
           appVersion: "1.2.3",
         },
       }),
@@ -350,6 +364,11 @@ test("QR login: device A approves device B's QR token, B polls and gets auth", a
     const newSession = listed.sessions.find((s) => s.isCurrent);
     assert.equal(newSession.deviceName, "New Mac");
     assert.equal(newSession.platform, "macos");
+    // Guards the qr/approve handler's explicit field whitelist — it's the
+    // one call site that rebuilds deviceContext key-by-key instead of
+    // forwarding readDeviceContext()'s object wholesale, so a new field is
+    // silently dropped there unless the whitelist is updated too.
+    assert.equal(newSession.osVersion, "14.5");
     assert.equal(newSession.appVersion, "1.2.3");
   } finally {
     await stopServer(ctx);

@@ -171,6 +171,8 @@ function registerAuthSessionRoutes(
       deviceName:
         requestDeviceContext.deviceName || session.deviceName || null,
       platform: requestDeviceContext.platform || session.platform || null,
+      osVersion:
+        requestDeviceContext.osVersion || session.osVersion || null,
       appVersion:
         requestDeviceContext.appVersion || session.appVersion || null,
     };
@@ -190,6 +192,7 @@ function registerAuthSessionRoutes(
       sessionPublicId: publicId,
       deviceName: session.deviceName || null,
       platform: session.platform || null,
+      osVersion: session.osVersion || null,
       appVersion: session.appVersion || null,
       createdAt: session.createdAt || null,
       lastSeenAt: session.lastSeenAt || null,
@@ -421,6 +424,7 @@ function registerAuthSessionRoutes(
       instanceId: storedDeviceInfo.instanceId,
       deviceName: storedDeviceInfo.deviceName || null,
       platform: storedDeviceInfo.platform || null,
+      osVersion: storedDeviceInfo.osVersion || null,
       appVersion: storedDeviceInfo.appVersion || null,
     });
     const user = await store.findUserById(req.auth.user.id);
