@@ -8743,11 +8743,14 @@ class FileStore {
       .map((entry) => structuredClone(entry));
   }
 
-  async findMembership(semyaId, userId) {
+  // SPEED-9 B: prefetchedDb — опциональный уже прочитанный блоб
+  // (requireTreeAccess в app.js передаёт свой снимок, чтобы не читать
+  // блоб дважды за один HTTP-запрос). Без него поведение прежнее.
+  async findMembership(semyaId, userId, prefetchedDb = null) {
     if (!semyaId || !userId) {
       return null;
     }
-    const db = await this._read();
+    const db = prefetchedDb || (await this._read());
     const row = (db.semyaMembers || []).find(
       (m) => m.semyaId === semyaId && m.userId === userId && !m.hiddenAt,
     );
@@ -9596,11 +9599,12 @@ class FileStore {
     return {removed};
   }
 
-  async listHiddenPersonIdsForCaller(semyaId, userId) {
+  // SPEED-9 B: prefetchedDb — см. listPersons выше.
+  async listHiddenPersonIdsForCaller(semyaId, userId, prefetchedDb = null) {
     if (!semyaId || !userId) {
       return [];
     }
-    const db = await this._read();
+    const db = prefetchedDb || (await this._read());
     return (db.semyaMemberHiddenPersons || [])
       .filter((h) => h.semyaId === semyaId && h.userId === userId)
       .map((h) => h.personId);
@@ -10284,16 +10288,19 @@ class FileStore {
     return structuredClone(person);
   }
 
-  async listPersons(treeId) {
-    const db = await this._read();
+  // SPEED-9 B: prefetchedDb — опциональный уже прочитанный блоб
+  // (например, снимок requireTreeAccess из app.js). Без него — как
+  // раньше, честный собственный _read().
+  async listPersons(treeId, prefetchedDb = null) {
+    const db = prefetchedDb || (await this._read());
     return db.persons
       .filter((person) => person.treeId === treeId)
       .sort((left, right) => String(left.name || "").localeCompare(String(right.name || "")))
       .map((person) => buildCanonicalPersonView(db, person));
   }
 
-  async findPerson(treeId, personId) {
-    const db = await this._read();
+  async findPerson(treeId, personId, prefetchedDb = null) {
+    const db = prefetchedDb || (await this._read());
     return this._buildPersonViewFromGraph(db, treeId, personId);
   }
 
@@ -15256,8 +15263,10 @@ class FileStore {
     return normalizeTreeGraph(treeId, treePersons, db.relations).relations;
   }
 
-  async getTreeGraphSnapshot(treeId, {viewerUserId = null} = {}) {
-    const db = await this._read();
+  // SPEED-9 B: db — опциональный уже прочитанный блоб (снимок
+  // requireTreeAccess). Без него — собственный _read(), как раньше.
+  async getTreeGraphSnapshot(treeId, {viewerUserId = null, db: prefetchedDb = null} = {}) {
+    const db = prefetchedDb || (await this._read());
     // Phase 3.1d: every person in the snapshot now flows through
     // the graph-first helper. Helper falls back to the legacy
     // record if graph data is absent, so nothing breaks during
@@ -16997,8 +17006,18 @@ class FileStore {
       .map((entry) => attachPostReactions(db, entry));
   }
 
-  async listStories({treeId = null, authorId = null, viewerUserId = null} = {}) {
-    const db = await this._read();
+  // SPEED-9 B: db — опциональный уже прочитанный блоб (снимок
+  // requireTreeAccess из того же HTTP-запроса, всегда моложе любой
+  // мутации в этом обработчике — GET-хендлер /v1/stories не мутирует).
+  // Просроченные истории по-прежнему чистятся ниже через this._write —
+  // не трогаем этот побочный эффект, только источник db.
+  async listStories({
+    treeId = null,
+    authorId = null,
+    viewerUserId = null,
+    db: prefetchedDb = null,
+  } = {}) {
+    const db = prefetchedDb || (await this._read());
     const now = Date.now();
     const activeStories = [];
     let removedExpiredStories = false;
@@ -17560,8 +17579,10 @@ class FileStore {
     return db.gatherings.find((entry) => entry.id === gatheringId) || null;
   }
 
-  async listGatherings({treeId = null, viewerUserId = null} = {}) {
-    const db = await this._read();
+  // SPEED-9 B: db — опциональный уже прочитанный блоб (снимок
+  // requireTreeAccess). Без него — собственный _read(), как раньше.
+  async listGatherings({treeId = null, viewerUserId = null, db: prefetchedDb = null} = {}) {
+    const db = prefetchedDb || (await this._read());
     return db.gatherings
       .filter((entry) => {
         // Same tree/branch match posts use: if a treeId filter is set,
@@ -17765,8 +17786,10 @@ class FileStore {
     return db.polls.find((entry) => entry.id === pollId) || null;
   }
 
-  async listPolls({treeId = null, viewerUserId = null} = {}) {
-    const db = await this._read();
+  // SPEED-9 B: db — опциональный уже прочитанный блоб (снимок
+  // requireTreeAccess). Без него — собственный _read(), как раньше.
+  async listPolls({treeId = null, viewerUserId = null, db: prefetchedDb = null} = {}) {
+    const db = prefetchedDb || (await this._read());
     return db.polls
       .filter((entry) => {
         if (treeId) {
