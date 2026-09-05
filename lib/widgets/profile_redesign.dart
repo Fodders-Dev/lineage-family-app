@@ -1166,6 +1166,9 @@ class ProfileCompletionMeterCard extends StatelessWidget {
     // Плотность (02.09.2026): поля 14/12 → 12/8, чипы — одной прокручиваемой
     // строкой вместо Wrap на 2–3 ряда: плитка ~90 → ~70dp и не растёт с
     // числом подсказок.
+    // Чанк 14 (05.09.2026): с чипами плитка всё ещё считалась на ~76dp
+    // (>72 — почти 2 строки полезного контента). Прогресс 6→4dp, зазоры
+    // 6→4dp, паддинг чипов по вертикали 5→4 — тот же контент за ~68dp.
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
@@ -1201,20 +1204,20 @@ class ProfileCompletionMeterCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           ClipRRect(
             borderRadius: BorderRadius.circular(999),
             child: LayoutBuilder(builder: (ctx, c) {
               return Stack(
                 children: [
                   Container(
-                    height: 6,
+                    height: 4,
                     color: tokens.bgTintSage,
                   ),
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 600),
                     curve: Curves.easeOutCubic,
-                    height: 6,
+                    height: 4,
                     width: c.maxWidth * (clamped / 100),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
@@ -1227,7 +1230,7 @@ class ProfileCompletionMeterCard extends StatelessWidget {
             }),
           ),
           if (suggestions.isNotEmpty) ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -1239,7 +1242,7 @@ class ProfileCompletionMeterCard extends StatelessWidget {
                       onTap: s.onTap,
                       child: Container(
                         padding:
-                            const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
                           color: tokens.accentSoft,
                           borderRadius: BorderRadius.circular(999),

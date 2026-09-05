@@ -354,7 +354,10 @@ void main() {
     );
 
     expect(find.text('Настройки аккаунта'), findsOneWidget);
-    expect(find.text('Настройки'), findsWidgets);
+    // Chunk 14 density pass: the row's standalone «Настройки» button
+    // became a chevron (Telegram-style nav row) — assert the
+    // affordance instead of the button label it replaced.
+    expect(find.byIcon(Icons.chevron_right_rounded), findsWidgets);
     await tester.scrollUntilVisible(
       find.text('Профильный код'),
       300,
