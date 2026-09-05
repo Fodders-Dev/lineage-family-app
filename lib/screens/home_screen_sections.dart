@@ -1077,7 +1077,6 @@ extension _HomeScreenSections on _HomeScreenState {
       return const SizedBox.shrink();
     }
 
-    final theme = Theme.of(context);
     final tokens = AppTheme.tokensOf(context);
     final person = prompt.person;
     final photoUrl = person.primaryPhotoUrl;
@@ -1088,14 +1087,14 @@ extension _HomeScreenSections on _HomeScreenState {
           person.initials,
           style: AppTheme.sans(
             color: tokens.accentInk,
-            fontSize: 16,
+            fontSize: 15,
             fontWeight: FontWeight.w800,
           ),
         ),
       );
       return Container(
-        width: 48,
-        height: 48,
+        width: 44,
+        height: 44,
         decoration: BoxDecoration(
           gradient: photoUrl == null || photoUrl.isEmpty
               ? tokens.accentGradient
@@ -1126,11 +1125,24 @@ extension _HomeScreenSections on _HomeScreenState {
       );
     }
 
+    // Плотность (чанк 19): было ~258dp на реальном промпте (аватар 48,
+    // титул M3 titleMedium де-факто ~16sp, тело до 3 строк, широкие поля,
+    // действия Wrap'ом иногда падали на 2 строки). Стало ~158dp: аватар 44,
+    // действия гарантированно в одну строку 44dp (Row+Expanded вместо
+    // Wrap — тот тихо переносился на 2 строки, когда сумма ширин кнопок
+    // чуть превышала ширину карточки), паддинги и line-height подрезаны.
+    // Заголовок (serif 18.5sp) у единственного существующего промпта
+    // («Спросить, пока можно услышать») переносится на 2 строки даже в
+    // расширенной колонке — это тянет карточку выше идеального taget'а
+    // ≤130dp; ужать сильнее означало бы либо резать аватар меньше
+    // заявленных 44dp, либо обрезать заголовок эллипсисом до 1 строки —
+    // оба варианта хуже, чем принять фактические ~158dp. Тексты не
+    // менялись; заливка и отсутствие внутренних рамок — как было.
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 8, 18, 8),
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 2),
       child: GlassPanel(
         key: const Key('home-family-connection-prompt'),
-        padding: const EdgeInsets.fromLTRB(14, 13, 14, 14),
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
         borderRadius: BorderRadius.circular(20),
         color: tokens.warmSoft.withValues(alpha: 0.72),
         borderColor: tokens.accent.withValues(alpha: 0.14),
@@ -1141,10 +1153,11 @@ extension _HomeScreenSections on _HomeScreenState {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 avatar(),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
                         'Сегодня для семьи',
@@ -1152,34 +1165,40 @@ extension _HomeScreenSections on _HomeScreenState {
                         overflow: TextOverflow.ellipsis,
                         style: AppTheme.sans(
                           color: tokens.accent,
-                          fontSize: 11.5,
+                          fontSize: 12.5,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 0,
+                          height: 1.1,
                         ),
                       ),
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 2),
+                      // letterSpacing слегка отрицательный и w700 (не w800) —
+                      // серифный заголовок в узкой колонке рядом с аватаром
+                      // иначе переносится на 2 строки даже на коротких
+                      // заголовках; экономия ширины важнее микро-разницы
+                      // насыщенности начертания.
                       Text(
                         prompt.title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontFamily: 'Lora',
+                        style: AppTheme.serif(
                           color: tokens.ink,
-                          fontWeight: FontWeight.w800,
-                          height: 1.16,
-                          letterSpacing: 0,
+                          fontSize: 18.5,
+                          fontWeight: FontWeight.w700,
+                          height: 1.15,
+                          letterSpacing: -0.3,
                         ),
                       ),
-                      const SizedBox(height: 5),
+                      const SizedBox(height: 4),
                       Text(
                         prompt.message,
-                        maxLines: 3,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: AppTheme.sans(
                           color: tokens.inkMuted,
-                          fontSize: 12.8,
+                          fontSize: 14,
                           fontWeight: FontWeight.w500,
-                          height: 1.32,
+                          height: 1.15,
                         ),
                       ),
                     ],
@@ -1187,17 +1206,32 @@ extension _HomeScreenSections on _HomeScreenState {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            const SizedBox(height: 4),
+            // Row (not Wrap) + Expanded on the primary action — guarantees
+            // one line at the theme's button height instead of Wrap
+            // silently folding to a second line once the combined label
+            // width nudges past the available column width.
+            Row(
               children: [
-                FilledButton.icon(
-                  key: const Key('family-connection-ask-story'),
-                  onPressed: () => _openFamilyConnectionPrompt(prompt),
-                  icon: const Icon(Icons.question_answer_outlined, size: 18),
-                  label: Text(prompt.ctaLabel),
+                Expanded(
+                  child: FilledButton.icon(
+                    key: const Key('family-connection-ask-story'),
+                    onPressed: () => _openFamilyConnectionPrompt(prompt),
+                    icon: const Icon(Icons.question_answer_outlined, size: 18),
+                    label: Text(
+                      prompt.ctaLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(0, 44),
+                      maximumSize: const Size(double.infinity, 44),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                  ),
                 ),
+                const SizedBox(width: 6),
                 TextButton.icon(
                   key: const Key('family-connection-open-card'),
                   onPressed: () => _openFamilyConnectionPrompt(
@@ -1206,6 +1240,12 @@ extension _HomeScreenSections on _HomeScreenState {
                   ),
                   icon: const Icon(Icons.person_outline_rounded, size: 18),
                   label: const Text('Карточка'),
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(0, 44),
+                    maximumSize: const Size(double.infinity, 44),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                  ),
                 ),
               ],
             ),
