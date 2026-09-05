@@ -401,12 +401,88 @@ class PostgresStore extends FileStore {
     await this._createChatTables();
     await this._createNotificationTables();
     await this._createTreeChangeTables();
-    await this._backfillPersonIdentitiesInStateRow();
-    await this._hydrateAuthProjectionTablesFromStateRow();
-    await this._migrateChatCollectionsToTables();
-    await this._migrateNotificationCollectionsToTables();
-    await this._migrateTreeChangeCollectionsToTables();
-    await this._hydrateChatProjectionFromState();
+
+    // SPEED-9 C-boot (docs/speed9_proposal.md §5): раньше КАЖДЫЙ из шагов
+    // ниже делал свой собственный SELECT data FROM + normalizeDbState —
+    // ≥5 полных чтений+парсингов блоба на КАЖДЫЙ рестарт процесса, хотя
+    // на уже мигрированном проде каждому шагу нужно только увидеть один
+    // и тот же маркер migrationStatus.*ToTables = "complete-v1". Теперь
+    // строка читается ОДИН раз, и разобранное состояние прокидывается
+    // через все шаги опциональным параметром. Свежесть: любой шаг,
+    // который РЕАЛЬНО записал строку (backfill что-то изменил / миграция
+    // выполнилась), возвращает {state, version} уже ПОСЛЕ своей записи —
+    // следующий шаг видит актуальные данные, не читая блоб заново.
+    // Если общий снимок недоступен (БД моргнула ровно в этот момент) —
+    // деградация 1:1 к поведению до этого чанка: каждый шаг вызывается
+    // без аргумента и сам делает свой SELECT, сам решает, что делать при
+    // неудаче (см. postgres-notification-tables.test.js «скип миграции
+    // (БД моргнула)» — этот путь проверяет ровно старое поведение).
+    const bootRow = await this._readBootStateRow();
+    if (bootRow) {
+      let cursor = await this._backfillPersonIdentitiesInStateRow(bootRow);
+      await this._hydrateAuthProjectionTablesFromStateRow(cursor?.state);
+      cursor = await this._migrateChatCollectionsToTables(cursor);
+      cursor = await this._migrateNotificationCollectionsToTables(cursor);
+      cursor = await this._migrateTreeChangeCollectionsToTables(cursor);
+      await this._hydrateChatProjectionFromState(cursor?.state);
+      // Прогрев кэша: первый настоящий _read() после буста должен сразу
+      // попасть в кэш вместо гарантированного промаха (_cachedVersion до
+      // этого чанка оставался null весь бут независимо от того, менялись
+      // ли данные — см. SPEED-8a). Валидно ТОЛЬКО когда version реально
+      // подтверждена (либо version строки на момент чтения, если никто
+      // не писал, либо RETURNING с последней записи) — иначе, как и
+      // раньше, первый _read() честно перечитает БД.
+      if (
+        cursor &&
+        cursor.state &&
+        cursor.version !== null &&
+        cursor.version !== undefined
+      ) {
+        this._cachedState = structuredClone(cursor.state);
+        this._cachedVersion = cursor.version;
+      }
+    } else {
+      await this._backfillPersonIdentitiesInStateRow();
+      await this._hydrateAuthProjectionTablesFromStateRow();
+      await this._migrateChatCollectionsToTables();
+      await this._migrateNotificationCollectionsToTables();
+      await this._migrateTreeChangeCollectionsToTables();
+      await this._hydrateChatProjectionFromState();
+    }
+  }
+
+  // SPEED-9 C-boot: единственное чтение строки состояния для всего буста
+  // (см. комментарий в _bootstrap()). Тот же литерал SQL, что и у старых
+  // независимых шагов (`SELECT data FROM`) — так тесты, считающие полные
+  // чтения блоба по этому литералу, продолжают видеть корректную картину;
+  // version получаем отдельным дешёвым запросом (_selectStateVersion,
+  // уже существует, сам гасит любую ошибку в null) — это НЕ второй SELECT
+  // блоба, колонка version весит несколько байт против мегабайтного JSONB.
+  // Любая ошибка чтения данных — null целиком: вызывающий уходит в старый
+  // режим независимых чтений на каждом шаге (защита от «БД моргнула»).
+  async _readBootStateRow() {
+    try {
+      const result = await this._pool.query(
+        `SELECT data FROM ${this._qualifiedTableName} WHERE id = $1`,
+        [this._rowId],
+      );
+      const rawData = result.rows[0]?.data ?? EMPTY_DB;
+      const state = normalizeDbState(
+        typeof rawData === "string" ? JSON.parse(rawData) : rawData,
+      );
+      const version = await this._selectStateVersion();
+      return {state, version};
+    } catch (error) {
+      console.warn(
+        "[backend] postgres-store bootstrap snapshot read failed — steps will read individually",
+        JSON.stringify({
+          table: `${this._schema}.${this._table}`,
+          rowId: this._rowId,
+          message: error?.message || String(error),
+        }),
+      );
+      return null;
+    }
   }
 
   // ── SPEED-6: чат-таблицы ─────────────────────────────────────────────
@@ -740,31 +816,44 @@ class PostgresStore extends FileStore {
   // Маркер — migrationStatus.notificationsToTables; исходные массивы целиком
   // сохраняются в backup-таблицу (план отката — scripts/
   // restore-notifications-to-blob.js), после чего вычищаются из блоба.
-  async _migrateNotificationCollectionsToTables() {
+  //
+  // SPEED-9 C-boot: принимает опциональный {state, version} — уже
+  // прочитанный/актуальный снимок от предыдущего шага буста (см.
+  // _bootstrap()). Без аргумента — прежнее поведение, собственный SELECT
+  // (защищает любой другой вызов этого метода и «БД моргнула»-тесты).
+  // На успехе ВСЕГДА возвращает {state, version}, отражающий то, что
+  // реально лежит в строке ПОСЛЕ этого шага — так следующий шаг в цепочке
+  // не читает блоб заново.
+  async _migrateNotificationCollectionsToTables(bootRow) {
     const MARKER = "complete-v1";
     let state = null;
-    try {
-      const result = await this._pool.query(
-        `SELECT data FROM ${this._qualifiedTableName} WHERE id = $1`,
-        [this._rowId],
-      );
-      const rawData = result.rows[0]?.data ?? EMPTY_DB;
-      state = normalizeDbState(
-        typeof rawData === "string" ? JSON.parse(rawData) : rawData,
-      );
-    } catch (error) {
-      // Состояние недоступно (БД лежит) — общий деградированный режим, не
-      // провал миграции: следующий бут повторит попытку (как SPEED-6).
-      console.warn(
-        "[backend] notification collections migration skipped — state unavailable",
-        JSON.stringify({message: error?.message || String(error)}),
-      );
-      return;
+    let version = bootRow ? bootRow.version ?? null : null;
+    if (bootRow && bootRow.state) {
+      state = bootRow.state;
+    } else {
+      try {
+        const result = await this._pool.query(
+          `SELECT data FROM ${this._qualifiedTableName} WHERE id = $1`,
+          [this._rowId],
+        );
+        const rawData = result.rows[0]?.data ?? EMPTY_DB;
+        state = normalizeDbState(
+          typeof rawData === "string" ? JSON.parse(rawData) : rawData,
+        );
+      } catch (error) {
+        // Состояние недоступно (БД лежит) — общий деградированный режим, не
+        // провал миграции: следующий бут повторит попытку (как SPEED-6).
+        console.warn(
+          "[backend] notification collections migration skipped — state unavailable",
+          JSON.stringify({message: error?.message || String(error)}),
+        );
+        return null;
+      }
     }
     try {
       if (state?.migrationStatus?.notificationsToTables === MARKER) {
         this._notificationTablesReady = true;
-        return;
+        return {state, version};
       }
 
       const notifications = Array.isArray(state.notifications)
@@ -830,12 +919,13 @@ class PostgresStore extends FileStore {
           notificationsToTables: MARKER,
         },
       };
-      await this._pool.query(
+      const updateResult = await this._pool.query(
         `UPDATE ${this._qualifiedTableName}
             SET data = $2::jsonb,
                 updated_at = NOW(),
                 version = version + 1
-          WHERE id = $1`,
+          WHERE id = $1
+          RETURNING version`,
         [this._rowId, JSON.stringify(nextState)],
       );
       this._cachedState = normalizeDbState(nextState);
@@ -854,6 +944,12 @@ class PostgresStore extends FileStore {
           },
         }),
       );
+      return {
+        state: this._cachedState,
+        version: PostgresStore._normalizeStateVersion(
+          updateResult?.rows?.[0]?.version,
+        ),
+      };
     } catch (error) {
       // Оверрайды читают ТОЛЬКО таблицы — старт с недомигрированными данными
       // означал бы split-brain. Роняем бут (как SPEED-6).
@@ -870,32 +966,41 @@ class PostgresStore extends FileStore {
   // restore-chat-collections-to-blob.js), после чего вычищаются из блоба.
   // chatId сообщений канонизируется (a_b с сортировкой) прямо при переносе,
   // чтобы рантайм-запросы работали по одному id вместо alias-набора.
-  async _migrateChatCollectionsToTables() {
+  //
+  // SPEED-9 C-boot: опциональный {state, version} от предыдущего шага
+  // буста — без него прежнее поведение (собственный SELECT). На успехе
+  // возвращает {state, version}, отражающий строку ПОСЛЕ этого шага.
+  async _migrateChatCollectionsToTables(bootRow) {
     const MARKER = "complete-v1";
     let state = null;
-    try {
-      const result = await this._pool.query(
-        `SELECT data FROM ${this._qualifiedTableName} WHERE id = $1`,
-        [this._rowId],
-      );
-      const rawData = result.rows[0]?.data ?? EMPTY_DB;
-      state = normalizeDbState(
-        typeof rawData === "string" ? JSON.parse(rawData) : rawData,
-      );
-    } catch (error) {
-      // Состояние недоступно (БД лежит) — это не «миграция сломалась», а
-      // общий деградированный режим: _read будет сервить sidecar-кэш, а
-      // табличные чат-методы честно упадут той же ошибкой соединения.
-      // Следующий бут повторит попытку.
-      console.warn(
-        "[backend] chat collections migration skipped — state unavailable",
-        JSON.stringify({message: error?.message || String(error)}),
-      );
-      return;
+    let version = bootRow ? bootRow.version ?? null : null;
+    if (bootRow && bootRow.state) {
+      state = bootRow.state;
+    } else {
+      try {
+        const result = await this._pool.query(
+          `SELECT data FROM ${this._qualifiedTableName} WHERE id = $1`,
+          [this._rowId],
+        );
+        const rawData = result.rows[0]?.data ?? EMPTY_DB;
+        state = normalizeDbState(
+          typeof rawData === "string" ? JSON.parse(rawData) : rawData,
+        );
+      } catch (error) {
+        // Состояние недоступно (БД лежит) — это не «миграция сломалась», а
+        // общий деградированный режим: _read будет сервить sidecar-кэш, а
+        // табличные чат-методы честно упадут той же ошибкой соединения.
+        // Следующий бут повторит попытку.
+        console.warn(
+          "[backend] chat collections migration skipped — state unavailable",
+          JSON.stringify({message: error?.message || String(error)}),
+        );
+        return null;
+      }
     }
     try {
       if (state?.migrationStatus?.chatCollectionsToTables === MARKER) {
-        return;
+        return {state, version};
       }
 
       const messages = Array.isArray(state.messages) ? state.messages : [];
@@ -1021,12 +1126,13 @@ class PostgresStore extends FileStore {
           chatCollectionsToTables: MARKER,
         },
       };
-      await this._pool.query(
+      const updateResult = await this._pool.query(
         `UPDATE ${this._qualifiedTableName}
             SET data = $2::jsonb,
                 updated_at = NOW(),
                 version = version + 1
-          WHERE id = $1`,
+          WHERE id = $1
+          RETURNING version`,
         [this._rowId, JSON.stringify(nextState)],
       );
       this._cachedState = normalizeDbState(nextState);
@@ -1048,6 +1154,12 @@ class PostgresStore extends FileStore {
           },
         }),
       );
+      return {
+        state: this._cachedState,
+        version: PostgresStore._normalizeStateVersion(
+          updateResult?.rows?.[0]?.version,
+        ),
+      };
     } catch (error) {
       // Миграция обязана завершиться до обслуживания запросов: table-оверрайды
       // читают ТОЛЬКО таблицы, и старт с недомигрированными данными означал бы
@@ -1115,16 +1227,22 @@ class PostgresStore extends FileStore {
     this._chatsProjectionDirty = false;
   }
 
-  async _hydrateChatProjectionFromState() {
+  // SPEED-9 C-boot: опциональный уже прочитанный/актуальный state от
+  // предыдущего шага буста — без него прежнее поведение (собственный
+  // SELECT). Эта проекция не пишет блоб, поэтому ничего не возвращает.
+  async _hydrateChatProjectionFromState(bootState) {
     try {
-      const result = await this._pool.query(
-        `SELECT data FROM ${this._qualifiedTableName} WHERE id = $1`,
-        [this._rowId],
-      );
-      const rawData = result.rows[0]?.data ?? EMPTY_DB;
-      const state = normalizeDbState(
-        typeof rawData === "string" ? JSON.parse(rawData) : rawData,
-      );
+      let state = bootState;
+      if (!state) {
+        const result = await this._pool.query(
+          `SELECT data FROM ${this._qualifiedTableName} WHERE id = $1`,
+          [this._rowId],
+        );
+        const rawData = result.rows[0]?.data ?? EMPTY_DB;
+        state = normalizeDbState(
+          typeof rawData === "string" ? JSON.parse(rawData) : rawData,
+        );
+      }
       await this._replaceChatProjection(state.chats);
     } catch (error) {
       // Деградация вместо падения (БД могла мигнуть): dirty-флаг переводит
@@ -1138,29 +1256,47 @@ class PostgresStore extends FileStore {
     }
   }
 
-  async _backfillPersonIdentitiesInStateRow() {
+  // SPEED-9 C-boot: опциональный {state, version} от единого чтения в
+  // начале _bootstrap() — без него прежнее поведение (собственный SELECT).
+  // На успехе возвращает {state, version} строки ПОСЛЕ этого шага; на
+  // ошибке — исходный bootRow без изменений (мы его не портили, только
+  // не смогли обновить), либо null, если своего снимка тоже не было.
+  async _backfillPersonIdentitiesInStateRow(bootRow) {
     try {
-      const result = await this._pool.query(
-        `SELECT data FROM ${this._qualifiedTableName} WHERE id = $1`,
-        [this._rowId],
-      );
-      const rawData = result.rows[0]?.data ?? EMPTY_DB;
-      const normalized = normalizeDbState(rawData);
+      let normalized;
+      let version = bootRow ? bootRow.version ?? null : null;
+      if (bootRow && bootRow.state) {
+        normalized = bootRow.state;
+      } else {
+        const result = await this._pool.query(
+          `SELECT data FROM ${this._qualifiedTableName} WHERE id = $1`,
+          [this._rowId],
+        );
+        const rawData = result.rows[0]?.data ?? EMPTY_DB;
+        normalized = normalizeDbState(rawData);
+      }
       const migration = backfillPersonIdentities(normalized);
       if (!migration.changed) {
         this._cachedState = normalized;
-        return;
+        return {state: normalized, version};
       }
 
-      await this._pool.query(
+      const updateResult = await this._pool.query(
         `UPDATE ${this._qualifiedTableName}
             SET data = $2::jsonb,
                 updated_at = NOW(),
                 version = version + 1
-          WHERE id = $1`,
+          WHERE id = $1
+          RETURNING version`,
         [this._rowId, JSON.stringify(migration.snapshot)],
       );
       this._cachedState = normalizeDbState(migration.snapshot);
+      return {
+        state: this._cachedState,
+        version: PostgresStore._normalizeStateVersion(
+          updateResult?.rows?.[0]?.version,
+        ),
+      };
     } catch (error) {
       console.warn(
         "[backend] postgres-store skipped person identity backfill",
@@ -1170,6 +1306,7 @@ class PostgresStore extends FileStore {
           message: error?.message || String(error),
         }),
       );
+      return bootRow || null;
     }
   }
 
@@ -1186,7 +1323,13 @@ class PostgresStore extends FileStore {
     }
   }
 
-  async _hydrateAuthProjectionTablesFromStateRow() {
+  // SPEED-9 C-boot: primary-путь ниже — чистый SQL (LATERAL по data->'users'
+  // / data->'sessions'), блоб в JS никогда не тянет — на реальном Postgres
+  // не входит в счёт «SELECT+parse блоба» вообще. Опциональный bootState
+  // используется ТОЛЬКО в fallback-ветке (когда LATERAL недоступен —
+  // сегодня это исключительно pg-mem-ограничение в тестах, см.
+  // docs/speed_measurement.md), чтобы и там не делать отдельный SELECT.
+  async _hydrateAuthProjectionTablesFromStateRow(bootState) {
     await this._withProjectionClient(async (client, useTransaction) => {
       try {
         if (useTransaction) {
@@ -1239,11 +1382,14 @@ class PostgresStore extends FileStore {
               // ignore rollback failures for fallback path
             }
           }
-          const result = await this._pool.query(
-            `SELECT data FROM ${this._qualifiedTableName} WHERE id = $1`,
-            [this._rowId],
-          );
-          const rawData = result.rows[0]?.data ?? EMPTY_DB;
+          let rawData = bootState;
+          if (!rawData) {
+            const result = await this._pool.query(
+              `SELECT data FROM ${this._qualifiedTableName} WHERE id = $1`,
+              [this._rowId],
+            );
+            rawData = result.rows[0]?.data ?? EMPTY_DB;
+          }
           await this._replaceProjectedUsers(rawData.users);
           await this._replaceProjectedSessions(rawData.sessions);
           return;
@@ -2586,29 +2732,39 @@ class PostgresStore extends FileStore {
   // Маркер — migrationStatus.treeChangeRecordsToTables; массивы целиком
   // сохраняются в backup-таблицу (откат — scripts/
   // restore-tree-change-records-to-blob.js), после чего вычищаются из блоба.
-  async _migrateTreeChangeCollectionsToTables() {
+  // SPEED-9 C-boot: опциональный {state, version} от предыдущего шага
+  // буста — без него прежнее поведение (собственный SELECT). На успехе
+  // возвращает {state, version} строки ПОСЛЕ этого шага; при неудаче
+  // самой миграции (второй catch — намеренно НЕ бросает, в отличие от
+  // чата/notifications) возвращает вход без изменений — блоб не писали.
+  async _migrateTreeChangeCollectionsToTables(bootRow) {
     const MARKER = "complete-v1";
     let state = null;
-    try {
-      const result = await this._pool.query(
-        `SELECT data FROM ${this._qualifiedTableName} WHERE id = $1`,
-        [this._rowId],
-      );
-      const rawData = result.rows[0]?.data ?? EMPTY_DB;
-      state = normalizeDbState(
-        typeof rawData === "string" ? JSON.parse(rawData) : rawData,
-      );
-    } catch (error) {
-      console.warn(
-        "[backend] tree change collections migration skipped — state unavailable",
-        JSON.stringify({message: error?.message || String(error)}),
-      );
-      return;
+    let version = bootRow ? bootRow.version ?? null : null;
+    if (bootRow && bootRow.state) {
+      state = bootRow.state;
+    } else {
+      try {
+        const result = await this._pool.query(
+          `SELECT data FROM ${this._qualifiedTableName} WHERE id = $1`,
+          [this._rowId],
+        );
+        const rawData = result.rows[0]?.data ?? EMPTY_DB;
+        state = normalizeDbState(
+          typeof rawData === "string" ? JSON.parse(rawData) : rawData,
+        );
+      } catch (error) {
+        console.warn(
+          "[backend] tree change collections migration skipped — state unavailable",
+          JSON.stringify({message: error?.message || String(error)}),
+        );
+        return null;
+      }
     }
     try {
       if (state?.migrationStatus?.treeChangeRecordsToTables === MARKER) {
         this._treeChangeTablesReady = true;
-        return;
+        return {state, version};
       }
       const records = Array.isArray(state.treeChangeRecords)
         ? state.treeChangeRecords
@@ -2636,12 +2792,13 @@ class PostgresStore extends FileStore {
           treeChangeRecordsToTables: MARKER,
         },
       };
-      await this._pool.query(
+      const updateResult = await this._pool.query(
         `UPDATE ${this._qualifiedTableName}
             SET data = $2::jsonb,
                 updated_at = NOW(),
                 version = version + 1
-          WHERE id = $1`,
+          WHERE id = $1
+          RETURNING version`,
         [this._rowId, JSON.stringify(nextState)],
       );
       this._cachedState = normalizeDbState(nextState);
@@ -2656,11 +2813,18 @@ class PostgresStore extends FileStore {
           hardDeleteAudit: auditInserted,
         }),
       );
+      return {
+        state: this._cachedState,
+        version: PostgresStore._normalizeStateVersion(
+          updateResult?.rows?.[0]?.version,
+        ),
+      };
     } catch (error) {
       console.warn(
         "[backend] tree change collections migration failed — blob stays source of truth",
         JSON.stringify({message: error?.message || String(error)}),
       );
+      return {state, version};
     }
   }
 
