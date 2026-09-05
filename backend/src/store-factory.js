@@ -1,6 +1,24 @@
 const {FileStore} = require("./store");
 const {PostgresStore} = require("./postgres-store");
 
+// SPEED-9: прогрев read-кэша (SPEED-8a) сразу после boot — иначе первый
+// реальный HTTP-запрос после деплоя/рестарта первым платит cache-miss
+// `_read()` (SELECT блоба + parse + _syncGraphFromLegacy + structuredClone +
+// sidecar-запись, ~350мс на проде — см. docs/speed_measurement.md SPEED-8a).
+// Поведенчески нейтрально: тот же _read() всё равно случился бы на первом
+// запросе, просто выполняется раньше, до старта приёма трафика. Ошибка
+// прогрева не должна ронять старт — следующий _read() честно перечитает БД.
+async function warmPostgresReadCache(store) {
+  try {
+    await store._read();
+  } catch (error) {
+    console.warn(
+      "[backend] postgres-store cache warm-up read failed",
+      error?.message || String(error),
+    );
+  }
+}
+
 async function createStore(config) {
   const storageBackend = String(config?.storageBackend || "file")
     .trim()
@@ -28,6 +46,7 @@ async function createStore(config) {
         applicationName: config.postgresApplicationName,
       });
       await store.initialize();
+      await warmPostgresReadCache(store);
       return store;
     }
     default:
@@ -39,4 +58,5 @@ async function createStore(config) {
 
 module.exports = {
   createStore,
+  warmPostgresReadCache,
 };
