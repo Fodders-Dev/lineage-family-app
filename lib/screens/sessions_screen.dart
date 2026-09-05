@@ -59,7 +59,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Сеанс «${session.deviceName ?? 'устройство'}» завершён',
+            'Сеанс «${session.deviceName ?? 'Неизвестное устройство'}» завершён',
           ),
         ),
       );
@@ -280,9 +280,9 @@ class _SessionTile extends StatelessWidget {
         ? '—'
         : DateFormat('d MMM, HH:mm', 'ru').format(lastSeen);
     final platform = session.platform ?? 'unknown';
-    final deviceName = session.deviceName ?? 'Безымянное устройство';
-    final platformLine = _platformLabel(platform) +
-        (session.appVersion != null ? ' • ${session.appVersion}' : '');
+    final deviceName = session.deviceName ?? 'Неизвестное устройство';
+    final platformLine = _platformAndOsLabel(platform, session.osVersion) +
+        (session.appVersion != null ? ' • Родня ${session.appVersion}' : '');
 
     // Плотность: было — своя скруглённая Material-карточка (паддинг 16
     // по кругу, radius 16) + две отдельных строки подписи ≈100dp на
@@ -320,7 +320,7 @@ class _SessionTile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(999),
               ),
               child: Text(
-                'этот',
+                'это устройство',
                 style: theme.textTheme.labelSmall?.copyWith(
                   color: theme.colorScheme.primary,
                   fontWeight: FontWeight.w600,
@@ -367,6 +367,14 @@ class _SessionTile extends StatelessWidget {
       default:
         return Icons.devices_other_rounded;
     }
+  }
+
+  /// "Android 14", "iOS 17.5", "Web" (no OS version — see osVersion doc on
+  /// DeviceDescriptor for why web is always null).
+  String _platformAndOsLabel(String platform, String? osVersion) {
+    final label = _platformLabel(platform);
+    if (osVersion == null || osVersion.isEmpty) return label;
+    return '$label $osVersion';
   }
 
   String _platformLabel(String platform) {

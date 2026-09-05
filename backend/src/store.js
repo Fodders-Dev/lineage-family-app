@@ -1741,6 +1741,9 @@ function normalizeSessionDeviceContext(context = {}) {
     instanceId: normalizeOptionalString(source.instanceId, 80),
     deviceName: normalizeOptionalString(source.deviceName, 80),
     platform: normalizeOptionalString(source.platform, 40),
+    // Additive alongside platform/appVersion — old sessions/clients simply
+    // lack it, callers already treat every field here as nullable.
+    osVersion: normalizeOptionalString(source.osVersion, 40),
     appVersion: normalizeOptionalString(source.appVersion, 40),
   };
 }
@@ -7400,6 +7403,9 @@ class FileStore {
     }
     if (patch.platform !== undefined) {
       allowedPatch.platform = normalizeOptionalString(patch.platform, 40);
+    }
+    if (patch.osVersion !== undefined) {
+      allowedPatch.osVersion = normalizeOptionalString(patch.osVersion, 40);
     }
     if (patch.appVersion !== undefined) {
       allowedPatch.appVersion = normalizeOptionalString(patch.appVersion, 40);

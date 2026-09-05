@@ -14,6 +14,7 @@ class AuthSessionSummary {
     required this.sessionPublicId,
     required this.deviceName,
     required this.platform,
+    this.osVersion,
     required this.appVersion,
     required this.createdAt,
     required this.lastSeenAt,
@@ -25,6 +26,9 @@ class AuthSessionSummary {
       sessionPublicId: (json['sessionPublicId'] ?? '').toString(),
       deviceName: json['deviceName']?.toString(),
       platform: json['platform']?.toString(),
+      // Additive field — sessions created before this shipped (or by an
+      // old client build) simply won't have it; null is the honest state.
+      osVersion: json['osVersion']?.toString(),
       appVersion: json['appVersion']?.toString(),
       createdAt: _parseDateTime(json['createdAt']),
       lastSeenAt: _parseDateTime(json['lastSeenAt']),
@@ -35,6 +39,7 @@ class AuthSessionSummary {
   final String sessionPublicId;
   final String? deviceName;
   final String? platform;
+  final String? osVersion;
   final String? appVersion;
   final DateTime? createdAt;
   final DateTime? lastSeenAt;

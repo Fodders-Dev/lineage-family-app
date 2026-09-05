@@ -933,6 +933,14 @@ function createApp({
         deviceInfoFromBody.platform,
         deviceInfoFromQuery.platform,
       ),
+      // Additive (post multi-device-session shipping): old clients simply
+      // don't send it, old stored sessions simply don't have it — both
+      // tolerated as null all the way to the sessions-list UI.
+      osVersion: pickString(
+        deviceInfoFromBody.osVersion,
+        deviceInfoFromQuery.osVersion,
+        deviceInfoFromQuery.os_version,
+      ),
       appVersion: pickString(
         deviceInfoFromBody.appVersion,
         deviceInfoFromQuery.appVersion,

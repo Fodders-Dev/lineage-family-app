@@ -184,6 +184,11 @@ dev_dependencies:
   plugin_platform_interface: ^2.1.8
   # C2: мок video_player в виджет-тесте inline-кружка.
   video_player_platform_interface: ^6.7.0
+  # Мок flutter_secure_storage в виджет-тесте экрана сеансов: под
+  # testWidgets() ServicesBinding уже живой, поэтому немокнутый плагин
+  # реально бьётся в channel вместо мгновенного throw — без фейкового
+  # платформенного instance тест виснет на реальном таймауте.
+  flutter_secure_storage_platform_interface: ^1.1.2
   # Добавляем генератор иконок
   flutter_launcher_icons: ^0.14.3
 
