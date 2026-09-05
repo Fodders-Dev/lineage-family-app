@@ -6160,6 +6160,39 @@ function attachCommentReactions(db, comment) {
   return clone;
 }
 
+// SPEED-9 D: общий хвост listPostComments/listPostCommentsForPosts —
+// сортировка + hydrate authorPhotoUrl + реакции. Вынесено, чтобы
+// батч-версия (один _read() на страницу постов) давала БУКВАЛЬНО ту же
+// форму на каждый пост, что и одиночный вызов — не две копии одной и
+// той же логики, расходящиеся со временем.
+function buildUsersByIdMap(db) {
+  return new Map(
+    (Array.isArray(db.users) ? db.users : []).map((user) => [
+      String(user?.id || "").trim(),
+      user,
+    ]),
+  );
+}
+
+function hydrateAndSortPostComments(db, entries, usersById) {
+  return entries
+    .slice()
+    .sort((left, right) =>
+      String(left.createdAt || "").localeCompare(String(right.createdAt || "")),
+    )
+    .map((entry) => {
+      const hydrated = structuredClone(entry);
+      if (!String(hydrated.authorPhotoUrl || "").trim()) {
+        const author = usersById.get(String(hydrated.authorId || "").trim());
+        const photoUrl = author?.profile?.photoUrl;
+        if (String(photoUrl || "").trim()) {
+          hydrated.authorPhotoUrl = String(photoUrl).trim();
+        }
+      }
+      return attachCommentReactions(db, hydrated);
+    });
+}
+
 function ensureStoryReactions(db) {
   db.storyReactions = Array.isArray(db.storyReactions) ? db.storyReactions : [];
   return db.storyReactions;
@@ -18260,30 +18293,41 @@ class FileStore {
     };
   }
 
-  async listPostComments(postId) {
-    const db = await this._read();
-    const usersById = new Map(
-      (Array.isArray(db.users) ? db.users : []).map((user) => [
-        String(user?.id || "").trim(),
-        user,
-      ]),
-    );
-    return db.comments
-      .filter((entry) => entry.postId === postId)
-      .sort((left, right) =>
-        String(left.createdAt || "").localeCompare(String(right.createdAt || "")),
-      )
-      .map((entry) => {
-        const hydrated = structuredClone(entry);
-        if (!String(hydrated.authorPhotoUrl || "").trim()) {
-          const author = usersById.get(String(hydrated.authorId || "").trim());
-          const photoUrl = author?.profile?.photoUrl;
-          if (String(photoUrl || "").trim()) {
-            hydrated.authorPhotoUrl = String(photoUrl).trim();
-          }
-        }
-        return attachCommentReactions(db, hydrated);
-      });
+  async listPostComments(postId, {db: prefetchedDb = null} = {}) {
+    const db = prefetchedDb || (await this._read());
+    const usersById = buildUsersByIdMap(db);
+    const entries = db.comments.filter((entry) => entry.postId === postId);
+    return hydrateAndSortPostComments(db, entries, usersById);
+  }
+
+  /// SPEED-9 D: батч-сиблинг listPostComments — один _read() на СПИСОК
+  /// постов вместо одного на каждый. До этого GET /v1/posts делал
+  /// Promise.all(page.map(post => listPostComments(post.id))) — K
+  /// независимых _read() на странице из K постов (на PostgresStore
+  /// каждый — structuredClone всего состояния + 2 SQL round-trip'а,
+  /// см. docs/speed_measurement.md SPEED-9). Возвращает Map<postId,
+  /// comments[]>, где comments[] для каждого postId побайтово совпадает
+  /// с тем, что вернул бы listPostComments(postId) на том же db —
+  /// общий hydrateAndSortPostComments гарантирует это, а не просто
+  /// "похожую" реализацию.
+  async listPostCommentsForPosts(postIds, {db: prefetchedDb = null} = {}) {
+    const db = prefetchedDb || (await this._read());
+    const usersById = buildUsersByIdMap(db);
+    const idSet = new Set(postIds);
+    const entriesByPost = new Map();
+    for (const id of idSet) {
+      entriesByPost.set(id, []);
+    }
+    for (const entry of db.comments) {
+      if (idSet.has(entry.postId)) {
+        entriesByPost.get(entry.postId).push(entry);
+      }
+    }
+    const result = new Map();
+    for (const [postId, entries] of entriesByPost) {
+      result.set(postId, hydrateAndSortPostComments(db, entries, usersById));
+    }
+    return result;
   }
 
   /// Lookup a single comment scoped to a post. Used by the route layer

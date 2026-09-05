@@ -93,11 +93,14 @@ function registerPostRoutes(
         : null;
 
     if (limit === null) {
-      const payload = await Promise.all(
-        visiblePosts.map(async (post) => {
-          const comments = await store.listPostComments(post.id);
-          return mapPost(post, comments.length);
-        }),
+      // SPEED-9 D: один _read() на всю страницу вместо одного на
+      // каждый пост (Promise.all(...listPostComments...) ниже делал
+      // K независимых _read() для K видимых постов).
+      const commentsByPost = await store.listPostCommentsForPosts(
+        visiblePosts.map((post) => post.id),
+      );
+      const payload = visiblePosts.map((post) =>
+        mapPost(post, (commentsByPost.get(post.id) || []).length),
       );
       res.json(payload);
       return;
@@ -130,11 +133,13 @@ function registerPostRoutes(
         ? `${lastPost.createdAt}|${lastPost.id}`
         : null;
 
-    const pagePayload = await Promise.all(
-      page.map(async (post) => {
-        const comments = await store.listPostComments(post.id);
-        return mapPost(post, comments.length);
-      }),
+    // SPEED-9 D: тот же батч, что и в ветке без limit — один _read()
+    // на страницу вместо одного на каждый пост страницы.
+    const commentsByPost = await store.listPostCommentsForPosts(
+      page.map((post) => post.id),
+    );
+    const pagePayload = page.map((post) =>
+      mapPost(post, (commentsByPost.get(post.id) || []).length),
     );
     res.json({posts: pagePayload, nextCursor});
   });
