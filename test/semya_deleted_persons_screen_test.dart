@@ -303,4 +303,44 @@ void main() {
     expect(find.text('Нет доступа'), findsOneWidget);
     expect(find.text('Повторить'), findsOneWidget);
   });
+
+  testWidgets('тач-таргет restore/purge в DeletedItemRow ≥44dp', (tester) async {
+    final service = _FakeSemyaService(
+      persons: [
+        _person(id: 'p-1', name: 'Бабушка Лидия', earliestHardDelete: pastFloor),
+      ],
+    );
+    await tester.pumpWidget(_wrap(service));
+    await tester.pumpAndSettle();
+
+    final restoreSize =
+        tester.getSize(find.byKey(const Key('semya-trash-restore-p-1')));
+    final purgeSize =
+        tester.getSize(find.byKey(const Key('semya-trash-purge-p-1')));
+    expect(restoreSize.width, greaterThanOrEqualTo(44));
+    expect(restoreSize.height, greaterThanOrEqualTo(44));
+    expect(purgeSize.width, greaterThanOrEqualTo(44));
+    expect(purgeSize.height, greaterThanOrEqualTo(44));
+  });
+
+  testWidgets('на узком экране 360×640 нет переполнения', (tester) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final service = _FakeSemyaService(
+      persons: [
+        _person(
+          id: 'p-1',
+          name: 'Александра Константинопольская-Долгорукая',
+          earliestHardDelete: pastFloor,
+        ),
+        _person(id: 'p-2', name: 'Дед Пётр', earliestHardDelete: futureFloor),
+      ],
+    );
+    await tester.pumpWidget(_wrap(service, name: 'Очень длинное имя семьи для проверки AppBar'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+  });
 }
