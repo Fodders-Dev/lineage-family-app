@@ -37,9 +37,12 @@ function registerPollRoutes(
 
     const accessibleTrees = await store.listUserTrees(req.auth.user.id);
     const accessibleTreeIds = new Set(accessibleTrees.map((entry) => entry.id));
+    // SPEED-9 B: переиспользуем снимок requireTreeAccess, если он есть
+    // (федеративное дерево, treeId задан) — 2 _read() на запрос → 1.
     const polls = await store.listPolls({
       treeId,
       viewerUserId: req.auth.user.id,
+      db: req.storeSnapshot || null,
     });
     const visible = polls.filter((poll) => {
       if (accessibleTreeIds.has(poll.treeId)) return true;

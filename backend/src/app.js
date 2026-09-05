@@ -1946,7 +1946,28 @@ function createApp({
     // rollout). Без этого dual-path existing endpoints ломаются
     // на pre-Phase-B users чьи trees not yet bound.
     if (useSemyaModel && tree.semyaId) {
-      const membership = await store.findMembership(tree.semyaId, req.auth.user.id);
+      // SPEED-9 B: findMembership не переопределён в PostgresStore —
+      // на федеративном (сегодня — прод-default) пути это единственный
+      // полный _read() блоба внутри requireTreeAccess (сам tree найден
+      // scoped SQL в findTree). Читаем блоб один раз здесь и кладём на
+      // req.storeSnapshot — burst-маршруты входа (persons/graph/
+      // gatherings/polls/stories) переиспользуют этот снимок вместо
+      // собственного _read(). Если снимок уже лежит на req (например,
+      // requireTreeAccess вызван дважды за один запрос — так делает
+      // link-identity для source+target дерева), читаем блоб только
+      // один раз на весь HTTP-запрос. ВАЖНО: это снимок ТОЛЬКО для
+      // чтения — обработчик, который после requireTreeAccess мутирует
+      // блоб через _mutate, не должен отдавать клиенту данные из этого
+      // снимка (см. docs/speed_measurement.md, SPEED-9 B).
+      const db = req.storeSnapshot || (await store._read());
+      if (!req.storeSnapshot) {
+        req.storeSnapshot = db;
+      }
+      const membership = await store.findMembership(
+        tree.semyaId,
+        req.auth.user.id,
+        db,
+      );
       if (!membership) {
         res.status(403).json({message: "Доступ к дереву запрещён"});
         return null;

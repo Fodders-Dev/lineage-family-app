@@ -450,3 +450,175 @@ view, создаваемым поверх уже существующего grap
 
 Тесты: `npm --prefix backend test` — **699/699**, ~19-21 с (флейков
 `api.test.js` в этих прогонах не было).
+
+## SPEED-9 B — один `_read()` на HTTP-запрос для `requireTreeAccess` + горячих GET-маршрутов бёрста входа (05.09.2026)
+
+Прод-журнал 05.09: при входе клиента (в т.ч. по QR) приложение
+выстреливает ~10-12 запросов за 1-2 с (`qr/start`,
+`invitations/pending/process`, `merge-proposals/pending`,
+`trees/:id/persons`, `polls`, `trees/:id/persons/:pid`,
+`onboarding-state`, `trees/:id/graph`, `gatherings`, `stories`,
+`notifications`, `chats/unread-count`), все по 530-760 мс — очередь на
+одном Node-потоке, где каждый запрос делает 2-4 `_read()` (кэш-хит
+PostgresStore = SQL `SELECT version` + `structuredClone` ~482 КБ + SQL
+`SELECT` всей таблицы сессий, ~8 мс на вызов; SPEED-8a/§2 анализа
+`docs/speed9_proposal.md`).
+
+Из 12 маршрутов бёрста шесть реально резервируют лишние `_read()` в
+рамках одного HTTP-запроса (по коду, federated-семьи ON — прод-default):
+
+| маршрут | `_read()` до | `_read()` после (Postgres, прод) | `_read()` после (FileStore, тесты) |
+|---|---|---|---|
+| `GET /v1/trees/:id/persons` | 2-3 (`requireTreeAccess`→`findMembership` + `listPersons` + `listHiddenPersonIdsForCaller`) | **1** | 2 (`findTree` не SQL-scoped на FileStore — вне периметра) |
+| `GET /v1/trees/:id/persons/:pid` | 2 (`findMembership` + `findPerson`) | **1** | 2 |
+| `GET /v1/trees/:id/graph` | 2 (`findMembership` + `getTreeGraphSnapshot`) | **1** | 2 |
+| `GET /v1/gatherings?treeId=` | 2 (`findMembership` + `listGatherings`) | **1** | 3 (`listUserTrees` тоже не scoped на FileStore) |
+| `GET /v1/polls?treeId=` | 2 | **1** | 3 |
+| `GET /v1/stories?treeId=` | 2 | **1** | 3 |
+
+Остальные шесть маршрутов бёрста уже были минимальны и не тронуты:
+`GET /v1/merge-proposals/pending` и `GET /v1/me/onboarding-state` —
+по одному `_read()` без `requireTreeAccess` в цепочке; `GET
+/v1/notifications` и `GET /v1/chats/unread-count` — 0 (таблицы SPEED-6/
+7, блоб не читается); `POST /v1/auth/qr/start` и `POST
+/v1/invitations/pending/process` — 0 явных чтений ДО своей мутации на
+уровне обработчика (сама мутация делает 1 `_read()` внутри, что вне
+периметра — правки `_mutate`-контракта не входят в задачу); ответ
+`invitations/pending/process` строит `findTree` ПОСЛЕ мутации —
+scoped SQL на Postgres, всегда свежий, трогать незачем.
+
+### Механизм
+
+`requireTreeAccess` (`backend/src/app.js`) в федеративной ветке
+(`useSemyaModel && tree.semyaId`) раньше звал `store.findMembership`,
+которая сама делает `_read()` — единственный полный blob-read внутри
+хелпера на Postgres (сам `tree` резолвится `findTree`, scoped SQL,
+0 blob-read). Теперь `requireTreeAccess` читает блоб явно один раз,
+передаёт его в `findMembership(semyaId, userId, db)` и кладёт на
+`req.storeSnapshot`:
+
+```js
+const db = req.storeSnapshot || (await store._read());
+if (!req.storeSnapshot) req.storeSnapshot = db;
+const membership = await store.findMembership(tree.semyaId, req.auth.user.id, db);
+```
+
+Если `requireTreeAccess` вызывается дважды за один запрос (например,
+`link-identity` — source-дерево + target-дерево), второй вызов находит
+`req.storeSnapshot` уже выставленным и не читает блоб снова — на весь
+HTTP-запрос гарантирован максимум один такой `_read()`, независимо от
+числа проверок доступа.
+
+Обработчики шести маршрутов передают `req.storeSnapshot || null`
+дальше в `listPersons`, `findPerson`, `listHiddenPersonIdsForCaller`,
+`getTreeGraphSnapshot`, `listGatherings`, `listPolls`, `listStories` —
+все получили новый опциональный последний параметр `db`/`{db}`
+(паттерн SPEED-8d: `const db = prefetchedDb || (await this._read());`).
+Без `req.storeSnapshot` (легаси-путь, `tree.semyaId` не задан, флаг
+выключен) поведение — как раньше, честный собственный `_read()` на
+каждый метод; ни один из ~40 остальных вызывающих `requireTreeAccess`/
+этих семи store-методов по кодовой базе не меняет поведение (параметр
+опционален, позиционные и объектные вызовы без него проходят как
+есть — проверено `grep` по всем вызовам вне `store.js`).
+
+**Свежесть после мутаций.** Снимок `req.storeSnapshot` — только для
+чтения в рамках GET-обработчиков; ни один из шести оптимизированных
+маршрутов не мутирует блоб. Отдельно проверены два маршрута из бёрста,
+которые ПИШУТ: `POST /v1/auth/qr/start` (`createAuthHandoff`, 1 `_read`
+внутри своей же bare-`_read+_write` пары — pre-existing, не трогали) и
+`POST /v1/invitations/pending/process` (`linkPersonToUser` мутирует,
+затем обработчик зовёт `store.findTree` уже ПОСЛЕ мутации — на
+Postgres это scoped SQL по свежей строке, не кэш; отдавать данные из
+устаревшего снимка здесь физически невозможно, потому что снимок
+вообще не используется в этих двух обработчиках). Ни один из них не
+трогает `req.storeSnapshot`.
+
+### Идентичность и покрытие тестами
+
+`backend/test/speed9-b-single-read.test.js` (9 тестов, FileStore,
+федеративное дерево — `RODNYA_FEDERATED_SEMYI_ENABLED=true` в тесте):
+
+1. Для каждого из 7 store-методов — результат с `prefetchedDb`
+   побайтово (`deepEqual`, за вычетом `updatedAt`/`createdAt` — см.
+   ниже) совпадает с результатом без него (собственный свежий
+   `_read()`; на FileStore каждый `_read()` — независимый
+   `JSON.parse`, так что это реальное сравнение двух независимых
+   чтений одного неизменного состояния).
+2. Для каждого из 6 маршрутов — точное число `_read()` за реальный
+   HTTP-запрос (инструментированная обёртка над `store._read`)
+   совпадает с ожидаемым (2 для persons/person-detail/graph, 3 для
+   gatherings/polls/stories — на FileStore, где `findTree`/
+   `listUserTrees` не scoped SQL) и меньше «наивной» до-фикса
+   последовательности вызовов (`findTree` → `findMembership` без db →
+   `listX` без db), посчитанной в том же тесте напрямую по стору:
+   persons 4→2, person-detail 3→2, graph 3→2, gatherings/polls/stories
+   4→3.
+3. Отдельный тест перехватывает `db`-аргумент, реально дошедший до
+   `findMembership`/`listPersons`/`listHiddenPersonIdsForCaller` за
+   один запрос, и проверяет `===` (строгое совпадение ссылки) — прямое
+   доказательство, что это ОДИН и тот же объект, а не совпадение по
+   числу.
+4. Обратная совместимость: при `RODNYA_FEDERATED_SEMYI_ENABLED`
+   выключенном (`tree.semyaId` не участвует) legacy creator+memberIds
+   gate работает как раньше, `req.storeSnapshot` не выставляется.
+
+Побочная находка при написании теста (не связана с SPEED-9 B и не
+чинилась — вне периметра задачи): `getTreeGraphSnapshot` отдаёт
+нестабильный `people[].updatedAt` на двух подряд идущих вызовах БЕЗ
+единой мутации между ними, если в дереве 2+ человека без связей друг с
+другом (воспроизводится и без единой строки этой задачи — только
+`buildTreeGraphSnapshot`/`buildFamilyUnits` над «одиночными»
+family-unit'ами). Источник не найден (в самих builder-функциях нет
+`nowIso()`/`Date.now()`), тест сравнивает результат без `updatedAt`/
+`createdAt`, находка вынесена отдельной задачей в очередь.
+
+### Замер: бёрст 12 запросов, копия прод-блоба (FileStore)
+
+Метод — как в SPEED-8c/8d/9: копия прод-блоба (`local_db.json`, 155
+persons/144 relations/25 деревьев/88 users/189 sessions), локальный
+HTTP-сервер на `:8123` (не `:8095`), `RODNYA_FEDERATED_SEMYI_ENABLED=
+true`. Дерево для бёрста — крупнейшее в копии (41 person, `semyaId`
+задан); тестовый пользователь добавлен в его `semyaMembers` (роль
+`viewer`) в РАБОЧЕЙ копии блоба (не в исходнике). 12 запросов бёрста
+(порядок клиента) выстреливаются параллельно (`Promise.all`), прогон
+повторён 12 раз подряд (144 запроса на конфигурацию), «до» — код на
+`git stash` (родитель ветки), «после» — эта ветка; сравнение — на ТОЙ
+ЖЕ машине, тех же двух прогонах каждый.
+
+| маршрут | p50 до, мс (2 прогона) | p50 после, мс (2 прогона) |
+|---|---|---|
+| persons | 623, 539 | 454, 396 |
+| polls | 623, 539 | 498, 457 |
+| person-detail | 578, 452 | 454, 401 |
+| graph | 577, 479 | 454, 409 |
+| gatherings | 622, 543 | 518, 456 |
+| stories | 628, 542 | 518, 467 |
+| **весь бёрст (144 запроса)** | **p50 447/417, max 907/797** | **p50 376/363, max 677/659** |
+
+Среднее по двум прогонам: p50 персон 581→425 мс (-27%), graph 528→432
+(-18%), gatherings 583→487 (-16%), polls 581→478 (-18%), stories
+585→493 (-16%), person-detail 515→428 (-17%); весь бёрст p50 432→370
+(-14%), max 852→668 (-22%).
+
+**Важная оговорка**: это FileStore, не PostgresStore — абсолютные
+цифры НЕ прод-цифры и системно ЗАНИЖАЮТ реальный эффект. На FileStore
+`findSession`/`findUserById` (SPEED-8a scoped-SQL только на Postgres)
+тоже делают полный `_read()` — общий «пол» задержки на КАЖДЫЙ из 12
+запросов бёрста (200-350 мс здесь) на проде отсутствует вообще
+(scoped SQL, 0 blob-read), поэтому доля, которую съедают устраняемые
+этой задачей `_read()`, на проде будет заметно больше относительно
+общего времени запроса, чем показывают проценты выше. Наблюдаемая
+здесь абсолютная экономия (~70-170 мс p50 на маршрут) — это в основном
+цена ДВУХ FileStore-специфичных «бесплатных на Postgres» чтений
+(`findTree`+`listUserTrees`), которые остаются и после фикса (см.
+таблицу `_read()` выше, колонка FileStore) — то есть даже эта
+экономия консервативна: на Postgres, где `findTree`/`listUserTrees`
+уже 0, единственный устраняемый `_read()` (`findMembership`) и есть
+ВСЯ разница между «до» и «после», и по SPEED-8d ($10-20$ мс на
+устранённый `_read()` с учётом сети + `structuredClone`) реалистичная
+прод-оценка — **10-20 мс на запрос** для этих шести маршрутов
+персонально, что на бёрсте из нескольких таких запросов подряд
+складывается в те же десятки-сотни мс наблюдаемой на проде очереди.
+
+Тесты: `npm --prefix backend test` — **710/710**, ~20-27 с (9 новых в
+`speed9-b-single-read.test.js`, флейков `api.test.js` не было).
