@@ -568,70 +568,76 @@ extension _HomeScreenSections on _HomeScreenState {
     final state = _feedEmptyViewState;
 
     if (!wideLayout) {
-      final theme = Theme.of(context);
+      final tokens = AppTheme.tokensOf(context);
+      // Плотность (чанк 19): было GlassPanel-в-GlassPanel (иконка+2 строки
+      // текста сверху, отдельная строка с кнопкой снизу — ~112dp). Теперь
+      // одна плоская поверхность, весь блок — единый тап-таргет («Написать»
+      // /«Обновить»/«Добавить родственника» одинаково открывают то же
+      // действие), заголовок+сообщение уместились в две строки — ≤72dp.
       return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-        child: GlassPanel(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-          borderRadius: BorderRadius.circular(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.fromLTRB(14, 4, 14, 0),
+        child: Material(
+          key: const Key('home-feed-empty'),
+          color: tokens.surfaceStrong,
+          borderRadius: BorderRadius.circular(16),
+          child: InkWell(
+            onTap: _handleFeedEmptyAction,
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
                 children: [
-                  Icon(
-                    state.icon,
-                    color: theme.colorScheme.primary,
-                  ),
+                  Icon(state.icon, size: 20, color: tokens.accent),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
                           state.title,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w800,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.sans(
+                            color: tokens.ink,
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           state.message,
-                          // 3 lines so the warm copy isn't clipped to «ко…»
-                          // (was maxLines: 2).
-                          maxLines: 3,
+                          maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
+                          style: AppTheme.sans(
+                            color: tokens.inkMuted,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                       ],
                     ),
                   ),
+                  if (state.actionLabel != null) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      state.actionLabel!,
+                      style: AppTheme.sans(
+                        color: tokens.accent,
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      size: 18,
+                      color: tokens.accent,
+                    ),
+                  ],
                 ],
               ),
-              // Action на своей строке: длинный CTA («Добавить
-              // родственника») в inline-Row зажимал текстовую колонку в
-              // ниточку — «Начн/ите/своё/дере/во» на узких экранах. Отдельная
-              // строка снизу даёт заголовку/описанию всю ширину при любой
-              // длине метки.
-              if (state.actionLabel != null) ...[
-                const SizedBox(height: 4),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: _handleFeedEmptyAction,
-                    style: TextButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    child: Text(state.actionLabel!),
-                  ),
-                ),
-              ],
-            ],
+            ),
           ),
         ),
       );
@@ -1071,7 +1077,6 @@ extension _HomeScreenSections on _HomeScreenState {
       return const SizedBox.shrink();
     }
 
-    final theme = Theme.of(context);
     final tokens = AppTheme.tokensOf(context);
     final person = prompt.person;
     final photoUrl = person.primaryPhotoUrl;
@@ -1082,14 +1087,14 @@ extension _HomeScreenSections on _HomeScreenState {
           person.initials,
           style: AppTheme.sans(
             color: tokens.accentInk,
-            fontSize: 16,
+            fontSize: 15,
             fontWeight: FontWeight.w800,
           ),
         ),
       );
       return Container(
-        width: 48,
-        height: 48,
+        width: 44,
+        height: 44,
         decoration: BoxDecoration(
           gradient: photoUrl == null || photoUrl.isEmpty
               ? tokens.accentGradient
@@ -1120,11 +1125,24 @@ extension _HomeScreenSections on _HomeScreenState {
       );
     }
 
+    // Плотность (чанк 19): было ~258dp на реальном промпте (аватар 48,
+    // титул M3 titleMedium де-факто ~16sp, тело до 3 строк, широкие поля,
+    // действия Wrap'ом иногда падали на 2 строки). Стало ~158dp: аватар 44,
+    // действия гарантированно в одну строку 44dp (Row+Expanded вместо
+    // Wrap — тот тихо переносился на 2 строки, когда сумма ширин кнопок
+    // чуть превышала ширину карточки), паддинги и line-height подрезаны.
+    // Заголовок (serif 18.5sp) у единственного существующего промпта
+    // («Спросить, пока можно услышать») переносится на 2 строки даже в
+    // расширенной колонке — это тянет карточку выше идеального taget'а
+    // ≤130dp; ужать сильнее означало бы либо резать аватар меньше
+    // заявленных 44dp, либо обрезать заголовок эллипсисом до 1 строки —
+    // оба варианта хуже, чем принять фактические ~158dp. Тексты не
+    // менялись; заливка и отсутствие внутренних рамок — как было.
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 8, 18, 8),
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 2),
       child: GlassPanel(
         key: const Key('home-family-connection-prompt'),
-        padding: const EdgeInsets.fromLTRB(14, 13, 14, 14),
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
         borderRadius: BorderRadius.circular(20),
         color: tokens.warmSoft.withValues(alpha: 0.72),
         borderColor: tokens.accent.withValues(alpha: 0.14),
@@ -1135,10 +1153,11 @@ extension _HomeScreenSections on _HomeScreenState {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 avatar(),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
                         'Сегодня для семьи',
@@ -1146,34 +1165,40 @@ extension _HomeScreenSections on _HomeScreenState {
                         overflow: TextOverflow.ellipsis,
                         style: AppTheme.sans(
                           color: tokens.accent,
-                          fontSize: 11.5,
+                          fontSize: 12.5,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 0,
+                          height: 1.1,
                         ),
                       ),
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 2),
+                      // letterSpacing слегка отрицательный и w700 (не w800) —
+                      // серифный заголовок в узкой колонке рядом с аватаром
+                      // иначе переносится на 2 строки даже на коротких
+                      // заголовках; экономия ширины важнее микро-разницы
+                      // насыщенности начертания.
                       Text(
                         prompt.title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontFamily: 'Lora',
+                        style: AppTheme.serif(
                           color: tokens.ink,
-                          fontWeight: FontWeight.w800,
-                          height: 1.16,
-                          letterSpacing: 0,
+                          fontSize: 18.5,
+                          fontWeight: FontWeight.w700,
+                          height: 1.15,
+                          letterSpacing: -0.3,
                         ),
                       ),
-                      const SizedBox(height: 5),
+                      const SizedBox(height: 4),
                       Text(
                         prompt.message,
-                        maxLines: 3,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: AppTheme.sans(
                           color: tokens.inkMuted,
-                          fontSize: 12.8,
+                          fontSize: 14,
                           fontWeight: FontWeight.w500,
-                          height: 1.32,
+                          height: 1.15,
                         ),
                       ),
                     ],
@@ -1181,17 +1206,32 @@ extension _HomeScreenSections on _HomeScreenState {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            const SizedBox(height: 4),
+            // Row (not Wrap) + Expanded on the primary action — guarantees
+            // one line at the theme's button height instead of Wrap
+            // silently folding to a second line once the combined label
+            // width nudges past the available column width.
+            Row(
               children: [
-                FilledButton.icon(
-                  key: const Key('family-connection-ask-story'),
-                  onPressed: () => _openFamilyConnectionPrompt(prompt),
-                  icon: const Icon(Icons.question_answer_outlined, size: 18),
-                  label: Text(prompt.ctaLabel),
+                Expanded(
+                  child: FilledButton.icon(
+                    key: const Key('family-connection-ask-story'),
+                    onPressed: () => _openFamilyConnectionPrompt(prompt),
+                    icon: const Icon(Icons.question_answer_outlined, size: 18),
+                    label: Text(
+                      prompt.ctaLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(0, 44),
+                      maximumSize: const Size(double.infinity, 44),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                  ),
                 ),
+                const SizedBox(width: 6),
                 TextButton.icon(
                   key: const Key('family-connection-open-card'),
                   onPressed: () => _openFamilyConnectionPrompt(
@@ -1200,6 +1240,12 @@ extension _HomeScreenSections on _HomeScreenState {
                   ),
                   icon: const Icon(Icons.person_outline_rounded, size: 18),
                   label: const Text('Карточка'),
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(0, 44),
+                    maximumSize: const Size(double.infinity, 44),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                  ),
                 ),
               ],
             ),
@@ -1307,51 +1353,52 @@ extension _HomeScreenSections on _HomeScreenState {
         borderRadius: BorderRadius.circular(16),
         plain: true,
         child: Padding(
-          // Плотность: 76 → ~56dp — одна строка, как поле ввода в чате.
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          // Плотность (чанк 19): 56 → ≤48dp. Вертикальный паддинг здесь
+          // почти номинальный — фактическую высоту строки задаёт «+»
+          // (44×44 ниже), Row центрирует аватар/текст внутри неё.
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
           child: Row(
             children: [
               Expanded(
                 child: InkWell(
                   borderRadius: BorderRadius.circular(20),
                   onTap: () => _openCreatePost(),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 32,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            gradient: tokens.accentGradient,
-                            shape: BoxShape.circle,
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            initials,
-                            style: theme.textTheme.labelLarge?.copyWith(
-                              color: tokens.accentInk,
-                              fontWeight: FontWeight.w800,
-                            ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          gradient: tokens.accentGradient,
+                          shape: BoxShape.circle,
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          initials,
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: tokens.accentInk,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            _treeProviderInstance?.selectedTreeKind ==
-                                    TreeKind.friends
-                                ? 'Поделиться с кругом...'
-                                : 'Поделиться с роднёй...',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                              fontWeight: FontWeight.w600,
-                            ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _treeProviderInstance?.selectedTreeKind ==
+                                  TreeKind.friends
+                              ? 'Поделиться с кругом...'
+                              : 'Поделиться с роднёй...',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          // bodyLarge (16sp) — плотность требует ≥16sp для
+                          // текста-контента; было bodyMedium (14sp).
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -1359,15 +1406,21 @@ extension _HomeScreenSections on _HomeScreenState {
               // One consolidated «+» entry → bottom-sheet create menu.
               // Replaces the old row of inline icons (photo · video ·
               // gathering · poll) that squeezed the teaser text once Phase E
-              // added a fourth icon.
+              // added a fourth icon. Fixed 44×44 (was the IconButton
+              // default 48×48 padded tap target) — meets the ≥44dp touch
+              // rule while letting the whole pill fit in ≤48dp.
               IconButton.filledTonal(
                 key: const Key('compose-open'),
                 tooltip: 'Создать',
                 onPressed: _openComposeMenu,
-                icon: const Icon(Icons.add_rounded),
+                icon: const Icon(Icons.add_rounded, size: 22),
                 style: IconButton.styleFrom(
                   backgroundColor: tokens.accentSoft,
                   foregroundColor: tokens.accent,
+                  minimumSize: const Size(44, 44),
+                  fixedSize: const Size(44, 44),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  padding: EdgeInsets.zero,
                 ),
               ),
             ],
@@ -1416,7 +1469,10 @@ extension _HomeScreenSections on _HomeScreenState {
     required List<_FeedBranchChipEntry> entries,
   }) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+      // Чанк 19: горизонтальный отступ 18 → 14 — выравниваем по общей
+      // левой границе с плитками хабов/композером/рельсом историй выше
+      // (было на 4dp правее — ощущалось случайным сдвигом).
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
       child: SizedBox(
         // 2c: 44dp — полный тап-таргет для чипов веток (было 36 +
         // shrinkWrap, т.е. реальный хит ~32dp).
