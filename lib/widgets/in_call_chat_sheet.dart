@@ -84,11 +84,13 @@ class _InCallChatSheetState extends State<InCallChatSheet> {
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 4, 12, 8),
+              // Шапка листа: showDragHandle уже даёт ручку сверху — свой
+              // верхний отступ убран, чтобы не дублировать пустоту.
+              padding: const EdgeInsets.fromLTRB(16, 0, 8, 4),
               child: Row(
                 children: [
                   const Icon(Icons.chat_bubble_outline_rounded),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       'Чат во время звонка',
@@ -130,7 +132,7 @@ class _InCallChatSheetState extends State<InCallChatSheet> {
                   }
                   return ListView.builder(
                     reverse: true,
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                    padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
                     itemCount: visibleMessages.length,
                     itemBuilder: (context, index) {
                       final message =
@@ -147,10 +149,10 @@ class _InCallChatSheetState extends State<InCallChatSheet> {
             ),
             Padding(
               padding: EdgeInsets.fromLTRB(
-                16,
-                8,
-                16,
-                12 + mediaQuery.viewInsets.bottom,
+                12,
+                6,
+                12,
+                10 + mediaQuery.viewInsets.bottom,
               ),
               child: Row(
                 children: [
@@ -168,7 +170,7 @@ class _InCallChatSheetState extends State<InCallChatSheet> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   IconButton.filled(
                     onPressed:
                         _isSending ? null : () => unawaited(_sendMessage()),

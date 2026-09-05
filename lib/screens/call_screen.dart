@@ -1205,6 +1205,11 @@ class _CallScreenState extends State<CallScreen> {
     return '$count $suffix';
   }
 
+  // Плотность: было 138/132/124dp (аватар без видео — единственный
+  // визуальный контент экрана на пустом тёмном фоне, «огромный аватар»
+  // из жалобы владельца). Пропорции кольца-индикатора качества и зазоров
+  // сохранены (те же 3dp/4dp отступы между слоями), сам размер — под
+  // порог 120dp.
   Widget _buildAvatar() {
     final avatarImage = buildAvatarImageProvider(widget.photoUrl);
     final quality = widget.coordinator.displayedConnectionQuality;
@@ -1213,14 +1218,14 @@ class _CallScreenState extends State<CallScreen> {
       isReconnecting: widget.coordinator.isReconnectingRoom,
     );
     return SizedBox(
-      width: 138,
-      height: 138,
+      width: 108,
+      height: 108,
       child: Stack(
         alignment: Alignment.center,
         children: [
           Container(
-            width: 132,
-            height: 132,
+            width: 102,
+            height: 102,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(
@@ -1230,8 +1235,8 @@ class _CallScreenState extends State<CallScreen> {
             ),
           ),
           Container(
-            width: 124,
-            height: 124,
+            width: 94,
+            height: 94,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: Colors.white.withValues(alpha: 0.12),
@@ -1249,7 +1254,7 @@ class _CallScreenState extends State<CallScreen> {
                           ? widget.title[0].toUpperCase()
                           : '?',
                       style: const TextStyle(
-                        fontSize: 44,
+                        fontSize: 34,
                         fontWeight: FontWeight.w700,
                         color: Colors.white,
                       ),
@@ -1259,7 +1264,7 @@ class _CallScreenState extends State<CallScreen> {
           ),
           Positioned(
             right: 2,
-            bottom: 10,
+            bottom: 6,
             child: CallConnectionQualityBadge(
               quality: quality,
               isReconnecting: widget.coordinator.isReconnectingRoom,
@@ -1314,7 +1319,7 @@ class _CallScreenState extends State<CallScreen> {
           ),
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
               child: Column(
                 children: [
                   Align(
@@ -1326,7 +1331,7 @@ class _CallScreenState extends State<CallScreen> {
                       tooltip: 'Свернуть звонок',
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 12),
                   // On an active video call we auto-hide the title /
                   // status panel after 3s so the remote video gets the
                   // whole canvas. Tap-anywhere on the canvas brings it
@@ -1359,8 +1364,8 @@ class _CallScreenState extends State<CallScreen> {
                           // виден независимо от темы устройства.
                           color: Colors.white.withValues(alpha: 0.10),
                           borderColor: Colors.white.withValues(alpha: 0.16),
-                          borderRadius: BorderRadius.circular(28),
-                          padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+                          borderRadius: BorderRadius.circular(22),
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
                           child: Column(
                             children: [
                               Text(
@@ -1452,7 +1457,7 @@ class _CallScreenState extends State<CallScreen> {
                   const Spacer(),
                   // PIP moved to a top-level Positioned in the outer
                   // Stack so it can be dragged + swapped freely.
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 8),
                   // Collapse / expand affordance — only relevant when the
                   // call is active and we actually have secondary controls
                   // to fold away. Tap toggles _actionsCollapsed; the
@@ -1474,12 +1479,16 @@ class _CallScreenState extends State<CallScreen> {
                     alignment: Alignment.bottomCenter,
                     child: Wrap(
                       alignment: WrapAlignment.center,
-                      spacing: 16,
-                      runSpacing: 12,
+                      spacing: 12,
+                      runSpacing: 10,
                       children: [
                         if (_resolvedCall.state == CallState.active &&
                             hasConnectedRoom &&
                             !_actionsCollapsed) ...[
+                          // Вторичные кнопки управления — 54dp (иконка 24 +
+                          // паддинг 15), не 64: тач-таргет ≥52dp по гайду,
+                          // но крупный размер оставлен только «Принять» /
+                          // «Завершить» ниже — на них отвечают одной рукой.
                           AnimatedBuilder(
                             animation: _audioRouteService,
                             builder: (context, _) => _CallActionButton(
@@ -1492,6 +1501,8 @@ class _CallScreenState extends State<CallScreen> {
                               tooltip: _audioRouteTooltip(
                                 _audioRouteService.selectedRoute,
                               ),
+                              iconSize: 24,
+                              buttonPadding: 15,
                             ),
                           ),
                           _CallActionButton(
@@ -1504,6 +1515,8 @@ class _CallScreenState extends State<CallScreen> {
                             tooltip: widget.coordinator.microphoneEnabled
                                 ? 'Выключить микрофон'
                                 : 'Включить микрофон',
+                            iconSize: 24,
+                            buttonPadding: 15,
                           ),
                           _CallActionButton(
                             onPressed: _openDevicePickerSheet,
@@ -1511,6 +1524,8 @@ class _CallScreenState extends State<CallScreen> {
                                 Colors.white.withValues(alpha: 0.14),
                             icon: Icons.tune_rounded,
                             tooltip: 'Источники звука и видео',
+                            iconSize: 24,
+                            buttonPadding: 15,
                           ),
                           if (_chatService != null)
                             _CallActionButton(
@@ -1519,6 +1534,8 @@ class _CallScreenState extends State<CallScreen> {
                                   Colors.white.withValues(alpha: 0.14),
                               icon: Icons.chat_bubble_outline_rounded,
                               tooltip: 'Чат во время звонка',
+                              iconSize: 24,
+                              buttonPadding: 15,
                             ),
                           // Camera toggle exposed for both audio AND
                           // video calls — pressing it inside an audio
@@ -1539,6 +1556,8 @@ class _CallScreenState extends State<CallScreen> {
                                 : (_isVideoCall
                                     ? 'Включить камеру'
                                     : 'Включить видео'),
+                            iconSize: 24,
+                            buttonPadding: 15,
                           ),
                           if (widget.coordinator.cameraEnabled)
                             _CallActionButton(
@@ -1549,6 +1568,8 @@ class _CallScreenState extends State<CallScreen> {
                                   Colors.white.withValues(alpha: 0.14),
                               icon: Icons.cameraswitch_rounded,
                               tooltip: 'Переключить камеру',
+                              iconSize: 24,
+                              buttonPadding: 15,
                             ),
                         ],
                         _CallActionButton(
@@ -2701,6 +2722,8 @@ class _CallActionButton extends StatefulWidget {
     required this.icon,
     required this.tooltip,
     this.pulse = false,
+    this.iconSize = 28,
+    this.buttonPadding = 18,
   });
 
   final VoidCallback? onPressed;
@@ -2708,6 +2731,12 @@ class _CallActionButton extends StatefulWidget {
   final IconData icon;
   final String tooltip;
   final bool pulse;
+  // Дефолты (28 + 18*2 = 64dp) — обязательный тач-таргет для «Принять» /
+  // «Завершить» (на звонок отвечают одной рукой, часто старшие). Вторичные
+  // кнопки (микрофон, динамик, камера и т.п.) передают меньшие значения —
+  // см. вызовы ниже — но не опускаются ниже 52dp.
+  final double iconSize;
+  final double buttonPadding;
 
   @override
   State<_CallActionButton> createState() => _CallActionButtonState();
@@ -2815,8 +2844,8 @@ class _CallActionButtonState extends State<_CallActionButton>
             child: Icon(widget.icon, key: ValueKey<IconData>(widget.icon)),
           ),
           color: Colors.white,
-          iconSize: 28,
-          padding: const EdgeInsets.all(18),
+          iconSize: widget.iconSize,
+          padding: EdgeInsets.all(widget.buttonPadding),
           tooltip: widget.tooltip,
         ),
       ),
