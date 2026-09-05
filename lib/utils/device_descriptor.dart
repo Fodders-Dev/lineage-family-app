@@ -11,16 +11,22 @@ class DeviceDescriptor {
   const DeviceDescriptor({
     required this.deviceName,
     required this.platform,
+    this.osVersion,
     required this.appVersion,
   });
 
   final String deviceName;
   final String platform;
+  // Null when the platform channel can't report it (web has no single OS
+  // version concept; some plugin failures leave it unresolved) — honest
+  // absence beats a fabricated value.
+  final String? osVersion;
   final String appVersion;
 
   Map<String, dynamic> toJson() => {
         'deviceName': deviceName,
         'platform': platform,
+        if (osVersion != null && osVersion!.isNotEmpty) 'osVersion': osVersion,
         'appVersion': appVersion,
       };
 }
@@ -50,9 +56,11 @@ class DeviceDescriptorBuilder {
     final appVersion = await _resolveAppVersion();
     final platform = _resolvePlatform();
     final deviceName = await _resolveDeviceName();
+    final osVersion = await _resolveOsVersion();
     final descriptor = DeviceDescriptor(
       deviceName: deviceName,
       platform: platform,
+      osVersion: osVersion,
       appVersion: appVersion,
     );
     _cached = descriptor;
@@ -136,7 +144,54 @@ class DeviceDescriptorBuilder {
     } catch (error) {
       debugPrint('DeviceDescriptor: device name lookup failed: $error');
     }
-    return 'Устройство';
+    return 'Неизвестное устройство';
+  }
+
+  /// One-line OS version for the "Active sessions" subtitle ("Android 14",
+  /// "17.5", "23H2"). Best-effort: any plugin failure falls back to null
+  /// rather than a guessed value, and the caller/backend already tolerate
+  /// missing osVersion (additive field, old sessions never had it).
+  static Future<String?> _resolveOsVersion() async {
+    if (kIsWeb) {
+      // Browser UA doesn't cleanly map to one OS version string across
+      // vendors; the device name already carries "Chrome • macOS" via
+      // _osFromUserAgent, so skip rather than guess.
+      return null;
+    }
+    try {
+      final plugin = DeviceInfoPlugin();
+      if (Platform.isAndroid) {
+        final info = await plugin.androidInfo;
+        final release = info.version.release.trim();
+        return release.isNotEmpty ? release : null;
+      }
+      if (Platform.isIOS) {
+        final info = await plugin.iosInfo;
+        final version = info.systemVersion.trim();
+        return version.isNotEmpty ? version : null;
+      }
+      if (Platform.isMacOS) {
+        final info = await plugin.macOsInfo;
+        return '${info.majorVersion}.${info.minorVersion}.${info.patchVersion}';
+      }
+      if (Platform.isWindows) {
+        final info = await plugin.windowsInfo;
+        final display = info.displayVersion.trim();
+        if (display.isNotEmpty) return display;
+        final releaseId = info.releaseId.trim();
+        return releaseId.isNotEmpty ? releaseId : null;
+      }
+      if (Platform.isLinux) {
+        final info = await plugin.linuxInfo;
+        final versionId = info.versionId?.trim();
+        if (versionId != null && versionId.isNotEmpty) return versionId;
+        final version = info.version?.trim();
+        return (version != null && version.isNotEmpty) ? version : null;
+      }
+    } catch (error) {
+      debugPrint('DeviceDescriptor: OS version lookup failed: $error');
+    }
+    return null;
   }
 
   static String _osFromUserAgent(String ua) {
