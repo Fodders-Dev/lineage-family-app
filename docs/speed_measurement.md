@@ -276,3 +276,67 @@ persons+identities (`stableSerialize` + sha256). 50 полных сериали�
 Тесты: `test/circles-reconcile.test.js` — лента не пишет блоб и не чинит
 чужие деревья; видимость по авто-кругу работает и без сохранённых кругов;
 бэкфилл всё ещё срабатывает для людей без `identityId`.
+
+## SPEED-8d — identity-suggestions: двойной _read() + пересборка графа родства на каждого кандидата (05.09.2026)
+
+`GET /v1/trees/:treeId/persons/:personId/identity-suggestions` (💡-индикатор
+«этот человек уже есть в другом дереве», клиент батчит по одному вызову на
+каждую видимую карточку канваса) держался в топе slow-request лога прода:
+41 запрос/сутки, p50 648 мс, max 2,3 с на дереве в 41 человека при базе
+~400. CPU-профиль (`node --cpu-prof`, копия прод-блоба на FileStore, 820
+вызовов = 20 повторов × 41 personId) показал `_read()` на **~74% busy-
+времени** — в основном это уже задокументированная (`docs/connected-trees-
+refactor/week-1/BACKEND-AUDIT.md`) идемпотентная full-scan пересборка графа
+`_syncGraphFromLegacy` на каждом `_read()`/`_write()`, O(persons+relations+
+trees); её убирает только запланированный Phase 3.4 cutover — трогать это
+здесь НЕ стали (чужой, App-wide, риск непропорционален тикету).
+
+В границах самого хендлера нашлись три конкретных источника лишней работы:
+1. **Два независимых `_read()` за один HTTP-запрос** —
+   `findCrossTreeSuggestionsForPerson` и `filterLegacyPersonsByGraphVisibility`
+   каждый сам читал блоб. На PostgresStore (SPEED-8a) даже кэш-хит — это
+   `structuredClone` всего состояния + round-trip на версию/сессии + тот же
+   `_syncGraphFromLegacy`; удвоение этого — чистые потери.
+2. **`_userCanSeeGraphPerson`** для дефолтной видимости
+   «connected-via-blood-graph» на КАЖДОГО из до `limit` (≤50) кандидатов
+   заново резолвил self-graph-node viewer'а (линейный проход по
+   `users`+`graphPersons`) и пересобирал blood-adjacency карту из
+   `graphRelations` с нуля под BFS — притом что viewer и граф внутри одного
+   вызова не меняются.
+3. **`identity-matcher.js`**: `scorePersonPair` заново нормализовал ОБЕИХ
+   персон (имя/токены/даты) на каждую пару, хотя `sourcePerson` в
+   `findCrossTreeIdentitySuggestions` не меняется по циклу; плюс
+   `normalizeIsoDate` дублировался внутри одного вызова (дата рождения и
+   отдельно `normalizedBirthYear`), а `birthPlace` нормализовался до 4 раз.
+
+| источник | до | после | ускорение | где измерено |
+|---|---|---|---|---|
+| 2×`_read()` → 1×`_read()` за запрос (непустой список кандидатов) | p50 18,54 мс | p50 8,32 мс | 2,23× | `bench_read_elimination.js`, реальный блоб |
+| `_userCanSeeGraphPerson` на 10 кандидатов (self-id+adjacency разово vs на каждого) | p50 0,138 мс | p50 0,047 мс | 2,92× | `bench_visibility_batch_context.js`, реальный граф |
+| то же на 50 кандидатов | p50 0,703 мс | p50 0,186 мс | 3,78× | там же |
+| `findCrossTreeIdentitySuggestions` на ~400 persons (масштаб «база ~400») | p50 2,01 мс | p50 1,08 мс | 1,86× | `bench_matcher_scaling.js`, реальные записи размножены до 400 |
+
+Все четыре сравнения проверены на идентичность результата (fingerprint
+до/после совпадает побайтово) — контракт ответа не менялся.
+
+Правки: `backend/src/routes/tree-routes.js` (один `_read()` на запрос,
+передаётся в оба store-метода), `backend/src/store.js`
+(`findCrossTreeSuggestionsForPerson` и `filterLegacyPersonsByGraphVisibility`
+принимают опциональный уже прочитанный `db`; `_userCanSeeGraphPerson` и
+`_findBloodRelationBetween` принимают опциональный `context`/`adjacency` —
+без него поведение байт-в-байт прежнее, что и проверяют существующие
+`branch-include-rules.test.js`/`graph-sync.test.js`), `backend/src/identity-
+matcher.js` (`normalizePersonForScoring` + `scoreNormalizedPersons`,
+`scorePersonPair` — тонкая обёртка над ними; within-tree и cross-tree
+матчеры нормализуют каждого person'а один раз вместо одного раза на пару).
+
+Что НЕ тронуто и почему: `requireTreeAccess` (`findTree`+`findMembership`,
+до 2 доп. `_read()` на запрос) — общий helper для десятков маршрутов,
+менять его в рамках одного эндпоинта неоправданно рискованно; `_syncGraph-
+FromLegacy` — см. выше, отдельная запланированная миграция. На проде эти
+два фактора, вероятно, объясняют бо́льшую часть оставшегося p50 648 мс,
+чем то, что чинит этот тикет — так что итоговая цель <100 мс подтверждается
+частично: CPU-часть в границах хендлера снижена в 1,9–3,8× с доказанной
+идентичностью ответа, полная картина требует отдельного прод-замера после
+деплоя (`/prod-diag`, slow-request лог по этому пути) и, возможно, той же
+техники (передача `db`) в `requireTreeAccess`.
