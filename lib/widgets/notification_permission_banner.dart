@@ -16,6 +16,12 @@ import '../theme/app_theme.dart';
 /// Показывается, когда сервис говорит [shouldShowPermissionCta]
 /// (web && permission==default && pref-enabled && не закрыт) ИЛИ это
 /// iOS вне PWA — тогда вместо запроса подсказываем «добавьте на Домой».
+///
+/// Плотность, чанк 17 (05.09.2026): карточка с рамкой + заголовок 20sp +
+/// три строки текста + полноширинная кнопка занимала ~150dp над шапкой
+/// ЛЮБОЙ вкладки на свежей установке — больше, чем сэкономил весь чанк 16
+/// по дереву. Теперь одна строка (иконка + текст + кнопка + крестик),
+/// без рамки-карточки. Показ/дисмисс/обработчики — без изменений.
 class NotificationPermissionBanner extends StatefulWidget {
   const NotificationPermissionBanner({super.key});
 
@@ -75,91 +81,65 @@ class _NotificationPermissionBannerState
 
     // N3: на iOS вне PWA — инструкция вместо кнопки запроса.
     final iosAddToHome = service.iosNeedsStandaloneForPush;
-    final title =
-        iosAddToHome ? 'Включите уведомления' : 'Не пропускайте важное';
-    final body = iosAddToHome
-        ? 'Чтобы получать уведомления на iPhone, добавьте «Родню» на '
-            'экран «Домой»: меню «Поделиться» → «На экран „Домой“».'
-        : 'Сообщения, приглашения и дни рождения — включите уведомления, '
-            'чтобы ничего не упустить.';
+    final message = iosAddToHome
+        ? 'Чтобы получать уведомления, добавьте «Родню» на экран «Домой».'
+        : 'Включите уведомления, чтобы не пропустить сообщения и дни рождения.';
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
-      child: Material(
-        key: const Key('notification-permission-banner'),
-        color: tokens.surfaceStrong.withValues(alpha: isDark ? 0.92 : 0.96),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(tokens.radiusMd),
-          side: BorderSide(
-            color: theme.colorScheme.primary.withValues(alpha: 0.45),
+    return Container(
+      key: const Key('notification-permission-banner'),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: tokens.surfaceLine)),
+      ),
+      padding: const EdgeInsets.fromLTRB(14, 2, 4, 2),
+      child: Row(
+        children: [
+          Icon(
+            Icons.notifications_active_outlined,
+            size: 20,
+            color: theme.colorScheme.primary,
           ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(
-                Icons.notifications_active_outlined,
-                size: 22,
-                color: theme.colorScheme.primary,
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: tokens.ink,
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      title,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: tokens.ink,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      body,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: tokens.inkSecondary,
-                        height: 1.3,
-                      ),
-                    ),
-                    if (!iosAddToHome) ...[
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        height: 44,
-                        child: FilledButton(
-                          key: const Key('notification-permission-enable'),
-                          onPressed: _busy ? null : _enable,
-                          child: _busy
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Text('Включить уведомления'),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              // ≥44dp тап-цель для закрытия (2c-ритм для 50+).
-              IconButton(
-                key: const Key('notification-permission-dismiss'),
-                icon: const Icon(Icons.close_rounded, size: 18),
-                tooltip: 'Скрыть',
-                color: tokens.inkSecondary,
-                constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-                padding: EdgeInsets.zero,
-                onPressed: _dismiss,
-              ),
-            ],
+            ),
           ),
-        ),
+          if (!iosAddToHome) ...[
+            const SizedBox(width: 8),
+            TextButton(
+              key: const Key('notification-permission-enable'),
+              onPressed: _busy ? null : _enable,
+              style: TextButton.styleFrom(
+                minimumSize: const Size(0, 44),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+              ),
+              child: _busy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Включить'),
+            ),
+          ],
+          // ≥44dp тап-цель для закрытия (2c-ритм для 50+).
+          IconButton(
+            key: const Key('notification-permission-dismiss'),
+            icon: const Icon(Icons.close_rounded, size: 18),
+            tooltip: 'Скрыть',
+            color: tokens.inkSecondary,
+            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+            padding: EdgeInsets.zero,
+            onPressed: _dismiss,
+          ),
+        ],
       ),
     );
   }

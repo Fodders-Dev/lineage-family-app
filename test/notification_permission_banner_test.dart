@@ -53,7 +53,9 @@ void main() {
       find.byKey(const Key('notification-permission-banner')),
       findsOneWidget,
     );
-    expect(find.text('Включить уведомления'), findsOneWidget);
+    // Плотность, чанк 17: кнопка «Включить уведомления» → «Включить»
+    // (компактная строка вместо полноширинной карточки).
+    expect(find.text('Включить'), findsOneWidget);
   });
 
   testWidgets('тап «Включить» → requestPermission (жест) и баннер гаснет',
@@ -118,7 +120,8 @@ void main() {
     );
     expect(find.textContaining('на экран «Домой»'), findsOneWidget);
     // Кнопки запроса нет, и сам показ ничего не запрашивает.
-    expect(find.byKey(const Key('notification-permission-enable')), findsNothing);
+    expect(
+        find.byKey(const Key('notification-permission-enable')), findsNothing);
     expect(bridge.requestPermissionCalls, 0);
   });
 

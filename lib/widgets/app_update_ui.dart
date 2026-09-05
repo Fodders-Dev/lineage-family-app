@@ -11,7 +11,11 @@ import '../theme/app_theme.dart';
 ///     (необязательное обновление, дисмисс на сессию).
 ///   • [AppUpdateGate] — оборачивает приложение и при несовместимой
 ///     старой версии (mandatory) показывает блокирующий экран.
-/// Крупно/контрастно/≥44dp — аудитория 50+.
+/// Мандаторный блок-экран — крупно/контрастно, там нет альтернативы.
+/// [AppUpdateBanner] с чанка 17 плотности — одна тонкая строка (тап-цели
+/// кнопки/крестика всё равно ≥44dp), а не карточка с полноширинными
+/// кнопками: это ненавязчивый баннер над КАЖДОЙ вкладкой, ему нельзя
+/// конкурировать с контентом за первый экран.
 
 class AppUpdateMonitor extends StatefulWidget {
   const AppUpdateMonitor({
@@ -120,83 +124,120 @@ class AppUpdateBanner extends StatelessWidget {
         }
 
         final theme = Theme.of(context);
-        final isDark = theme.brightness == Brightness.dark;
         final tokens = _tokensOf(context);
         final download = service.downloadProgress;
+        final isBusy = download.isBusy;
+        final isFailed = download.stage == AppUpdateDownloadStage.failed;
+
+        // Плотность, чанк 17 (05.09.2026): карточка с рамкой + заголовок +
+        // абзац notes + две полноширинные кнопки (~130dp) → одна тонкая
+        // строка (заголовок + подпись ≤2 строк, действие и крестик справа).
+        // Показ/скачивание/дисмисс — без изменений, крестик = «Позже»
+        // (тот же dismissOptionalForSession, что раньше был текстовой
+        // кнопкой под текстом).
+        String? subtitle;
+        Color subtitleColor = tokens.inkSecondary;
+        if (isBusy) {
+          final fraction = download.fraction;
+          final percent = fraction == null ? null : (fraction * 100).round();
+          subtitle = percent == null
+              ? 'Скачиваем обновление…'
+              : 'Скачиваем обновление… $percent%';
+        } else if (isFailed && download.error != null) {
+          subtitle = download.error;
+          subtitleColor = theme.colorScheme.error;
+        } else {
+          subtitle = latest.notes;
+        }
 
         // FX-A: баннер — самый верхний видимый элемент шелла (под ним
         // навигейшн-скрин со своим AppBar), поэтому без верхнего инсета он
         // налезал на статус-бар. Обновление доступно только онлайн, значит
         // OfflineIndicator выше скрыт → SafeArea(top) здесь даёт ровно
-        // нужный отступ без двойного инсета. Боковые/нижний не трогаем —
-        // их держит внутренний Padding и шелл.
+        // нужный отступ без двойного инсета.
         return SafeArea(
           top: true,
           bottom: false,
           left: false,
           right: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
-            child: Material(
-              key: const Key('app-update-banner'),
-              color:
-                  tokens.surfaceStrong.withValues(alpha: isDark ? 0.92 : 0.96),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(tokens.radiusMd),
-                side: BorderSide(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.45),
+          child: Container(
+            key: const Key('app-update-banner'),
+            decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: tokens.surfaceLine)),
+            ),
+            padding: const EdgeInsets.fromLTRB(14, 2, 6, 2),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.system_update_rounded,
+                  size: 20,
+                  color: isFailed
+                      ? theme.colorScheme.error
+                      : theme.colorScheme.primary,
                 ),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.system_update_rounded,
-                          size: 22,
-                          color: theme.colorScheme.primary,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'Доступно обновление',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
-                              color: tokens.ink,
-                            ),
-                          ),
-                        ),
-                        if (latest.versionName != null)
-                          Text(
-                            'версия ${latest.versionName}',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: tokens.inkSecondary,
-                            ),
-                          ),
-                      ],
-                    ),
-                    if (latest.notes != null) ...[
-                      const SizedBox(height: 8),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                       Text(
-                        latest.notes!,
+                        'Доступно обновление',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color: tokens.inkSecondary,
-                          height: 1.35,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: tokens.ink,
                         ),
                       ),
+                      if (subtitle != null) ...[
+                        const SizedBox(height: 1),
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontSize: 13,
+                            color: subtitleColor,
+                          ),
+                        ),
+                      ],
                     ],
-                    const SizedBox(height: 12),
-                    _AppUpdateActions(
-                      service: service,
-                      download: download,
-                      showLater: true,
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+                const SizedBox(width: 8),
+                if (isBusy)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4),
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                else ...[
+                  TextButton(
+                    key: const Key('app-update-install-button'),
+                    onPressed: service.downloadAndInstall,
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(0, 44),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                    ),
+                    child: Text(isFailed ? 'Повторить' : 'Обновить'),
+                  ),
+                  IconButton(
+                    key: const Key('app-update-later-button'),
+                    icon: const Icon(Icons.close_rounded, size: 18),
+                    tooltip: 'Позже',
+                    color: tokens.inkSecondary,
+                    constraints:
+                        const BoxConstraints(minWidth: 44, minHeight: 44),
+                    padding: EdgeInsets.zero,
+                    onPressed: service.dismissOptionalForSession,
+                  ),
+                ],
+              ],
             ),
           ),
         );
