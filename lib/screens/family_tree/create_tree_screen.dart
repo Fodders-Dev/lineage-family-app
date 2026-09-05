@@ -434,7 +434,8 @@ class _CreateTreeScreenState extends State<CreateTreeScreen> {
                   return null;
                 },
               ),
-              const SizedBox(height: 16),
+              // Плотность (чанк 12): поле рядом с полем — 10dp, не 16.
+              const SizedBox(height: 10),
               TextFormField(
                 controller: _descriptionController,
                 decoration: const InputDecoration(
@@ -446,7 +447,7 @@ class _CreateTreeScreenState extends State<CreateTreeScreen> {
                 ),
                 maxLines: 3,
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               SwitchListTile.adaptive(
                 contentPadding: EdgeInsets.zero,
                 value: _isPrivate,
