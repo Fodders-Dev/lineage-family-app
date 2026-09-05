@@ -568,70 +568,76 @@ extension _HomeScreenSections on _HomeScreenState {
     final state = _feedEmptyViewState;
 
     if (!wideLayout) {
-      final theme = Theme.of(context);
+      final tokens = AppTheme.tokensOf(context);
+      // Плотность (чанк 19): было GlassPanel-в-GlassPanel (иконка+2 строки
+      // текста сверху, отдельная строка с кнопкой снизу — ~112dp). Теперь
+      // одна плоская поверхность, весь блок — единый тап-таргет («Написать»
+      // /«Обновить»/«Добавить родственника» одинаково открывают то же
+      // действие), заголовок+сообщение уместились в две строки — ≤72dp.
       return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-        child: GlassPanel(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-          borderRadius: BorderRadius.circular(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.fromLTRB(14, 4, 14, 0),
+        child: Material(
+          key: const Key('home-feed-empty'),
+          color: tokens.surfaceStrong,
+          borderRadius: BorderRadius.circular(16),
+          child: InkWell(
+            onTap: _handleFeedEmptyAction,
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
                 children: [
-                  Icon(
-                    state.icon,
-                    color: theme.colorScheme.primary,
-                  ),
+                  Icon(state.icon, size: 20, color: tokens.accent),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
                           state.title,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w800,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.sans(
+                            color: tokens.ink,
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           state.message,
-                          // 3 lines so the warm copy isn't clipped to «ко…»
-                          // (was maxLines: 2).
-                          maxLines: 3,
+                          maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
+                          style: AppTheme.sans(
+                            color: tokens.inkMuted,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                       ],
                     ),
                   ),
+                  if (state.actionLabel != null) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      state.actionLabel!,
+                      style: AppTheme.sans(
+                        color: tokens.accent,
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      size: 18,
+                      color: tokens.accent,
+                    ),
+                  ],
                 ],
               ),
-              // Action на своей строке: длинный CTA («Добавить
-              // родственника») в inline-Row зажимал текстовую колонку в
-              // ниточку — «Начн/ите/своё/дере/во» на узких экранах. Отдельная
-              // строка снизу даёт заголовку/описанию всю ширину при любой
-              // длине метки.
-              if (state.actionLabel != null) ...[
-                const SizedBox(height: 4),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: _handleFeedEmptyAction,
-                    style: TextButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    child: Text(state.actionLabel!),
-                  ),
-                ),
-              ],
-            ],
+            ),
           ),
         ),
       );
@@ -1423,7 +1429,10 @@ extension _HomeScreenSections on _HomeScreenState {
     required List<_FeedBranchChipEntry> entries,
   }) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+      // Чанк 19: горизонтальный отступ 18 → 14 — выравниваем по общей
+      // левой границе с плитками хабов/композером/рельсом историй выше
+      // (было на 4dp правее — ощущалось случайным сдвигом).
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
       child: SizedBox(
         // 2c: 44dp — полный тап-таргет для чипов веток (было 36 +
         // shrinkWrap, т.е. реальный хит ~32dp).
