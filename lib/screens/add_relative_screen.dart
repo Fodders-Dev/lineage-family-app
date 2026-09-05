@@ -14,6 +14,7 @@ import '../services/tree_mutation_history.dart';
 import '../backend/interfaces/profile_service_interface.dart';
 import '../backend/interfaces/storage_service_interface.dart';
 import '../backend/models/cross_tree_person_suggestion.dart';
+import '../theme/app_theme.dart';
 import '../utils/genealogy_dates.dart';
 import '../utils/relative_details_route.dart';
 import '../utils/snackbar.dart';
@@ -1156,6 +1157,24 @@ class _AddRelativeScreenState extends State<AddRelativeScreen> {
     super.dispose();
   }
 
+  /// Плотность (чанк 13): единая декорация для полей ФИО — isDense +
+  /// подобранный contentPadding держат поле на ~52dp с floating-label
+  /// always (дефолт без isDense даёт ~56–60dp). Текст и лейбл остаются
+  /// ≥16sp — только воздух вокруг них ужат.
+  InputDecoration _nameFieldDecoration({
+    required String label,
+    required IconData icon,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      floatingLabelBehavior: FloatingLabelBehavior.always,
+      border: const OutlineInputBorder(),
+      prefixIcon: Icon(icon),
+      isDense: true,
+      contentPadding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1226,14 +1245,16 @@ class _AddRelativeScreenState extends State<AddRelativeScreen> {
                     // P1b: label всегда над полем (не исчезающий
                     // плейсхолдер) + имена с заглавной — меньше возни со
                     // шифтом для старших.
+                    // Плотность (чанк 13): isDense + свой contentPadding
+                    // держат поле на ~52dp (планка 50+, см. 46038c3) вместо
+                    // дефолтных ~56–60dp с floating-label always; между
+                    // полями 8dp, не 16 — это одна смысловая группа «ФИО».
                     TextFormField(
                       controller: _lastNameController,
                       textCapitalization: TextCapitalization.words,
-                      decoration: InputDecoration(
-                        labelText: 'Фамилия',
-                        floatingLabelBehavior: FloatingLabelBehavior.always,
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.person),
+                      decoration: _nameFieldDecoration(
+                        label: 'Фамилия',
+                        icon: Icons.person,
                       ),
                       validator: (value) {
                         if (value == null || value.isEmpty) {
@@ -1242,20 +1263,16 @@ class _AddRelativeScreenState extends State<AddRelativeScreen> {
                         return null;
                       },
                     ),
-                    // Плотность (чанк 12): ФИО — одна смысловая группа,
-                    // между полями внутри неё — 10dp, не 16 (Telegram-мерка).
-                    SizedBox(height: 10),
+                    const SizedBox(height: 8),
 
                     // Имя
                     TextFormField(
                       controller: _firstNameController,
                       autofocus: !widget.isEditing,
                       textCapitalization: TextCapitalization.words,
-                      decoration: InputDecoration(
-                        labelText: 'Имя',
-                        floatingLabelBehavior: FloatingLabelBehavior.always,
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.person_outline),
+                      decoration: _nameFieldDecoration(
+                        label: 'Имя',
+                        icon: Icons.person_outline,
                       ),
                       validator: (value) {
                         if (value == null || value.isEmpty) {
@@ -1264,39 +1281,36 @@ class _AddRelativeScreenState extends State<AddRelativeScreen> {
                         return null;
                       },
                     ),
-                    SizedBox(height: 10),
+                    const SizedBox(height: 8),
 
                     // Отчество
                     TextFormField(
                       controller: _middleNameController,
                       textCapitalization: TextCapitalization.words,
-                      decoration: InputDecoration(
-                        labelText: 'Отчество',
-                        floatingLabelBehavior: FloatingLabelBehavior.always,
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.person_outline),
+                      decoration: _nameFieldDecoration(
+                        label: 'Отчество',
+                        icon: Icons.person_outline,
                       ),
                     ),
-                    SizedBox(height: 20),
 
-                    // Пол
-                    Text(
-                      'Пол',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                      ),
-                    ),
-                    SizedBox(height: 8),
+                    // Пол — заголовок сам несёт отступы (12 сверху / 6
+                    // снизу, см. _buildFormSectionHeader), лишний SizedBox
+                    // между ФИО и секцией больше не нужен.
+                    _buildFormSectionHeader('Пол'),
                     Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
+                      spacing: 8,
+                      runSpacing: 8,
                       children: [
                         ChoiceChip(
                           label: const Text('Мужской'),
                           avatar: const Icon(Icons.male, size: 18),
                           selected: _selectedGender == Gender.male,
                           selectedColor: Colors.blue.shade100,
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 4,
+                          ),
                           onSelected: (_) {
                             setState(() {
                               _selectedGender = Gender.male;
@@ -1308,6 +1322,11 @@ class _AddRelativeScreenState extends State<AddRelativeScreen> {
                           avatar: const Icon(Icons.female, size: 18),
                           selected: _selectedGender == Gender.female,
                           selectedColor: Colors.pink.shade100,
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 4,
+                          ),
                           onSelected: (_) {
                             setState(() {
                               _selectedGender = Gender.female;
@@ -1316,9 +1335,9 @@ class _AddRelativeScreenState extends State<AddRelativeScreen> {
                         ),
                       ],
                     ),
-                    SizedBox(height: 20),
 
-                    // Виджет выбора родственной связи
+                    // Виджет выбора родственной связи — тоже открывается
+                    // своим заголовком с тем же отступом.
                     _buildRelationshipSelector(),
                     SizedBox(height: 20),
 

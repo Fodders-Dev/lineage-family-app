@@ -99,6 +99,25 @@ extension _AddRelativeScreenSections on _AddRelativeScreenState {
     return 'Добавление родственника';
   }
 
+  /// Плотность (чанк 13): заголовок секции формы («Пол», «Родственная
+  /// связь») — тот же стиль, что и заголовок секции в карточке человека
+  /// (AppTheme.serif 18 w700), с компактными отступами 12 сверху / 6
+  /// снизу вместо прежних SizedBox(24) до и после ad-hoc bold-текста.
+  Widget _buildFormSectionHeader(String text) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 12, bottom: 6),
+      child: Text(
+        text,
+        style: AppTheme.serif(
+          color: theme.colorScheme.onSurface,
+          fontSize: 18,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
   /// F1: одна компактная строка контекста вместо трёх карточек-простыней
   /// (intro + «Что нужно сейчас» + «Режим заполнения»). Показывается
   /// только когда несёт смысл; обычное добавление обходится без неё —
@@ -1011,11 +1030,7 @@ extension _AddRelativeScreenSections on _AddRelativeScreenState {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Родственная связь',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-        ),
-        SizedBox(height: 10),
+        _buildFormSectionHeader('Родственная связь'),
 
         // ---- Виджет связи с КОНКРЕТНЫМ человеком (контекстным или relatedTo) ----
         if (anchorPerson != null)
@@ -1030,19 +1045,14 @@ extension _AddRelativeScreenSections on _AddRelativeScreenState {
         SizedBox(height: 20),
 
         // ---- Виджет связи с ТЕКУЩИМ ПОЛЬЗОВАТЕЛЕМ (если нет anchorPerson ИЛИ режим редактирования) ----
+        // Плотность (чанк 13): раньше здесь дублировался вопрос «Кем этот
+        // человек является для вас?» ПРЯМО над полем с подписью
+        // «Родственная связь с вами» — одна и та же мысль дважды. Подпись
+        // самого поля уже несёт этот смысл, отдельный вопрос убран.
         if (anchorPerson == null || isEditingMode)
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                _isCreatingFirstPerson
-                    ? 'Связь с вами'
-                    : isAddingToSelf
-                        ? 'Кем этот человек является для вас?'
-                        : 'Кем этот человек является для вас?',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              SizedBox(height: 8),
               DropdownButtonFormField<RelationType>(
                 initialValue: _selectedRelationType,
                 decoration: InputDecoration(
