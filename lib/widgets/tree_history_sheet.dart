@@ -210,7 +210,8 @@ class _TreeHistorySheetState extends State<TreeHistorySheet> {
                                     onPressed: () =>
                                         widget.onOpenPerson!(relatedPersonId),
                                     icon: const Icon(Icons.open_in_new),
-                                    visualDensity: VisualDensity.compact,
+                                    // Без compact-плотности: 48dp тач-таргет, как у
+                                    // restore/purge в DeletedItemRow (планка 50+ ≥44).
                                   ),
                                 ],
                               ],

@@ -197,16 +197,10 @@ void main() {
     expect(find.byTooltip('Открыть карточку'), findsNothing);
   });
 
-  // НАХОДКА (не фиксится в этом тестовом чанке — только вёрстку/логику,
-  // не трогаем production-код сверх минимальных швов): IconButton
-  // «Открыть карточку» задаёт visualDensity: VisualDensity.compact —
-  // baseSizeAdjustment компактной плотности −8dp на ось уменьшает
-  // kMinInteractiveDimension (48dp) до фактических 40×40dp, ниже
-  // рекомендованных 44dp. Restore/purge-кнопки в DeletedItemRow (трэш-
-  // экраны) той же плотности НЕ задают и остаются на дефолтных 48dp —
-  // см. соответствующий тест в trash_screen_test.dart. Тест ниже пинит
-  // фактическое (нонкомплаентное) поведение, а не выдуманный порог.
-  testWidgets('тач-таргет «Открыть карточку» — фактически 40×40dp (< 44dp, известный гэп)',
+  // Тач-таргет «Открыть карточку» — планка ≥44dp для аудитории 50+ (как у
+  // restore/purge в DeletedItemRow). Раньше IconButton задавал
+  // VisualDensity.compact и давал 40×40dp — ревью убрало compact.
+  testWidgets('тач-таргет «Открыть карточку» — не меньше 44×44dp',
       (tester) async {
     await tester.pumpWidget(_wrap(TreeHistorySheet(
       historyFuture: Future.value([
@@ -222,7 +216,8 @@ void main() {
       of: find.byIcon(Icons.open_in_new),
       matching: find.byType(IconButton),
     ));
-    expect(size, const Size(40, 40));
+    expect(size.width, greaterThanOrEqualTo(44));
+    expect(size.height, greaterThanOrEqualTo(44));
   });
 
   testWidgets('на узком экране 360×640 нет переполнения', (tester) async {
