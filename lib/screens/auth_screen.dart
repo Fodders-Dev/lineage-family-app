@@ -1314,7 +1314,7 @@ class _AuthScreenState extends State<AuthScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
             child: _buildHeroPanel(theme, compact: true),
           ),
           Padding(
@@ -1332,19 +1332,21 @@ class _AuthScreenState extends State<AuthScreen> {
     // Lora tagline anchored to the bottom-left. Compact layout drops the
     // feature inventory — the sheet below has all the action surface.
     return Container(
+      key: const Key('auth-hero-panel'),
       width: double.infinity,
-      // Compact hero is now a floating card — fixed minimum so the
-      // wordmark + tagline breathe; gradient softened so the bottom
-      // doesn't crash into deep forest right where the cream
-      // scaffold meets it.
+      // Density chunk 18: compact hero used to force a 320dp floor —
+      // a third of a 412×915 phone screen before any actionable
+      // content. Headline shrunk to 2 lines (see below), so the hero
+      // now sizes to its (much smaller) content; 150dp keeps it from
+      // ever looking collapsed on very short strings.
       constraints: compact
-          ? const BoxConstraints(minHeight: 320)
+          ? const BoxConstraints(minHeight: 150)
           : const BoxConstraints(),
       padding: EdgeInsets.fromLTRB(
         compact ? 22 : 28,
-        compact ? 32 : 28,
+        compact ? 18 : 28,
         compact ? 22 : 28,
-        compact ? 36 : 28,
+        compact ? 18 : 28,
       ),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
@@ -1446,63 +1448,147 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                 ],
               ),
-              SizedBox(height: compact ? 70 : 24),
-              Text(
-                'Семья —',
-                style: AppTheme.serif(
-                  color: Colors.white,
-                  fontSize: compact ? 38 : 38,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.4,
-                  height: 1.05,
-                ),
-              ),
-              RichText(
-                text: TextSpan(
-                  children: [
-                    TextSpan(
-                      text: 'это ',
-                      style: AppTheme.serif(
-                        color: Colors.white,
-                        fontSize: compact ? 38 : 38,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: -0.4,
-                        height: 1.05,
+              SizedBox(height: compact ? 10 : 24),
+              // Density chunk 18: compact hero used to stack "Семья —" /
+              // "это живое" / "дерево." as three separate block-level
+              // lines at 38sp (~130dp just for the headline) — a third
+              // of the phone screen before any actionable content. The
+              // first two pieces now share a row so the whole headline
+              // reads in 2 lines at a smaller size; wide/desktop keeps
+              // the original 3-line 38sp treatment untouched.
+              if (compact) ...[
+                // FittedBox/scaleDown — "Семья — это живое" at 25sp
+                // fits ≥390dp phones as-is; on narrower devices (320dp
+                // class) it scales down instead of overflowing the
+                // RenderFlex (mainAxisSize.min doesn't wrap on its own).
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        'Семья —',
+                        style: AppTheme.serif(
+                          color: Colors.white,
+                          fontSize: 25,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.3,
+                          height: 1.05,
+                        ),
                       ),
-                    ),
-                    TextSpan(
-                      text: 'живое',
-                      style: AppTheme.serif(
-                        color: const Color(0xFFE9C273),
-                        fontSize: compact ? 38 : 38,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: -0.4,
-                        height: 1.05,
-                      ).copyWith(fontStyle: FontStyle.italic),
-                    ),
-                  ],
+                      const SizedBox(width: 7),
+                      Text.rich(
+                        TextSpan(
+                          children: [
+                            TextSpan(
+                              text: 'это ',
+                              style: AppTheme.serif(
+                                color: Colors.white,
+                                fontSize: 25,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: -0.3,
+                                height: 1.05,
+                              ),
+                            ),
+                            TextSpan(
+                              text: 'живое',
+                              style: AppTheme.serif(
+                                color: const Color(0xFFE9C273),
+                                fontSize: 25,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: -0.3,
+                                height: 1.05,
+                              ).copyWith(fontStyle: FontStyle.italic),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              Text(
-                'дерево.',
-                style: AppTheme.serif(
-                  color: Colors.white,
-                  fontSize: compact ? 38 : 38,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.4,
-                  height: 1.05,
+                Text(
+                  'дерево.',
+                  style: AppTheme.serif(
+                    color: Colors.white,
+                    fontSize: 25,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.3,
+                    height: 1.05,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                'Истории, голоса, лица и даты\nв одном пространстве для своих.',
-                style: AppTheme.sans(
-                  color: Colors.white.withValues(alpha: 0.85),
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  height: 1.5,
+                const SizedBox(height: 8),
+                Text(
+                  'Истории, лица и даты — всё в одном месте.',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.sans(
+                    color: Colors.white.withValues(alpha: 0.85),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    height: 1.2,
+                  ),
                 ),
-              ),
+              ] else ...[
+                Text(
+                  'Семья —',
+                  style: AppTheme.serif(
+                    color: Colors.white,
+                    fontSize: 38,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.4,
+                    height: 1.05,
+                  ),
+                ),
+                RichText(
+                  text: TextSpan(
+                    children: [
+                      TextSpan(
+                        text: 'это ',
+                        style: AppTheme.serif(
+                          color: Colors.white,
+                          fontSize: 38,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.4,
+                          height: 1.05,
+                        ),
+                      ),
+                      TextSpan(
+                        text: 'живое',
+                        style: AppTheme.serif(
+                          color: const Color(0xFFE9C273),
+                          fontSize: 38,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.4,
+                          height: 1.05,
+                        ).copyWith(fontStyle: FontStyle.italic),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  'дерево.',
+                  style: AppTheme.serif(
+                    color: Colors.white,
+                    fontSize: 38,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.4,
+                    height: 1.05,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  'Истории, голоса, лица и даты\nв одном пространстве для своих.',
+                  style: AppTheme.sans(
+                    color: Colors.white.withValues(alpha: 0.85),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    height: 1.5,
+                  ),
+                ),
+              ],
               if (!compact) ...[
                 const SizedBox(height: 18),
                 Wrap(

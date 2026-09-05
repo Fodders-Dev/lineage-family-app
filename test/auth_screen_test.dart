@@ -304,13 +304,12 @@ void main() {
     expect(find.text('Вход'), findsWidgets);
     expect(find.text('Регистрация'), findsOneWidget);
     expect(find.text('Email'), findsOneWidget);
-    // Subtitle now uses an explicit newline split so the auth hero
-    // breaks at a natural rhythm point ("даты" / "в одном…"). Drop the
-    // dash-separator wording.
+    // Density chunk 18: compact hero subtitle collapsed to a single
+    // line (was a forced 2-line "\n" string) so the hero fits ≤170dp —
+    // wide/desktop keeps the original 2-line copy (see the wide-layout
+    // test above for that string).
     expect(
-      find.text(
-        'Истории, голоса, лица и даты\nв одном пространстве для своих.',
-      ),
+      find.text('Истории, лица и даты — всё в одном месте.'),
       findsOneWidget,
     );
     expect(find.text('Дерево, родные и чат в одном аккаунте.'), findsNothing);
