@@ -131,12 +131,17 @@ class _RelationPickerSheetState extends State<_RelationPickerSheet> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Плотность (чанк 13): заголовок был на titleLarge (~22sp) с
+              // крупными отступами — шесть кнопок столбиком ниже занимали
+              // ~370dp. Заголовок ужат до 20sp, подзаголовок — явные 14sp
+              // (helper-текст, не «читай меня внимательно»).
               Padding(
                 padding: const EdgeInsets.fromLTRB(4, 8, 4, 4),
                 child: Text(
                   anchor != null ? 'Кто это для $anchor?' : 'Кем приходится?',
                   style: theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w800,
+                    fontSize: 20,
                   ),
                 ),
               ),
@@ -147,23 +152,31 @@ class _RelationPickerSheetState extends State<_RelationPickerSheet> {
                       ? 'Выбери связь относительно $anchor. Остальные '
                           'родства дерево выведет само.'
                       : 'Выбери связь — потом заполнишь имя и дату.',
+                  style: const TextStyle(fontSize: 14),
                 ),
               ),
               // Круг друзей: friends-first (смоук 2026-07-04 — пикер
               // предлагал Маму/Папу, а «Друг» не существовал вовсе).
+              // Плотность (чанк 13): основные варианты — сетка 2 колонки
+              // по 48dp вместо столбика 52dp — тот же список кнопок
+              // умещается в ~половину прежней высоты.
               if (widget.isFriendsCircle) ...[
-                _PrimaryTile(
-                  key: const Key('relation-picker-friend'),
-                  icon: Icons.emoji_people_outlined,
-                  label: 'Друг',
-                  onTap: () => _pick(context, RelationType.friend, null),
-                ),
-                const SizedBox(height: 8),
-                _PrimaryTile(
-                  key: const Key('relation-picker-colleague'),
-                  icon: Icons.work_outline_rounded,
-                  label: 'Коллега',
-                  onTap: () => _pick(context, RelationType.colleague, null),
+                _PrimaryTileGrid(
+                  tiles: [
+                    _PrimaryTile(
+                      key: const Key('relation-picker-friend'),
+                      icon: Icons.emoji_people_outlined,
+                      label: 'Друг',
+                      onTap: () => _pick(context, RelationType.friend, null),
+                    ),
+                    _PrimaryTile(
+                      key: const Key('relation-picker-colleague'),
+                      icon: Icons.work_outline_rounded,
+                      label: 'Коллега',
+                      onTap: () =>
+                          _pick(context, RelationType.colleague, null),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 12),
                 _SecondaryTile(
@@ -175,59 +188,60 @@ class _RelationPickerSheetState extends State<_RelationPickerSheet> {
                 ),
               ] else ...[
                 // Primary CTAs (mirror EmptyTreeGuidedCta).
-                _PrimaryTile(
-                  key: const Key('relation-picker-mama'),
-                  icon: Icons.face_3_outlined,
-                  label: 'Мама',
-                  onTap: () => _pick(
-                    context,
-                    RelationType.parent,
-                    Gender.female,
-                  ),
+                _PrimaryTileGrid(
+                  tiles: [
+                    _PrimaryTile(
+                      key: const Key('relation-picker-mama'),
+                      icon: Icons.face_3_outlined,
+                      label: 'Мама',
+                      onTap: () => _pick(
+                        context,
+                        RelationType.parent,
+                        Gender.female,
+                      ),
+                    ),
+                    _PrimaryTile(
+                      key: const Key('relation-picker-papa'),
+                      icon: Icons.face_outlined,
+                      label: 'Папа',
+                      onTap: () => _pick(
+                        context,
+                        RelationType.parent,
+                        Gender.male,
+                      ),
+                    ),
+                    _PrimaryTile(
+                      key: const Key('relation-picker-child'),
+                      icon: Icons.child_care_outlined,
+                      label: 'Ребёнок',
+                      onTap: () => _pick(context, RelationType.child, null),
+                    ),
+                    _PrimaryTile(
+                      key: const Key('relation-picker-partner'),
+                      icon: Icons.favorite_outline_rounded,
+                      label: 'Супруг / Партнёр',
+                      onTap: () => _pick(context, RelationType.spouse, null),
+                    ),
+                    _PrimaryTile(
+                      key: const Key('relation-picker-sibling'),
+                      icon: Icons.group_outlined,
+                      label: 'Брат / Сестра',
+                      onTap: () => _pick(context, RelationType.sibling, null),
+                    ),
+                    // Node-anchored: только примитивы выше. Бабушка/тётя/
+                    // ин-ло/кузены/бывшие/сводные граф выведет сам — здесь
+                    // их не показываем (в seed/FAB-флоу оставляем как было).
+                    if (!_isNodeAnchored)
+                      _PrimaryTile(
+                        key: const Key('relation-picker-grandparent'),
+                        icon: Icons.elderly_outlined,
+                        label: 'Дедушка / Бабушка',
+                        onTap: () =>
+                            _pick(context, RelationType.grandparent, null),
+                      ),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                _PrimaryTile(
-                  key: const Key('relation-picker-papa'),
-                  icon: Icons.face_outlined,
-                  label: 'Папа',
-                  onTap: () => _pick(
-                    context,
-                    RelationType.parent,
-                    Gender.male,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                _PrimaryTile(
-                  key: const Key('relation-picker-child'),
-                  icon: Icons.child_care_outlined,
-                  label: 'Ребёнок',
-                  onTap: () => _pick(context, RelationType.child, null),
-                ),
-                const SizedBox(height: 8),
-                _PrimaryTile(
-                  key: const Key('relation-picker-partner'),
-                  icon: Icons.favorite_outline_rounded,
-                  label: 'Супруг / Партнёр',
-                  onTap: () => _pick(context, RelationType.spouse, null),
-                ),
-                const SizedBox(height: 8),
-                _PrimaryTile(
-                  key: const Key('relation-picker-sibling'),
-                  icon: Icons.group_outlined,
-                  label: 'Брат / Сестра',
-                  onTap: () => _pick(context, RelationType.sibling, null),
-                ),
-                // Node-anchored: только примитивы выше. Бабушка/тётя/
-                // ин-ло/кузены/бывшие/сводные граф выведет сам — здесь их
-                // не показываем (а в seed/FAB-флоу оставляем как было).
                 if (!_isNodeAnchored) ...[
-                  const SizedBox(height: 8),
-                  _PrimaryTile(
-                    key: const Key('relation-picker-grandparent'),
-                    icon: Icons.elderly_outlined,
-                    label: 'Дедушка / Бабушка',
-                    onTap: () => _pick(context, RelationType.grandparent, null),
-                  ),
                   const SizedBox(height: 12),
                   // Expand secondary relations.
                   if (!_expanded)
@@ -325,6 +339,40 @@ class _RelationPickerSheetState extends State<_RelationPickerSheet> {
   }
 }
 
+/// Плотность (чанк 13): раскладывает primary-плитки в сетку 2 колонки
+/// вместо столбика. Шесть кнопок по 52dp столбиком занимали ≈370dp —
+/// сетка 48dp-плиток укладывает тот же набор в 2-3 строки. Нечётный
+/// «хвост» (например, узловой пикер с 5 примитивами) просто занимает
+/// половину последней строки — не тянем его на всю ширину, чтобы не
+/// плодить спецкейсы.
+class _PrimaryTileGrid extends StatelessWidget {
+  const _PrimaryTileGrid({required this.tiles});
+
+  final List<Widget> tiles;
+
+  @override
+  Widget build(BuildContext context) {
+    const spacing = 8.0;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final tileWidth = (constraints.maxWidth - spacing) / 2;
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            for (final tile in tiles) SizedBox(width: tileWidth, child: tile),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Компактная плитка для сетки 2 колонки: иконка + подпись в ряд,
+/// минимум 48dp высоты (было 52dp столбиком на всю ширину). Подпись
+/// умещается в 1-2 строки — самые длинные варианты («Дедушка / Бабушка»,
+/// «Супруг / Партнёр») переносятся, а не обрезаются: это точка входа в
+/// форму, а не превью, отрезанное «...» здесь мешает выбору.
 class _PrimaryTile extends StatelessWidget {
   const _PrimaryTile({
     super.key,
@@ -339,14 +387,38 @@ class _PrimaryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FilledButton.tonalIcon(
-      onPressed: onTap,
-      icon: Icon(icon),
-      label: Text(label, style: const TextStyle(fontSize: 16)),
-      style: FilledButton.styleFrom(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
-        alignment: Alignment.centerLeft,
-        minimumSize: const Size.fromHeight(52),
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.secondaryContainer,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                Icon(icon, size: 20, color: scheme.onSecondaryContainer),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      height: 1.15,
+                      color: scheme.onSecondaryContainer,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
