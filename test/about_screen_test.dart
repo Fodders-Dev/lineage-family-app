@@ -22,7 +22,7 @@ void main() {
     );
   });
 
-  GoRouter _router() => GoRouter(
+  GoRouter buildRouter() => GoRouter(
         routes: [
           GoRoute(
             path: '/',
@@ -57,14 +57,14 @@ void main() {
     // PackageInfo.setMockInitialValues отвечает на канал синхронно —
     // "Версия загружается…" (FutureBuilder до snapshot.data) не успевает
     // стать наблюдаемым кадром под тестом; проверяем итоговый результат.
-    await tester.pumpWidget(MaterialApp.router(routerConfig: _router()));
+    await tester.pumpWidget(MaterialApp.router(routerConfig: buildRouter()));
     await tester.pumpAndSettle();
     expect(find.text('Версия 1.0.37 (сборка 45)'), findsOneWidget);
     expect(find.text('Версия загружается…'), findsNothing);
   });
 
   testWidgets('статический контент и все ссылки на месте', (tester) async {
-    await tester.pumpWidget(MaterialApp.router(routerConfig: _router()));
+    await tester.pumpWidget(MaterialApp.router(routerConfig: buildRouter()));
     await tester.pumpAndSettle();
 
     expect(find.text('Родня'), findsOneWidget);
@@ -80,7 +80,7 @@ void main() {
   });
 
   testWidgets('тап по ссылке "Поддержка" открывает /support', (tester) async {
-    await tester.pumpWidget(MaterialApp.router(routerConfig: _router()));
+    await tester.pumpWidget(MaterialApp.router(routerConfig: buildRouter()));
     await tester.pumpAndSettle();
 
     // Список ссылок ниже фолда на дефолтном 800×600 test-вьюпорте —
@@ -95,7 +95,7 @@ void main() {
 
   testWidgets('тап по ссылке "Удаление аккаунта" открывает /account-deletion',
       (tester) async {
-    await tester.pumpWidget(MaterialApp.router(routerConfig: _router()));
+    await tester.pumpWidget(MaterialApp.router(routerConfig: buildRouter()));
     await tester.pumpAndSettle();
 
     await tester.ensureVisible(find.text('Удаление аккаунта'));
@@ -110,7 +110,7 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
-    await tester.pumpWidget(MaterialApp.router(routerConfig: _router()));
+    await tester.pumpWidget(MaterialApp.router(routerConfig: buildRouter()));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
@@ -122,7 +122,7 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
-    await tester.pumpWidget(MaterialApp.router(routerConfig: _router()));
+    await tester.pumpWidget(MaterialApp.router(routerConfig: buildRouter()));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
