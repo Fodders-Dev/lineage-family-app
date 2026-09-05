@@ -280,6 +280,144 @@ test("_userCanSeeGraphPerson: connected-via-blood-graph requires ≤4 hops", () 
   );
 });
 
+test(
+  "_userCanSeeGraphPerson: precomputed context (SPEED-8d batch cache) gives byte-identical results",
+  () => {
+    // filterLegacyPersonsByGraphVisibility (store.js) precomputes
+    // viewerSelfGraphPersonId + blood-adjacency ONCE per call and
+    // threads them through via `context` instead of letting each
+    // candidate re-resolve self-id and rebuild adjacency from
+    // scratch. The optional 4th argument must be a pure perf
+    // shortcut — identical output to the no-context call for every
+    // branch (owner/grant/public/owner-only/connected-via-blood).
+    const store = makeStoreStub();
+    const db = freshDb();
+    seedKinship(db);
+
+    const adjacency = store._buildBloodAdjacency(db);
+    const viewerSelfGraphPersonId = store._selfGraphPersonIdForUser(db, "u-self");
+    const context = {viewerSelfGraphPersonId, adjacency};
+
+    const mom = db.graphPersons.find((g) => g.id === "id-mom");
+    const farAway = db.graphPersons.find((g) => g.id === "id-far-away");
+    const other = db.graphPersons.find((g) => g.id === "id-other");
+    const self = db.graphPersons.find((g) => g.id === "id-self");
+
+    for (const graphPerson of [mom, farAway, other, self]) {
+      assert.equal(
+        store._userCanSeeGraphPerson(db, graphPerson, "u-self", context),
+        store._userCanSeeGraphPerson(db, graphPerson, "u-self"),
+        `context must not change the outcome for ${graphPerson.id}`,
+      );
+    }
+
+    // A viewer with no resolvable self-node still behaves identically
+    // whether or not a (null-self) context is supplied.
+    const contextForStranger = {
+      viewerSelfGraphPersonId: store._selfGraphPersonIdForUser(db, "u-stranger"),
+      adjacency,
+    };
+    assert.equal(
+      store._userCanSeeGraphPerson(db, mom, "u-stranger", contextForStranger),
+      store._userCanSeeGraphPerson(db, mom, "u-stranger"),
+    );
+  },
+);
+
+test(
+  "filterLegacyPersonsByGraphVisibility: accepts a prefetched db (SPEED-8d) and matches per-item _userCanSeeGraphPerson baseline",
+  async () => {
+    // identity-suggestions route now reads the blob once and passes
+    // it to BOTH findCrossTreeSuggestionsForPerson and this filter —
+    // exercise that path (3rd argument) since a bare store stub has
+    // no dataPath to call the real _read() against.
+    const store = makeStoreStub();
+    const db = freshDb();
+    seedKinship(db);
+
+    const legacyPersons = [
+      {id: "lp-mom", identityId: "id-mom"},
+      {id: "lp-far", identityId: "id-far-away"},
+      {id: "lp-other", identityId: "id-other"},
+      {id: "lp-self", identityId: "id-self"},
+      // No matching graphPerson at all — pre-sync edge case, fail-open.
+      {id: "lp-unsynced", identityId: "id-does-not-exist"},
+    ];
+
+    const visible = await store.filterLegacyPersonsByGraphVisibility(
+      legacyPersons,
+      "u-self",
+      db,
+    );
+    const visibleIds = new Set(visible.map((p) => p.id));
+
+    for (const person of legacyPersons) {
+      const graphPerson =
+        db.graphPersons.find((g) => g.id === person.identityId) || null;
+      const expected = graphPerson
+        ? store._userCanSeeGraphPerson(db, graphPerson, "u-self")
+        : true; // fail-open, same contract as the batched path.
+      assert.equal(
+        visibleIds.has(person.id),
+        expected,
+        `visibility mismatch for ${person.id}`,
+      );
+    }
+    // Pin the concrete expected set so a future regression in the
+    // lazy-adjacency/self-id batching is caught even if the
+    // per-item baseline above were accidentally wrong too.
+    assert.deepEqual(
+      [...visibleIds].sort(),
+      ["lp-mom", "lp-self", "lp-unsynced"].sort(),
+    );
+  },
+);
+
+test(
+  "findCrossTreeSuggestionsForPerson: accepts a prefetched db (SPEED-8d) and still surfaces the cross-tree match",
+  async () => {
+    // Route hands in a db it already read once (see tree-routes.js
+    // identity-suggestions handler) instead of letting this method
+    // call _read() a second time. On a bare stub (no dataPath) the
+    // fallback `this._read()` branch would throw — passing `db`
+    // proves the new parameter is what's actually used.
+    const store = makeStoreStub();
+    const db = freshDb();
+    db.trees = [
+      {id: "tree-a", creatorId: "u-self", memberIds: ["u-self"]},
+      {id: "tree-b", creatorId: "u-self", memberIds: ["u-self"]},
+    ];
+    db.persons = [
+      {
+        id: "src-1",
+        treeId: "tree-a",
+        name: "Иванов Иван Петрович",
+        birthDate: "1970-03-12",
+        gender: "male",
+      },
+      {
+        id: "tgt-1",
+        treeId: "tree-b",
+        name: "Иванов Иван Петрович",
+        birthDate: "1970-03-12",
+        gender: "male",
+      },
+    ];
+    db.dismissedIdentitySuggestions = [];
+
+    const suggestions = await store.findCrossTreeSuggestionsForPerson({
+      userId: "u-self",
+      treeId: "tree-a",
+      personId: "src-1",
+      limit: 10,
+      db,
+    });
+    assert.equal(suggestions.length, 1);
+    assert.equal(suggestions[0].targetPersonId, "tgt-1");
+    assert.equal(suggestions[0].targetTreeId, "tree-b");
+  },
+);
+
 test("_userCanSeeGraphPerson: explicit grant unlocks owner-only node", () => {
   const store = makeStoreStub();
   const db = freshDb();

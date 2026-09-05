@@ -10382,8 +10382,16 @@ class FileStore {
     treeId,
     personId,
     limit = 10,
+    // SPEED-8d: route-хендлер identity-suggestions ниже по коду сам
+    // вызывает filterLegacyPersonsByGraphVisibility на результате —
+    // без этого параметра обе функции читали бы блоб независимо
+    // (2 полных _read() на один HTTP-запрос; на PostgresStore это
+    // structuredClone всего состояния + версия/сессии round-trip
+    // ДВАЖДЫ). Caller передаёт уже прочитанный db, чтобы _read()
+    // на запрос был один.
+    db: prefetchedDb = null,
   }) {
-    const db = await this._read();
+    const db = prefetchedDb || (await this._read());
     const normalizedUserId = normalizeNullableString(userId);
     if (!normalizedUserId) return [];
 
@@ -12748,11 +12756,17 @@ class FileStore {
   // RFC restricts the "найти родство" feature to the consanguinity
   // graph by design — adding non-blood edges turns the engine
   // into "social distance" rather than "родство".
+  // `adjacency` — опциональная предпостроенная карта смежности
+  // (SPEED-8d). Без неё поведение не меняется (строим с нуля из db,
+  // как раньше); передаётся, когда caller гоняет BFS много раз ПОДРЯД
+  // для одного и того же db в рамках одного запроса
+  // (filterLegacyPersonsByGraphVisibility на N кандидатов) — без
+  // этого каждый вызов пересобирал бы весь граф родства заново.
   _findBloodRelationBetween(
     db,
     fromGraphPersonId,
     toGraphPersonId,
-    {maxDepth = 10} = {},
+    {maxDepth = 10, adjacency: precomputedAdjacency = null} = {},
   ) {
     if (!fromGraphPersonId || !toGraphPersonId) return null;
     if (fromGraphPersonId === toGraphPersonId) {
@@ -12763,7 +12777,7 @@ class FileStore {
         degree: 0,
       };
     }
-    const adjacency = this._buildBloodAdjacency(db);
+    const adjacency = precomputedAdjacency || this._buildBloodAdjacency(db);
     const fromList = adjacency.get(fromGraphPersonId);
     if (!fromList) return null;
 
@@ -13598,12 +13612,34 @@ class FileStore {
   // `_userCanSeeGraphPerson`. Persons без graphPerson (mid-sync
   // edge case) — оставляем (fail-open до следующего sync'а).
   // Возвращает только legacy persons, которые viewer может видеть.
-  // Один _read() на whole list — без N+1 на каждый person.
-  async filterLegacyPersonsByGraphVisibility(persons, viewerUserId) {
+  // Один _read() на whole list — без N+1 на каждый person (caller
+  // может передать уже прочитанный db третьим аргументом, чтобы не
+  // читать блоб ещё раз, если он и так только что читал его сам —
+  // см. identity-suggestions хендлер в tree-routes.js).
+  //
+  // SPEED-8d: сам _userCanSeeGraphPerson для visibility="connected-
+  // via-blood-graph" (дефолт) резолвит viewer'а через
+  // _selfGraphPersonIdForUser (линейный проход по users+graphPersons)
+  // и гоняет BFS с ПЕРЕСБОРКОЙ adjacency из db.graphRelations с нуля
+  // на каждый вызов. viewer и db внутри ОДНОГО вызова этого фильтра
+  // не меняются, а количество вызовов — до `limit` (identity-
+  // suggestions) целей, так что раньше на каждый ответ endpoint'а
+  // могла приходиться до `limit` полных пересборок графа родства.
+  // Здесь оба считаются один раз (adjacency — лениво, только если
+  // хотя бы один person реально дошёл до blood-graph ветки) и
+  // передаются через `context` дальше без изменения результата
+  // _userCanSeeGraphPerson — она документированно детерминирована
+  // по (db, graphPerson, viewerUserId) и не зависит от identity
+  // объекта adjacency-мапы, лишь бы содержимое было тем же.
+  async filterLegacyPersonsByGraphVisibility(
+    persons,
+    viewerUserId,
+    prefetchedDb = null,
+  ) {
     if (!Array.isArray(persons) || persons.length === 0) return [];
     const normalizedViewer = normalizeNullableString(viewerUserId);
     if (!normalizedViewer) return [];
-    const db = await this._read();
+    const db = prefetchedDb || (await this._read());
     const graphPersonsByIdentity = new Map(
       (db.graphPersons || []).map((entry) => [entry.id, entry]),
     );
@@ -13613,6 +13649,24 @@ class FileStore {
         graphPersonsByLegacy.set(legacyId, entry);
       }
     }
+    const store = this;
+    const viewerSelfGraphPersonId = store._selfGraphPersonIdForUser(
+      db,
+      normalizedViewer,
+    );
+    // Ленивая сборка: если ни один person не доходит до blood-graph
+    // ветки (все — owner/granted/public/pre-sync), adjacency вообще
+    // не строится, как и раньше.
+    let cachedAdjacency = null;
+    const visibilityContext = {
+      viewerSelfGraphPersonId,
+      get adjacency() {
+        if (!cachedAdjacency) {
+          cachedAdjacency = store._buildBloodAdjacency(db);
+        }
+        return cachedAdjacency;
+      },
+    };
     return persons.filter((person) => {
       const identityId = normalizeNullableString(person?.identityId);
       const graphPerson =
@@ -13620,7 +13674,12 @@ class FileStore {
         graphPersonsByLegacy.get(person?.id) ||
         null;
       if (!graphPerson) return true; // Pre-sync — fail-open.
-      return this._userCanSeeGraphPerson(db, graphPerson, normalizedViewer);
+      return this._userCanSeeGraphPerson(
+        db,
+        graphPerson,
+        normalizedViewer,
+        visibilityContext,
+      );
     });
   }
 
@@ -13736,7 +13795,16 @@ class FileStore {
   // connected-via-blood-graph) BFS до MAX hops.
   // Вызывается из cross-tree picker / identity-suggestions /
   // /v1/graph/relation chain hydration / future /me/extended-family.
-  _userCanSeeGraphPerson(db, graphPerson, viewerUserId) {
+  //
+  // `context` — опциональный кэш для batch-вызовов (SPEED-8d): когда
+  // caller проверяет ОДНОГО и того же viewer'а по многим graphPerson
+  // за один запрос (filterLegacyPersonsByGraphVisibility), он может
+  // один раз посчитать viewerSelfGraphPersonId и adjacency и передать
+  // их сюда — тогда single-call путь (без context) остаётся байт-в-
+  // байт таким же, каким был: при context===null поведение НИЧЕМ не
+  // отличается от прежнего (свежий _selfGraphPersonIdForUser + свежая
+  // _buildBloodAdjacency внутри _findBloodRelationBetween).
+  _userCanSeeGraphPerson(db, graphPerson, viewerUserId, context = null) {
     if (!graphPerson || graphPerson.deletedAt) return false;
     const normalizedViewer = normalizeNullableString(viewerUserId);
     if (!normalizedViewer) return false;
@@ -13760,7 +13828,10 @@ class FileStore {
     if (visibility === "owner-only") return false;
 
     // connected-via-blood-graph (default).
-    const viewerSelfId = this._selfGraphPersonIdForUser(db, normalizedViewer);
+    const viewerSelfId =
+      context && Object.prototype.hasOwnProperty.call(context, "viewerSelfGraphPersonId")
+        ? context.viewerSelfGraphPersonId
+        : this._selfGraphPersonIdForUser(db, normalizedViewer);
     if (!viewerSelfId) return false;
     if (viewerSelfId === graphPerson.id) return true;
 
@@ -13768,7 +13839,10 @@ class FileStore {
       db,
       viewerSelfId,
       graphPerson.id,
-      {maxDepth: FileStore._connectedVisibilityMaxHops},
+      {
+        maxDepth: FileStore._connectedVisibilityMaxHops,
+        adjacency: context ? context.adjacency : null,
+      },
     );
     return path !== null;
   }

@@ -430,11 +430,20 @@ function registerTreeRoutes(
       const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
         ? Math.min(requestedLimit, 50)
         : 10;
+      // SPEED-8d: один _read() на весь запрос вместо двух — раньше
+      // findCrossTreeSuggestionsForPerson и filterLegacyPersonsByGraphVisibility
+      // каждый читали блоб независимо (на PostgresStore это
+      // structuredClone всего состояния + версия/сессии round-trip
+      // дважды на один HTTP-вызов). Клиент батчит этот эндпоинт по
+      // разу на каждую видимую карточку канваса — экономия множится
+      // на число открытых карточек.
+      const db = await store._read();
       const suggestions = await store.findCrossTreeSuggestionsForPerson({
         userId: req.auth.user.id,
         treeId: tree.id,
         personId: req.params.personId,
         limit,
+        db,
       });
 
       // Phase 3.2: filter cross-tree suggestions через visibility.
@@ -445,6 +454,7 @@ function registerTreeRoutes(
       const visibleTargets = await store.filterLegacyPersonsByGraphVisibility(
         targetPersons,
         req.auth.user.id,
+        db,
       );
       const visibleTargetIds = new Set(visibleTargets.map((p) => p.id));
       const visibleSuggestions = suggestions.filter((s) =>

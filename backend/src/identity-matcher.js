@@ -55,66 +55,92 @@ function tokenSimilarity(leftTokens, rightTokens) {
   return sharedCount / Math.max(leftTokens.length, rightTokens.length);
 }
 
-function scorePersonPair(left, right) {
-  const leftName = normalizeName(left?.name);
-  const rightName = normalizeName(right?.name);
-  const leftTokens = normalizeNameTokens(left?.name);
-  const rightTokens = normalizeNameTokens(right?.name);
+// Предвычисляет ВСЕ производные поля одного person'а, нужные
+// scoreNormalizedPersons, ровно один раз. До этого рефакторинга
+// scorePersonPair(left, right) заново гоняло normalizeName/
+// normalizeNameTokens/normalizeIsoDate по ОБЕИМ сторонам на каждый
+// вызов — а findCrossTreeIdentitySuggestions зовёт его N раз с одним
+// и тем же sourcePerson (по разу на каждого кандидата), так что
+// sourcePerson нормализовался N раз вместо одного. normalizeIsoDate
+// вдобавок дублировался внутри одного вызова (напрямую для
+// birthDate/deathDate и повторно внутри normalizedBirthYear) —
+// до 4 повторных проходов по birthPlace на пару. Здесь каждое поле
+// нормализуется один раз.
+function normalizePersonForScoring(person) {
+  const birthDate = normalizeIsoDate(person?.birthDate);
+  return {
+    name: normalizeName(person?.name),
+    tokens: normalizeNameTokens(person?.name),
+    birthDate,
+    // normalizedBirthYear(value) эквивалентно normalizeIsoDate(value)
+    // ?.slice(0,4) — переиспользуем уже посчитанный birthDate вместо
+    // второго прохода по Date-парсингу с тем же входом.
+    birthYear: birthDate ? birthDate.slice(0, 4) : null,
+    gender: normalizeNullableString(person?.gender),
+    birthPlace: normalizeNullableString(person?.birthPlace),
+    deathDate: normalizeIsoDate(person?.deathDate),
+  };
+}
+
+// Чистая функция скоринга поверх УЖЕ нормализованных person'ов.
+// Идентична по семантике прежнему инлайновому телу scorePersonPair —
+// вынесена, чтобы вызывающие циклы (within-tree O(n²), cross-tree
+// O(n)) могли нормализовать каждого person'а один раз и переиспользовать
+// результат, а не пересчитывать его на каждую пару.
+function scoreNormalizedPersons(left, right) {
   const reasons = [];
   let score = 0;
 
-  if (leftName && rightName && leftName === rightName) {
+  const nameExactMatch = Boolean(left.name && right.name && left.name === right.name);
+  let nameSimilarity = 0;
+  if (nameExactMatch) {
     score += 0.62;
     reasons.push("Совпадает ФИО");
   } else {
-    const similarity = tokenSimilarity(leftTokens, rightTokens);
-    if (similarity >= 0.85 && Math.min(leftTokens.length, rightTokens.length) >= 2) {
+    nameSimilarity = tokenSimilarity(left.tokens, right.tokens);
+    const minTokenCount = Math.min(left.tokens.length, right.tokens.length);
+    if (nameSimilarity >= 0.85 && minTokenCount >= 2) {
       score += 0.42;
       reasons.push("Очень похожее имя");
-    } else if (
-      similarity >= 0.7 &&
-      Math.min(leftTokens.length, rightTokens.length) >= 2
-    ) {
+    } else if (nameSimilarity >= 0.7 && minTokenCount >= 2) {
       score += 0.28;
       reasons.push("Похожее имя");
     }
   }
 
-  const leftBirthDate = normalizeIsoDate(left?.birthDate);
-  const rightBirthDate = normalizeIsoDate(right?.birthDate);
-  if (leftBirthDate && rightBirthDate && leftBirthDate === rightBirthDate) {
+  if (left.birthDate && right.birthDate && left.birthDate === right.birthDate) {
     score += 0.28;
     reasons.push("Совпадает дата рождения");
-  } else if (sameKnownValue(normalizedBirthYear(left?.birthDate), normalizedBirthYear(right?.birthDate))) {
+  } else if (left.birthYear && right.birthYear && left.birthYear === right.birthYear) {
     score += 0.16;
     reasons.push("Совпадает год рождения");
   }
 
-  if (
-    sameKnownValue(left?.gender, right?.gender) &&
-    String(left?.gender || "").trim() !== "unknown"
-  ) {
+  if (left.gender && right.gender && left.gender === right.gender && left.gender !== "unknown") {
     score += 0.05;
     reasons.push("Совпадает пол");
   }
 
-  if (sameKnownValue(left?.birthPlace, right?.birthPlace)) {
+  if (left.birthPlace && right.birthPlace && left.birthPlace === right.birthPlace) {
     score += 0.06;
     reasons.push("Совпадает место рождения");
   }
 
-  if (sameKnownValue(normalizeIsoDate(left?.deathDate), normalizeIsoDate(right?.deathDate))) {
+  if (left.deathDate && right.deathDate && left.deathDate === right.deathDate) {
     score += 0.04;
     reasons.push("Совпадает дата смерти");
   }
 
-  const hasStrongNameSignal =
-    leftName && rightName && (leftName === rightName || tokenSimilarity(leftTokens, rightTokens) >= 0.85);
-  const hasBiographicalSignal =
-    leftBirthDate ||
-    rightBirthDate ||
-    normalizeNullableString(left?.birthPlace) ||
-    normalizeNullableString(right?.birthPlace);
+  // nameExactMatch || nameSimilarity>=0.85 — тот же самый OR, что был
+  // в оригинале (leftName===rightName || tokenSimilarity(...)>=0.85);
+  // nameSimilarity переиспользуется из ветки выше вместо повторного
+  // вызова tokenSimilarity.
+  const hasStrongNameSignal = Boolean(
+    left.name && right.name && (nameExactMatch || nameSimilarity >= 0.85),
+  );
+  const hasBiographicalSignal = Boolean(
+    left.birthDate || right.birthDate || left.birthPlace || right.birthPlace,
+  );
 
   if (!hasStrongNameSignal || !hasBiographicalSignal) {
     return null;
@@ -128,6 +154,16 @@ function scorePersonPair(left, right) {
     score: Math.min(0.99, Number(score.toFixed(2))),
     reasons,
   };
+}
+
+// Публичная форма для существующих вызывающих/тестов, которым нужно
+// сравнить двух «сырых» person'ов за один вызов. Внутри — тонкая
+// обёртка над normalizePersonForScoring + scoreNormalizedPersons.
+function scorePersonPair(left, right) {
+  return scoreNormalizedPersons(
+    normalizePersonForScoring(left),
+    normalizePersonForScoring(right),
+  );
 }
 
 function findWithinTreeDuplicateCandidates({
@@ -150,6 +186,12 @@ function findWithinTreeDuplicateCandidates({
     );
   });
 
+  // Нормализуем каждого person'а РОВНО ОДИН раз (O(n)) вместо того,
+  // чтобы scorePersonPair пересчитывал normalizeName/normalizeIsoDate
+  // и т.д. заново на каждую из O(n²) пар — на дереве из ~40 человек
+  // это ~800 пар и раньше каждая заново нормализовала обе стороны.
+  const normalizedPersons = treePersons.map(normalizePersonForScoring);
+
   const suggestions = [];
   for (let leftIndex = 0; leftIndex < treePersons.length; leftIndex += 1) {
     for (
@@ -167,7 +209,10 @@ function findWithinTreeDuplicateCandidates({
         continue;
       }
 
-      const match = scorePersonPair(left, right);
+      const match = scoreNormalizedPersons(
+        normalizedPersons[leftIndex],
+        normalizedPersons[rightIndex],
+      );
       if (!match) {
         continue;
       }
@@ -232,6 +277,12 @@ function findCrossTreeIdentitySuggestions({
     if (tree?.id) treeNameById.set(tree.id, tree.name || "");
   }
 
+  // sourcePerson не меняется по ходу цикла, но раньше scorePersonPair
+  // заново нормализовал его (normalizeName/tokens/даты) на КАЖДОГО
+  // кандидата — то есть N раз для дерева из N всего persons в базе.
+  // Нормализуем один раз здесь и сравниваем через scoreNormalizedPersons.
+  const sourceNorm = normalizePersonForScoring(sourcePerson);
+
   const suggestions = [];
   for (const candidate of persons) {
     if (!candidate || typeof candidate !== "object") continue;
@@ -256,7 +307,7 @@ function findCrossTreeIdentitySuggestions({
       continue;
     }
 
-    const match = scorePersonPair(sourcePerson, candidate);
+    const match = scoreNormalizedPersons(sourceNorm, normalizePersonForScoring(candidate));
     if (!match) continue;
 
     suggestions.push({
