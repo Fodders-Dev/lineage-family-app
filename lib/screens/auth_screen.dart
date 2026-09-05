@@ -1314,7 +1314,7 @@ class _AuthScreenState extends State<AuthScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
             child: _buildHeroPanel(theme, compact: true),
           ),
           Padding(
@@ -1332,19 +1332,21 @@ class _AuthScreenState extends State<AuthScreen> {
     // Lora tagline anchored to the bottom-left. Compact layout drops the
     // feature inventory — the sheet below has all the action surface.
     return Container(
+      key: const Key('auth-hero-panel'),
       width: double.infinity,
-      // Compact hero is now a floating card — fixed minimum so the
-      // wordmark + tagline breathe; gradient softened so the bottom
-      // doesn't crash into deep forest right where the cream
-      // scaffold meets it.
+      // Density chunk 18: compact hero used to force a 320dp floor —
+      // a third of a 412×915 phone screen before any actionable
+      // content. Headline shrunk to 2 lines (see below), so the hero
+      // now sizes to its (much smaller) content; 150dp keeps it from
+      // ever looking collapsed on very short strings.
       constraints: compact
-          ? const BoxConstraints(minHeight: 320)
+          ? const BoxConstraints(minHeight: 150)
           : const BoxConstraints(),
       padding: EdgeInsets.fromLTRB(
         compact ? 22 : 28,
-        compact ? 32 : 28,
+        compact ? 18 : 28,
         compact ? 22 : 28,
-        compact ? 36 : 28,
+        compact ? 18 : 28,
       ),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
@@ -1446,63 +1448,147 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                 ],
               ),
-              SizedBox(height: compact ? 70 : 24),
-              Text(
-                'Семья —',
-                style: AppTheme.serif(
-                  color: Colors.white,
-                  fontSize: compact ? 38 : 38,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.4,
-                  height: 1.05,
-                ),
-              ),
-              RichText(
-                text: TextSpan(
-                  children: [
-                    TextSpan(
-                      text: 'это ',
-                      style: AppTheme.serif(
-                        color: Colors.white,
-                        fontSize: compact ? 38 : 38,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: -0.4,
-                        height: 1.05,
+              SizedBox(height: compact ? 10 : 24),
+              // Density chunk 18: compact hero used to stack "Семья —" /
+              // "это живое" / "дерево." as three separate block-level
+              // lines at 38sp (~130dp just for the headline) — a third
+              // of the phone screen before any actionable content. The
+              // first two pieces now share a row so the whole headline
+              // reads in 2 lines at a smaller size; wide/desktop keeps
+              // the original 3-line 38sp treatment untouched.
+              if (compact) ...[
+                // FittedBox/scaleDown — "Семья — это живое" at 25sp
+                // fits ≥390dp phones as-is; on narrower devices (320dp
+                // class) it scales down instead of overflowing the
+                // RenderFlex (mainAxisSize.min doesn't wrap on its own).
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        'Семья —',
+                        style: AppTheme.serif(
+                          color: Colors.white,
+                          fontSize: 25,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.3,
+                          height: 1.05,
+                        ),
                       ),
-                    ),
-                    TextSpan(
-                      text: 'живое',
-                      style: AppTheme.serif(
-                        color: const Color(0xFFE9C273),
-                        fontSize: compact ? 38 : 38,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: -0.4,
-                        height: 1.05,
-                      ).copyWith(fontStyle: FontStyle.italic),
-                    ),
-                  ],
+                      const SizedBox(width: 7),
+                      Text.rich(
+                        TextSpan(
+                          children: [
+                            TextSpan(
+                              text: 'это ',
+                              style: AppTheme.serif(
+                                color: Colors.white,
+                                fontSize: 25,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: -0.3,
+                                height: 1.05,
+                              ),
+                            ),
+                            TextSpan(
+                              text: 'живое',
+                              style: AppTheme.serif(
+                                color: const Color(0xFFE9C273),
+                                fontSize: 25,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: -0.3,
+                                height: 1.05,
+                              ).copyWith(fontStyle: FontStyle.italic),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              Text(
-                'дерево.',
-                style: AppTheme.serif(
-                  color: Colors.white,
-                  fontSize: compact ? 38 : 38,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.4,
-                  height: 1.05,
+                Text(
+                  'дерево.',
+                  style: AppTheme.serif(
+                    color: Colors.white,
+                    fontSize: 25,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.3,
+                    height: 1.05,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                'Истории, голоса, лица и даты\nв одном пространстве для своих.',
-                style: AppTheme.sans(
-                  color: Colors.white.withValues(alpha: 0.85),
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  height: 1.5,
+                const SizedBox(height: 8),
+                Text(
+                  'Истории, лица и даты — всё в одном месте.',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.sans(
+                    color: Colors.white.withValues(alpha: 0.85),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    height: 1.2,
+                  ),
                 ),
-              ),
+              ] else ...[
+                Text(
+                  'Семья —',
+                  style: AppTheme.serif(
+                    color: Colors.white,
+                    fontSize: 38,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.4,
+                    height: 1.05,
+                  ),
+                ),
+                RichText(
+                  text: TextSpan(
+                    children: [
+                      TextSpan(
+                        text: 'это ',
+                        style: AppTheme.serif(
+                          color: Colors.white,
+                          fontSize: 38,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.4,
+                          height: 1.05,
+                        ),
+                      ),
+                      TextSpan(
+                        text: 'живое',
+                        style: AppTheme.serif(
+                          color: const Color(0xFFE9C273),
+                          fontSize: 38,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.4,
+                          height: 1.05,
+                        ).copyWith(fontStyle: FontStyle.italic),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  'дерево.',
+                  style: AppTheme.serif(
+                    color: Colors.white,
+                    fontSize: 38,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.4,
+                    height: 1.05,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  'Истории, голоса, лица и даты\nв одном пространстве для своих.',
+                  style: AppTheme.sans(
+                    color: Colors.white.withValues(alpha: 0.85),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    height: 1.5,
+                  ),
+                ),
+              ],
               if (!compact) ...[
                 const SizedBox(height: 18),
                 Wrap(
@@ -1581,7 +1667,7 @@ class _AuthScreenState extends State<AuthScreen> {
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 500),
       child: GlassPanel(
-        padding: EdgeInsets.all(compact ? 20 : 28),
+        padding: EdgeInsets.all(compact ? 18 : 28),
         borderRadius: BorderRadius.circular(28),
         clipBehavior: kIsWeb ? Clip.none : Clip.antiAlias,
         color: cardColor,
@@ -1638,27 +1724,43 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
                 const SizedBox(height: 16),
               ],
+              // Density chunk 18: the mode toggle right below already
+              // says «Вход» / «Регистрация» — a second, much bigger
+              // «Вход»/«Новый аккаунт» headline + caption underneath it
+              // was a literal duplicate (~80dp of card height for
+              // nothing new). Compact keeps a single caption line;
+              // wide/desktop is untouched (toggle sits below there, so
+              // the headline is the only mode indicator visible yet).
               if (compact) ...[
                 _buildModeToggle(theme),
-                const SizedBox(height: 18),
-              ],
-              Text(
-                _isLogin ? 'Вход' : 'Новый аккаунт',
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
+                const SizedBox(height: 10),
+                Text(
+                  _isLogin ? 'Откройте семью.' : 'Начните за минуту.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: secondaryTextColor,
+                    fontWeight: FontWeight.w600,
+                    height: 1.1,
+                  ),
+                  textAlign: TextAlign.center,
                 ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _isLogin ? 'Откройте семью.' : 'Начните за минуту.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: secondaryTextColor,
+                const SizedBox(height: 10),
+              ] else ...[
+                Text(
+                  _isLogin ? 'Вход' : 'Новый аккаунт',
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                  textAlign: TextAlign.center,
                 ),
-                textAlign: TextAlign.center,
-              ),
-              SizedBox(height: compact ? 18 : 22),
-              if (!compact) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _isLogin ? 'Откройте семью.' : 'Начните за минуту.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: secondaryTextColor,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 22),
                 _buildModeToggle(theme),
                 const SizedBox(height: 22),
               ],
@@ -1687,7 +1789,7 @@ class _AuthScreenState extends State<AuthScreen> {
                     return null;
                   },
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 10),
               ],
               TextFormField(
                 controller: _emailController,
@@ -1712,7 +1814,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   return null;
                 },
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 10),
               if (_isLogin)
                 // Inline "забыли?" link sits flush-right above the password
                 // field — the same pattern the reference uses, so the
@@ -1734,6 +1836,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         child: Text(
                           'Забыли?',
                           style: theme.textTheme.bodySmall?.copyWith(
+                            fontSize: 13,
                             color: theme.colorScheme.primary,
                             fontWeight: FontWeight.w700,
                           ),
@@ -1769,7 +1872,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 },
               ),
               if (!_isLogin) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 // Обязательное согласие (тексты — docs/legal/SOGLASIE_PDN.md):
                 // вся строка — тап-цель чекбокса, ссылки открывают документы.
                 InkWell(
@@ -1795,12 +1898,13 @@ class _AuthScreenState extends State<AuthScreen> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Padding(
-                            padding: const EdgeInsets.only(top: 6),
+                            padding: const EdgeInsets.only(top: 4),
                             child: Text.rich(
                               TextSpan(
                                 style: theme.textTheme.bodySmall?.copyWith(
+                                  fontSize: 13,
                                   color: secondaryTextColor,
-                                  height: 1.35,
+                                  height: 1.25,
                                 ),
                                 children: [
                                   const TextSpan(text: 'Я принимаю '),
@@ -1836,7 +1940,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                 ),
               ],
-              const SizedBox(height: 20),
+              const SizedBox(height: 12),
               FilledButton(
                 key: const Key('auth-submit'),
                 onPressed: _isLoading ||
@@ -1862,7 +1966,7 @@ class _AuthScreenState extends State<AuthScreen> {
               // already covers password reset; the second one below
               // the submit button was a duplicate (user-reported:
               // «нахуя нам два забыли?»). Removed.
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   const Expanded(child: Divider()),
@@ -1871,6 +1975,7 @@ class _AuthScreenState extends State<AuthScreen> {
                     child: Text(
                       'Быстрый вход',
                       style: theme.textTheme.bodySmall?.copyWith(
+                        fontSize: 13,
                         fontWeight: FontWeight.w700,
                         color: secondaryTextColor,
                       ),
@@ -1879,13 +1984,11 @@ class _AuthScreenState extends State<AuthScreen> {
                   const Expanded(child: Divider()),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               // Google web button is a fixed-width native pill (242x40).
-              // Centering it (was: right-aligned) lines it up with the
-              // equal-width Telegram + VK ID row below — the asymmetric
-              // layout the previous version had came from one
-              // right-aligned Google pill on top of three center-wrapped
-              // OutlinedButtons of varying widths.
+              // Kept on its own centered row above the chip row — mixing
+              // a 40dp-tall native pill into the compact chip row below
+              // would force every chip to that height.
               // Ship Q3 (2026-05-26): UX audit 2026-05-25 Critical #3 —
               // «advertised-but-broken» Google login (snackbar «Google
               // появится после подключения ключей провайдера») gone.
@@ -1908,15 +2011,17 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
                 const SizedBox(height: 10),
               ],
-              // Three round social chips with the label *below* the
-              // circle, sized to fit on a Samsung-mid 360dp width
-              // without text wrapping. The previous OutlinedButton.icon
-              // layout squeezed icon + horizontal label into ~96dp
-              // each which broke "Telegram" / "Google" into vertical
-              // letter columns. Circle-on-top keeps text on a single
-              // line at any sane phone width.
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              // Density chunk 18: social chips + the QR-login entry used
+              // to be a 60dp-circle-plus-label row (~86dp) FOLLOWED by a
+              // separate centered QR text-button row (~50dp with its
+              // gaps) — ~136dp of "быстрый вход" surface. Both are now
+              // one Wrap of compact 46dp pill chips (icon + label side
+              // by side); wraps to a second line only on very narrow
+              // devices instead of always reserving two rows.
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 10,
+                runSpacing: 10,
                 children: [
                   // Ship Q3 (2026-05-26): см. kIsWeb branch выше — кнопка
                   // показывается только когда provider configured.
@@ -1956,32 +2061,24 @@ class _AuthScreenState extends State<AuthScreen> {
                           ? null
                           : _startVkSignIn,
                     ),
+                  // The mode toggle above already switches to register, and
+                  // "Забыли?" sits inline with the password field, so the
+                  // old duplicate "Создать аккаунт / У меня уже есть вход"
+                  // and standalone "Пароль" links are gone — QR login is
+                  // just another chip in this row, login-mode only.
+                  if (_isLogin)
+                    _SocialAuthChip(
+                      label: 'QR-код',
+                      icon: Icons.qr_code_2_rounded,
+                      isLoading: false,
+                      semanticsLabel: 'Войти по QR-коду',
+                      onTap: _isLoading
+                          ? null
+                          : () => context.push('/auth/qr'),
+                    ),
                 ],
               ),
-              // The mode toggle above the form already switches to register,
-              // and "Забыли?" sits inline with the password field — so the
-              // duplicate "Создать аккаунт / У меня уже есть вход" and
-              // standalone "Пароль" links the previous layout had are gone.
-              // Keeping only the QR-login link, compact and icon-led.
-              if (_isLogin) ...[
-                const SizedBox(height: 12),
-                Center(
-                  child: TextButton.icon(
-                    onPressed:
-                        _isLoading ? null : () => context.push('/auth/qr'),
-                    icon: const Icon(Icons.qr_code_2_rounded, size: 16),
-                    label: const Text('Войти по QR'),
-                    style: TextButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               // При регистрации согласие — явный чекбокс выше; пассивная
               // строка остаётся только для входа.
               if (_isLogin)
@@ -1993,6 +2090,7 @@ class _AuthScreenState extends State<AuthScreen> {
                     'Продолжая, вы соглашаетесь с ',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodySmall?.copyWith(
+                      fontSize: 14,
                       color: secondaryTextColor,
                     ),
                   ),
@@ -2002,6 +2100,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       minimumSize: Size.zero,
                       padding: const EdgeInsets.symmetric(horizontal: 4),
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      textStyle: const TextStyle(fontSize: 14),
                     ),
                     child: const Text('Политикой'),
                   ),
@@ -2009,6 +2108,7 @@ class _AuthScreenState extends State<AuthScreen> {
                     ' и ',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodySmall?.copyWith(
+                      fontSize: 14,
                       color: secondaryTextColor,
                     ),
                   ),
@@ -2018,6 +2118,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       minimumSize: Size.zero,
                       padding: const EdgeInsets.symmetric(horizontal: 4),
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      textStyle: const TextStyle(fontSize: 14),
                     ),
                     child: const Text('Условиями'),
                   ),
@@ -2025,6 +2126,7 @@ class _AuthScreenState extends State<AuthScreen> {
                     '.',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodySmall?.copyWith(
+                      fontSize: 14,
                       color: secondaryTextColor,
                     ),
                   ),
@@ -2296,23 +2398,30 @@ class _AuthHeroTreePainter extends CustomPainter {
   bool shouldRepaint(covariant _AuthHeroTreePainter oldDelegate) => false;
 }
 
-/// Round-icon-with-label-below social-auth chip used on the
-/// auth-screen "Быстрый вход" row. Replaces the old
-/// `OutlinedButton.icon` row that wrapped "Telegram" / "Google"
-/// into vertical letter columns on phone widths. 60dp circle keeps
-/// the label on a single line at any sane viewport.
+/// Horizontal icon+label pill used on the auth-screen "Быстрый вход"
+/// row. Density chunk 18: replaces the old 60dp-circle-with-label-
+/// below chip (~86dp tall, its own row) plus a separate "Войти по QR"
+/// text button below it — that pair ate ~136dp for what is now one
+/// 46dp-tall `Wrap` of these pills (icon + label side by side, single
+/// line each, so labels never break into vertical letter columns the
+/// way the pre-circle `OutlinedButton.icon` row used to).
 class _SocialAuthChip extends StatelessWidget {
   const _SocialAuthChip({
     required this.label,
     required this.icon,
     required this.isLoading,
     required this.onTap,
+    this.semanticsLabel,
   });
 
   final String label;
   final IconData icon;
   final bool isLoading;
   final VoidCallback? onTap;
+
+  /// Override for the a11y announcement when [label] alone doesn't read
+  /// naturally after "Войти через …" (e.g. QR-код → "Войти по QR-коду").
+  final String? semanticsLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -2325,54 +2434,49 @@ class _SocialAuthChip extends StatelessWidget {
     final iconColor = disabled
         ? scheme.onSurfaceVariant.withValues(alpha: 0.5)
         : scheme.onSurface;
+    final textColor = disabled
+        ? scheme.onSurfaceVariant.withValues(alpha: 0.6)
+        : scheme.onSurface;
     return Semantics(
-      label: 'Войти через $label',
+      label: semanticsLabel ?? 'Войти через $label',
       button: true,
-      child: SizedBox(
-        width: 80,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Material(
-              color: Colors.transparent,
-              shape: const CircleBorder(),
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: onTap,
-                child: Container(
-                  width: 60,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: ringColor, width: 1.2),
+      child: Material(
+        color: Colors.transparent,
+        shape: StadiumBorder(side: BorderSide(color: ringColor, width: 1.2)),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Container(
+            height: 46,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            alignment: Alignment.center,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                isLoading
+                    ? SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: scheme.primary,
+                        ),
+                      )
+                    : Icon(icon, size: 20, color: iconColor),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontSize: 13,
+                    color: textColor,
+                    fontWeight: FontWeight.w600,
                   ),
-                  alignment: Alignment.center,
-                  child: isLoading
-                      ? SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: scheme.primary,
-                          ),
-                        )
-                      : Icon(icon, size: 26, color: iconColor),
                 ),
-              ),
+              ],
             ),
-            const SizedBox(height: 6),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: disabled
-                    ? scheme.onSurfaceVariant.withValues(alpha: 0.6)
-                    : scheme.onSurface,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

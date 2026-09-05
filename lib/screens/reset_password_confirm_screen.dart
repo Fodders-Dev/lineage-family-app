@@ -135,19 +135,13 @@ class _ResetPasswordConfirmScreenState
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Container(
-                          width: 52,
-                          height: 52,
-                          decoration: BoxDecoration(
-                            color: scheme.primary.withValues(alpha: 0.14),
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          child: Icon(
-                            Icons.lock_outline_rounded,
-                            color: scheme.primary,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
+                        // Density chunk 18: dropped the 52dp icon box —
+                        // AppBar already carries a title ("Новый пароль")
+                        // above, so this in-card headline is the only
+                        // place that needs to spell out the actual step
+                        // ("Установите новый пароль" — kept, tested); no
+                        // reason to also reserve 68dp for an icon nobody
+                        // reads.
                         Text(
                           'Установите новый пароль',
                           style: theme.textTheme.headlineSmall?.copyWith(
@@ -158,10 +152,11 @@ class _ResetPasswordConfirmScreenState
                         Text(
                           'Минимум 8 символов. После сохранения мы выйдем со всех ваших устройств — войдите заново с новым паролем.',
                           style: theme.textTheme.bodyMedium?.copyWith(
+                            fontSize: 14,
                             color: scheme.onSurfaceVariant,
                           ),
                         ),
-                        const SizedBox(height: 18),
+                        const SizedBox(height: 14),
                         TextFormField(
                           controller: _passwordController,
                           obscureText: _isObscured,
@@ -200,7 +195,7 @@ class _ResetPasswordConfirmScreenState
                             return null;
                           },
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 10),
                         TextFormField(
                           controller: _confirmPasswordController,
                           obscureText: _isObscured,
