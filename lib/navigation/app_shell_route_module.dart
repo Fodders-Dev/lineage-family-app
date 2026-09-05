@@ -86,17 +86,32 @@ class AppShellRouteModule {
             // список «Родных», сами держат свою читаемую ширину.
             final isTreeBranch = navigationShell.currentIndex == 2;
 
-            Widget bodyContent = Column(
-              children: <Widget>[
-                OfflineIndicator(),
-                // U2: ненавязчивый баннер «Доступно обновление» (sideload
-                // OTA). Молчит, если апдейтер не применим/выключен.
-                const AppUpdateBanner(),
-                // N2: first-run CTA «Включить уведомления» (web). Молчит,
-                // если permission уже решён/закрыт/неприменимо.
-                const NotificationPermissionBanner(),
-                Expanded(child: navigationShell),
-              ],
+            // Инсет статус-бара — ОДИН на весь шелл: SafeArea снаружи
+            // колонки, а экраны вкладок внутри видят padding.top = 0
+            // (SafeArea снимает его для потомков). Раньше каждая плашка
+            // (офлайн/обновление/уведомления) брала свой инсет через
+            // собственный SafeArea, а топбар вкладки — ещё раз свой: между
+            // плашкой и топбаром оставалась «дырка» в высоту статус-бара.
+            // Без плашек результат прежний; SafeArea внутри плашек
+            // остаются для их автономных мест (экран входа, чат) и здесь
+            // становятся no-op.
+            Widget bodyContent = SafeArea(
+              top: true,
+              bottom: false,
+              left: false,
+              right: false,
+              child: Column(
+                children: <Widget>[
+                  OfflineIndicator(),
+                  // U2: ненавязчивый баннер «Доступно обновление» (sideload
+                  // OTA). Молчит, если апдейтер не применим/выключен.
+                  const AppUpdateBanner(),
+                  // N2: CTA «Включить уведомления» (web и Android без
+                  // разрешения). Молчит, если permission уже решён/закрыт.
+                  const NotificationPermissionBanner(),
+                  Expanded(child: navigationShell),
+                ],
+              ),
             );
 
             if (isDesktop) {
