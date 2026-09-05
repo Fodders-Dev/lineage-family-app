@@ -326,54 +326,56 @@ extension _TreeViewScreenSections on _TreeViewScreenState {
     )}';
     final label = collapsed ? '$peopleLabel · подробнее' : 'Свернуть';
 
+    // Плотность, чанк 16 (05.09.2026): грип и подпись раньше стояли друг
+    // над другом в Column (паддинг 16/6 + грип 3 + зазор 5 + строка ~18 =
+    // ~36dp). Один Row с тем же грипом инлайн перед текстом даёт тот же
+    // «потяни за деталями» жест за ~28dp — паддинг ужат до 4, все ключи и
+    // текст (включая « · подробнее» — на нём завязан tree_view_screen_test)
+    // не менялись.
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.only(top: 6),
       child: Center(
         child: Material(
           color: tokens.surfaceStrong.withValues(alpha: 0.94),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           child: InkWell(
             key: const Key('tree-chrome-handle'),
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(14),
             onTap: () {
               _updateSectionState(() {
                 _compactChromeCollapsed = !_compactChromeCollapsed;
               });
             },
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              child: Column(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+              child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Грип-полоска — узнаваемый «потяни меня» нижнего листа.
+                  // Грип-полоска — узнаваемый «потяни меня» нижнего листа,
+                  // теперь инлайн слева от подписи вместо отдельной строки.
                   Container(
-                    width: 30,
+                    width: 16,
                     height: 3,
                     decoration: BoxDecoration(
                       color: tokens.inkMuted.withValues(alpha: 0.5),
                       borderRadius: BorderRadius.circular(999),
                     ),
                   ),
-                  const SizedBox(height: 5),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        label,
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: tokens.inkSecondary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(
-                        collapsed
-                            ? Icons.expand_more_rounded
-                            : Icons.expand_less_rounded,
-                        size: 16,
-                        color: tokens.inkSecondary,
-                      ),
-                    ],
+                  const SizedBox(width: 7),
+                  Text(
+                    label,
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: tokens.inkSecondary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    collapsed
+                        ? Icons.expand_more_rounded
+                        : Icons.expand_less_rounded,
+                    size: 16,
+                    color: tokens.inkSecondary,
                   ),
                 ],
               ),
@@ -402,15 +404,22 @@ extension _TreeViewScreenSections on _TreeViewScreenState {
     // панели. Единственный дом теперь — hero-панель, которая раскрывается
     // по тапу (handle снизу / название дерева). Тулбар несёт только
     // контекст: чип-фильтр ветки + бейдж семьи.
-
+    //
+    // Плотность, чанк 16 (05.09.2026): на телефоне эта карточка читалась
+    // как «переключатель Всё дерево / Моё дерево» — фильтр-чип («Всё
+    // дерево») + бейдж семьи (легаси-подпись «Моё дерево») рядом, в рамке
+    // GlassPanel, при этом у самого чипа ЕЩЁ рамка — рамка в рамке, и
+    // ~54dp по факту. На компакте убираем внешнюю рамку (граница чипа
+    // остаётся — она несёт смысл: подсвечивает фокус на ветке) и режем
+    // вертикальные паддинги; десктоп (compact:false) не трогаем.
     return GlassPanel(
       padding: EdgeInsets.symmetric(
         horizontal: compact ? 8 : 10,
-        vertical: compact ? 7 : 8,
+        vertical: compact ? 3 : 8,
       ),
-      borderRadius: BorderRadius.circular(tokens.radiusLg),
+      borderRadius: BorderRadius.circular(compact ? 14 : tokens.radiusLg),
       color: tokens.surfaceStrong.withValues(alpha: 0.9),
-      borderColor: tokens.surfaceLine,
+      borderColor: compact ? Colors.transparent : tokens.surfaceLine,
       child: Row(
         children: [
           // Bug fix (S20 FE: body toolbar overflowed past the trailing
@@ -560,9 +569,12 @@ extension _TreeViewScreenSections on _TreeViewScreenState {
           onTap: hasBranchFocus ? _resetBranchFocus : null,
           child: Container(
             constraints: BoxConstraints(maxWidth: compact ? 128 : 220),
+            // Плотность, чанк 16: вертикальный паддинг на телефоне 8 → 3 —
+            // карточка-тулбар вокруг больше не тянет ~54dp на один
+            // информационный чип. Десктоп (compact:false) не трогаем.
             padding: EdgeInsets.symmetric(
               horizontal: compact ? 10 : 12,
-              vertical: compact ? 8 : 9,
+              vertical: compact ? 3 : 9,
             ),
             decoration: BoxDecoration(
               borderRadius: tokens.chipRadius,
@@ -1492,13 +1504,21 @@ extension _TreeViewScreenSections on _TreeViewScreenState {
               // UX-T1 FR3: на телефоне резерв отражает РЕАЛЬНУЮ высоту
               // хрома над канвасом. По умолчанию контекст-колонка свёрнута
               // (_compactChromeCollapsed=true) → над канвасом только
-              // плавающий тулбар (~120 c отступом), а не устаревшие 290
-              // (они зарезервированы под раскрытую колонку). Это и есть
+              // плавающий тулбар + handle, а не устаревшие 290 (они
+              // зарезервированы под раскрытую колонку). Это и есть
               // canvas-first: дерево фитится в >=85% высоты. При раскрытии
               // колонки резерв снова ~290. Десктоп (>=1180) — 96, не трогаем.
+              //
+              // Плотность, чанк 16 (05.09.2026): тулбар-карточка (чип
+              // ветки + бейдж семьи) и handle стали компактнее (замер
+              // widget-тестом: 8 отступ + 36 тулбар + 6 отступ + 24 handle
+              // = 74dp факт) — держать резерв 120 значило бы отдавать
+              // канвасу ту же площадь, что и до ужатия хрома, сводя чанк
+              // на нет. 90 = факт + запас ~16dp под масштаб шрифта/другие
+              // плотности экрана.
               viewportReservedTop: MediaQuery.of(context).size.width >= 1180
                   ? 96
-                  : (_compactChromeCollapsed ? 120 : 290),
+                  : (_compactChromeCollapsed ? 90 : 290),
               viewportReservedBottom: 120,
               // Edit actions live in the bottom sheet now — suppress
               // the floating inline panel so we don't have two action

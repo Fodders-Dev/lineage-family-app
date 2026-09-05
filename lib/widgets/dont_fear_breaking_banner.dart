@@ -75,15 +75,15 @@ class _DontFearBreakingBannerState extends State<DontFearBreakingBanner> {
           ),
         ),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 2, 4),
+          padding: const EdgeInsets.fromLTRB(12, 3, 4, 3),
           child: Row(
             children: [
               Icon(
                 Icons.shield_outlined,
-                size: 18,
+                size: 16,
                 color: theme.colorScheme.primary,
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   'Не бойся сломать — каждое действие можно отменить.',
@@ -96,16 +96,31 @@ class _DontFearBreakingBannerState extends State<DontFearBreakingBanner> {
                   ),
                 ),
               ),
-              IconButton(
-                key: const Key('dont-fear-breaking-banner-dismiss'),
-                tooltip: 'Скрыть',
-                visualDensity: VisualDensity.compact,
-                icon: Icon(
-                  Icons.close_rounded,
-                  size: 18,
-                  color: tokens.inkSecondary,
+              // Плотность, чанк 16 (05.09.2026): IconButton навязывает
+              // платформенный минимум тап-таргета 48dp даже с
+              // VisualDensity.compact — из-за него баннер был ~48dp вместо
+              // заявленных «~40». Второстепенный дисмисс не обязан тянуть
+              // топбарные 44-48dp (там это ключевые действия) — свой
+              // компактный InkWell на ~26dp, тот же ключ/поведение/tooltip.
+              Tooltip(
+                message: 'Скрыть',
+                child: Material(
+                  color: Colors.transparent,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    key: const Key('dont-fear-breaking-banner-dismiss'),
+                    customBorder: const CircleBorder(),
+                    onTap: _dismiss,
+                    child: Padding(
+                      padding: const EdgeInsets.all(5),
+                      child: Icon(
+                        Icons.close_rounded,
+                        size: 16,
+                        color: tokens.inkSecondary,
+                      ),
+                    ),
+                  ),
                 ),
-                onPressed: _dismiss,
               ),
             ],
           ),

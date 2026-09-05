@@ -33,6 +33,7 @@ import '../widgets/extended_network_search_sheet.dart';
 import '../widgets/empty_tree_guided_cta.dart';
 import '../widgets/relation_picker_sheet.dart';
 import '../widgets/extended_network_toggle.dart';
+import '../widgets/branch_switcher_chip.dart';
 import '../widgets/semya_context_badge.dart';
 import '../widgets/foreign_node_sheet.dart';
 import '../widgets/interactive_family_tree.dart';
@@ -949,9 +950,6 @@ class _TreeViewScreenState extends State<TreeViewScreen>
     final treeProvider = Provider.of<TreeProvider>(context);
     final selectedTreeId = treeProvider.selectedTreeId ?? widget.routeTreeId;
     _publishTreeE2EState(selectedTreeId);
-    final selectedTreeName = treeProvider.selectedTreeName ??
-        widget.routeTreeName ??
-        'Семейное дерево';
 
     final theme = Theme.of(context);
     final tokens = theme.extension<RodnyaDesignTokens>() ??
@@ -1020,7 +1018,6 @@ class _TreeViewScreenState extends State<TreeViewScreen>
           theme: theme,
           tokens: tokens,
           selectedTreeId: selectedTreeId,
-          treeName: selectedTreeName,
         ),
       ),
       body: SafeArea(
@@ -1130,7 +1127,6 @@ class _TreeViewScreenState extends State<TreeViewScreen>
     required ThemeData theme,
     required RodnyaDesignTokens tokens,
     required String? selectedTreeId,
-    String? treeName,
   }) {
     // Same Android perf bypass as the other topbars — TreeView is
     // the most expensive screen anyway (canvas physics + many node
@@ -1159,20 +1155,27 @@ class _TreeViewScreenState extends State<TreeViewScreen>
         child: SizedBox(
           height: AppTheme.topbarContentHeight,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(8, 3, 12, 3),
+            // Левый отступ 14 (был 8 — под иконку «выбрать дерево», которую
+            // убрали) — совпадает с /family, /chats: те же 14 слева, чтобы
+            // ряд заголовок+чип не прыгал при переключении вкладок таб-бара.
+            padding: const EdgeInsets.fromLTRB(14, 3, 12, 3),
             child: Row(
               children: [
-                // Дерево — корень своей вкладки: возвращаться отсюда некуда,
-                // поэтому слева не «назад», а честный вход в выбор дерева.
-                // Слово «Дерево» в заголовке не дублируем — его несёт
-                // подсвеченная вкладка бара, идентичность — пилюля с именем.
-                IconButton(
-                  key: const Key('tree-topbar-select-tree'),
-                  icon: Icon(Icons.account_tree_outlined, color: tokens.ink),
-                  tooltip: 'Выбрать дерево',
-                  onPressed: () => context.go('/trees'),
-                ),
-                if (!isPhone)
+                // Плотность, чанк 16 (05.09.2026): раньше здесь жили ДВЕ
+                // самостоятельные реализации «дерево» — своя нередактируемая
+                // пилюля с именем + отдельная иконка слева «выбрать дерево»
+                // (context.go('/trees')). Обе делали, по сути, одно и то же
+                // (сменить/выбрать ветку), только пилюля — только смотреть,
+                // а иконка — уходом с экрана. Унифицируем с остальными
+                // вкладками (Родные/Чаты/Главная): один BranchSwitcherChip,
+                // тап открывает шторку со списком веток + «Создать/управлять
+                // ветками» (тот же /trees) — отдельная иконка больше не
+                // нужна, функция осталась в одном месте.
+                //
+                // Иконка «дерево» справа (ExtendedNetworkToggle, компакт)
+                // — НЕ дубль: переключает режим «Моё дерево / расширенная
+                // сеть», отдельная функция, оставлена как есть.
+                if (!isPhone) ...[
                   Text(
                     _isFriendsTree ? 'Круг' : 'Дерево',
                     style: AppTheme.serif(
@@ -1184,43 +1187,10 @@ class _TreeViewScreenState extends State<TreeViewScreen>
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                if (treeName != null && treeName.isNotEmpty) ...[
                   const SizedBox(width: 8),
-                  Expanded(
-                    // UX-T1.2 FR-a: на телефоне тап по названию дерева тоже
-                    // раскрывает/сворачивает панель статов (наряду с handle) —
-                    // «тап по названию разворачивает». На десктопе панель —
-                    // постоянный сайдбар, поэтому тап не вешаем.
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: isPhone
-                          ? () => _updateSectionState(() {
-                                _compactChromeCollapsed =
-                                    !_compactChromeCollapsed;
-                              })
-                          : null,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: tokens.accentSoft,
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          treeName,
-                          style: AppTheme.sans(
-                            color: tokens.accent,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-                  ),
-                ] else
-                  const Spacer(),
+                ],
+                const Flexible(child: BranchSwitcherChip()),
+                const Spacer(),
                 // Bug fix (S20 FE: RenderFlex overflowed by 191px on a
                 // narrow phone). The trailing action controls now live
                 // in a horizontal scroll view, so the topbar never

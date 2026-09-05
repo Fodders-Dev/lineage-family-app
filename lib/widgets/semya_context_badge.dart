@@ -47,8 +47,12 @@ class SemyaContextBadge extends StatelessWidget {
         key: const Key('semya-context-badge'),
         onTap: onTap,
         borderRadius: BorderRadius.circular(20),
+        // Плотность, чанк 16 (05.09.2026): бейдж живёт в компактной
+        // тулбар-карточке дерева рядом с фильтр-чипом «Всё дерево» — общая
+        // высота карточки была ~54dp. Паддинг ужат 6 → 2 (иконка/шрифт те
+        // же — тексты и семантика теста semya_context_badge_test не трогаем).
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
