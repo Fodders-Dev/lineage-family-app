@@ -2211,22 +2211,22 @@ extension _TreeViewScreenSections on _TreeViewScreenState {
 
     return Center(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(16),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
           child: GlassPanel(
-            padding: const EdgeInsets.all(24),
-            borderRadius: BorderRadius.circular(30),
+            padding: const EdgeInsets.all(20),
+            borderRadius: BorderRadius.circular(26),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (showProgress)
                   const Padding(
-                    padding: EdgeInsets.only(bottom: 20),
+                    padding: EdgeInsets.only(bottom: 14),
                     child: CircularProgressIndicator(),
                   )
                 else
-                  Icon(icon, size: 56, color: theme.colorScheme.primary),
+                  Icon(icon, size: 48, color: theme.colorScheme.primary),
                 Text(
                   title,
                   textAlign: TextAlign.center,
@@ -2234,7 +2234,7 @@ extension _TreeViewScreenSections on _TreeViewScreenState {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 Text(
                   message,
                   textAlign: TextAlign.center,
@@ -2243,7 +2243,7 @@ extension _TreeViewScreenSections on _TreeViewScreenState {
                   ),
                 ),
                 if (actions.isNotEmpty) ...[
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
                   Wrap(
                     alignment: WrapAlignment.center,
                     spacing: 10,

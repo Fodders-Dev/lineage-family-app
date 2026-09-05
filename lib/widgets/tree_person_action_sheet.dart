@@ -147,7 +147,7 @@ class TreePersonActionSheet extends StatelessWidget {
 
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -190,12 +190,12 @@ class TreePersonActionSheet extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             Container(
               height: 0.6,
               color: tokens.surfaceLine.withValues(alpha: 0.6),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             _ActionTile(
               key: const Key('tree-action-open-profile'),
               icon: Icons.account_circle_outlined,
@@ -298,17 +298,35 @@ class _ActionTile extends StatelessWidget {
     final theme = Theme.of(context);
     final color =
         isDestructive ? theme.colorScheme.error : theme.colorScheme.onSurface;
-    return ListTile(
-      leading: Icon(icon, color: color),
-      title: Text(
-        label,
-        style: theme.textTheme.bodyLarge?.copyWith(
-          color: color,
-          fontWeight: isDestructive ? FontWeight.w700 : FontWeight.w500,
+    // Telegram-style dense context-menu row (~44dp — touch-target floor),
+    // не Material-дефолт ListTile (56dp). Лист может нести до 7 пунктов
+    // разом (профиль/история/скрыть/редактировать/родитель/связать/
+    // удалить) — на дефолтной высоте это почти пол-экрана только под меню.
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 11),
+          child: Row(
+            children: [
+              Icon(icon, size: 22, color: color),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Text(
+                  label,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: color,
+                    fontWeight:
+                        isDestructive ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
     );
   }
 }

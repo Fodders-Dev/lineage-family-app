@@ -77,87 +77,105 @@ class EmptyTreeGuidedCta extends StatelessWidget {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
           child: Padding(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               mainAxisSize: MainAxisSize.min,
               children: [
-              Icon(
-                Icons.account_tree_rounded,
-                size: 64,
-                color: theme.colorScheme.primary.withValues(alpha: 0.85),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                hasSelfPerson
-                    ? 'Добавь близких'
-                    : 'Начни своё семейное дерево',
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
+                Icon(
+                  Icons.account_tree_rounded,
+                  size: 52,
+                  color: theme.colorScheme.primary.withValues(alpha: 0.85),
                 ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                hasSelfPerson
-                    ? 'Сохрани историю семьи — добавь родителей, '
-                        'детей или партнёра.'
-                    : 'Добавь родственников, чтобы сохранить '
-                        'историю семьи.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+                const SizedBox(height: 14),
+                Text(
+                  hasSelfPerson
+                      ? 'Добавь близких'
+                      : 'Начни своё семейное дерево',
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                  textAlign: TextAlign.center,
                 ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              _PrimaryCtaButton(
-                key: const Key('empty-tree-cta-mama'),
-                icon: Icons.face_3_outlined,
-                label: 'Добавить маму',
-                onPressed: () => onAddRelative(
-                  RelationType.parent,
-                  Gender.female,
+                const SizedBox(height: 6),
+                Text(
+                  hasSelfPerson
+                      ? 'Сохрани историю семьи — добавь родителей, '
+                          'детей или партнёра.'
+                      : 'Добавь родственников, чтобы сохранить '
+                          'историю семьи.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
                 ),
-              ),
-              const SizedBox(height: 10),
-              _PrimaryCtaButton(
-                key: const Key('empty-tree-cta-papa'),
-                icon: Icons.face_outlined,
-                label: 'Добавить папу',
-                onPressed: () => onAddRelative(
-                  RelationType.parent,
-                  Gender.male,
+                const SizedBox(height: 20),
+                // Четыре CTA — раньше кнопки во всю ширину столбиком (52dp
+                // каждая + отступы ≈ 240dp), теперь один ряд плиток (как
+                // «Спросить историю» на карточке человека, чанк 7): те же
+                // подписи и ключи, ≈80dp вместо ≈240dp.
+                IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: _GuidedCtaTile(
+                          key: const Key('empty-tree-cta-mama'),
+                          icon: Icons.face_3_outlined,
+                          label: 'Добавить маму',
+                          onPressed: () => onAddRelative(
+                            RelationType.parent,
+                            Gender.female,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _GuidedCtaTile(
+                          key: const Key('empty-tree-cta-papa'),
+                          icon: Icons.face_outlined,
+                          label: 'Добавить папу',
+                          onPressed: () => onAddRelative(
+                            RelationType.parent,
+                            Gender.male,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _GuidedCtaTile(
+                          key: const Key('empty-tree-cta-child'),
+                          icon: Icons.child_care_outlined,
+                          label: 'Добавить ребёнка',
+                          onPressed: () =>
+                              onAddRelative(RelationType.child, null),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _GuidedCtaTile(
+                          key: const Key('empty-tree-cta-partner'),
+                          icon: Icons.favorite_outline_rounded,
+                          label: 'Добавить партнёра',
+                          onPressed: () =>
+                              onAddRelative(RelationType.spouse, null),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              _PrimaryCtaButton(
-                key: const Key('empty-tree-cta-child'),
-                icon: Icons.child_care_outlined,
-                label: 'Добавить ребёнка',
-                onPressed: () =>
-                    onAddRelative(RelationType.child, null),
-              ),
-              const SizedBox(height: 10),
-              _PrimaryCtaButton(
-                key: const Key('empty-tree-cta-partner'),
-                icon: Icons.favorite_outline_rounded,
-                label: 'Добавить партнёра',
-                onPressed: () =>
-                    onAddRelative(RelationType.spouse, null),
-              ),
-              const SizedBox(height: 16),
-              TextButton.icon(
-                key: const Key('empty-tree-cta-other'),
-                icon: const Icon(Icons.person_add_alt_1_outlined),
-                label: const Text('Другой родственник'),
-                onPressed: onAddOther,
-              ),
-              const SizedBox(height: 12),
-            ],
+                const SizedBox(height: 12),
+                TextButton.icon(
+                  key: const Key('empty-tree-cta-other'),
+                  icon: const Icon(Icons.person_add_alt_1_outlined),
+                  label: const Text('Другой родственник'),
+                  onPressed: onAddOther,
+                ),
+              ],
+            ),
           ),
         ),
       ),
-    ),
     );
 
     final dismiss = onDismiss;
@@ -185,8 +203,12 @@ class EmptyTreeGuidedCta extends StatelessWidget {
   }
 }
 
-class _PrimaryCtaButton extends StatelessWidget {
-  const _PrimaryCtaButton({
+/// Компактная плитка ряда CTA (иконка сверху, подпись в 2 строки снизу) —
+/// тот же язык, что и у ряда действий карточки человека (профиль,
+/// «Спросить историю» и др.), только локальная копия: этот файл не имеет
+/// доступа к приватному классу профиля (другая library-часть).
+class _GuidedCtaTile extends StatelessWidget {
+  const _GuidedCtaTile({
     super.key,
     required this.icon,
     required this.label,
@@ -199,14 +221,33 @@ class _PrimaryCtaButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FilledButton.tonalIcon(
-      onPressed: onPressed,
-      icon: Icon(icon),
-      label: Text(label, style: const TextStyle(fontSize: 16)),
-      style: FilledButton.styleFrom(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
-        alignment: Alignment.centerLeft,
-        minimumSize: const Size.fromHeight(52),
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.6),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 22, color: theme.colorScheme.primary),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  height: 1.15,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -222,17 +263,17 @@ class _ViewerEmptyState extends StatelessWidget {
     final theme = Theme.of(context);
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(20),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               Icons.account_tree_outlined,
-              size: 56,
+              size: 48,
               color: theme.colorScheme.onSurfaceVariant,
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
             Text(
               'Здесь пока никого нет',
               style: theme.textTheme.titleMedium?.copyWith(
