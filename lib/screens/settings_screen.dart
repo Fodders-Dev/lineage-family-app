@@ -1438,8 +1438,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildAndroidDownloadRow() {
     if (_latestAndroidApkLoading) {
       return const ListTile(
-        dense: true,
-        visualDensity: VisualDensity.compact,
+        // Плотность −1 без dense: ~52dp и 16sp — планка для аудитории 50+.
+        visualDensity: VisualDensity(vertical: -1),
         contentPadding: EdgeInsets.symmetric(horizontal: 4),
         leading: SizedBox(
           width: 24,
@@ -1580,8 +1580,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }) {
     final theme = Theme.of(context);
     return ListTile(
-      dense: true,
-      visualDensity: VisualDensity.compact,
+      // Плотность −1 без dense: ~52dp и 16sp — планка для аудитории 50+.
+      visualDensity: const VisualDensity(vertical: -1),
       contentPadding: const EdgeInsets.symmetric(horizontal: 4),
       enabled: enabled,
       onTap: onTap,
@@ -1740,8 +1740,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }) {
     final theme = Theme.of(context);
     return SwitchListTile(
-      dense: true,
-      visualDensity: VisualDensity.compact,
+      // Плотность −1 без dense: ~52dp и 16sp — планка для аудитории 50+.
+      visualDensity: const VisualDensity(vertical: -1),
       contentPadding: const EdgeInsets.symmetric(horizontal: 4),
       secondary: Icon(icon, color: theme.colorScheme.primary),
       title: Text(title),
@@ -1763,8 +1763,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildOneTimePurchaseRow() {
     return ListTile(
-      dense: true,
-      visualDensity: VisualDensity.compact,
+      // Плотность −1 без dense: ~52dp и 16sp — планка для аудитории 50+.
+      visualDensity: const VisualDensity(vertical: -1),
       contentPadding: const EdgeInsets.symmetric(horizontal: 4),
       leading: const Icon(Icons.shopping_cart_outlined),
       title: const Text('Тестовая покупка'),

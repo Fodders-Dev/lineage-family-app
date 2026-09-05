@@ -298,7 +298,7 @@ class _ActionTile extends StatelessWidget {
     final theme = Theme.of(context);
     final color =
         isDestructive ? theme.colorScheme.error : theme.colorScheme.onSurface;
-    // Telegram-style dense context-menu row (~44dp — touch-target floor),
+    // Telegram-style dense context-menu row (48dp: паддинг 13 + иконка 22),
     // не Material-дефолт ListTile (56dp). Лист может нести до 7 пунктов
     // разом (профиль/история/скрыть/редактировать/родитель/связать/
     // удалить) — на дефолтной высоте это почти пол-экрана только под меню.
@@ -308,7 +308,7 @@ class _ActionTile extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 11),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 13),
           child: Row(
             children: [
               Icon(icon, size: 22, color: color),
