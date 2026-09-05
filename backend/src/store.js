@@ -12408,7 +12408,12 @@ class FileStore {
   // with fresh uuids each pass — any reference held by another
   // collection would break. The helpers preserve identity.
 
-  _syncPersonToGraph(db, legacyPerson) {
+  // `index` — обязательные Map-индексы из _buildGraphSyncIndex
+  // (SPEED-9 A). Единственный caller — _syncGraphFromLegacy; индексы
+  // мутируются здесь же (push нового graphPerson/view, новый
+  // legacyPersonId в existing graphPerson), чтобы следующий person в
+  // ТОМ ЖЕ проходе увидел изменение — как видел бы живой `.find()`.
+  _syncPersonToGraph(db, legacyPerson, index) {
     if (!legacyPerson) return;
     if (!Array.isArray(db.graphPersons)) db.graphPersons = [];
     if (!Array.isArray(db.branchPersonViews)) db.branchPersonViews = [];
@@ -12423,7 +12428,7 @@ class FileStore {
       return;
     }
 
-    let graphPerson = db.graphPersons.find((g) => g.id === identityId);
+    let graphPerson = index.graphPersonsById.get(identityId);
     if (!graphPerson) {
       graphPerson = {
         id: identityId,
@@ -12455,6 +12460,10 @@ class FileStore {
         graphPerson[field] = legacyPerson[field] ?? null;
       }
       db.graphPersons.push(graphPerson);
+      index.graphPersonsById.set(graphPerson.id, graphPerson);
+      if (!index.graphPersonsByLegacyId.has(legacyPerson.id)) {
+        index.graphPersonsByLegacyId.set(legacyPerson.id, graphPerson);
+      }
     } else {
       let canonicalChanged = false;
       for (const field of GRAPH_PERSON_CANONICAL_FIELDS) {
@@ -12477,6 +12486,9 @@ class FileStore {
       }
       if (!graphPerson.legacyPersonIds.includes(legacyPerson.id)) {
         graphPerson.legacyPersonIds.push(legacyPerson.id);
+      }
+      if (!index.graphPersonsByLegacyId.has(legacyPerson.id)) {
+        index.graphPersonsByLegacyId.set(legacyPerson.id, graphPerson);
       }
       if (!graphPerson.userId && legacyPerson.userId) {
         graphPerson.userId = legacyPerson.userId;
@@ -12502,10 +12514,8 @@ class FileStore {
     }
 
     // Per-(branch, person) editorial slot.
-    let view = db.branchPersonViews.find(
-      (v) =>
-        v.branchId === legacyPerson.treeId && v.personId === graphPerson.id,
-    );
+    const viewKey = `${legacyPerson.treeId} ${graphPerson.id}`;
+    let view = index.branchPersonViewByKey.get(viewKey);
     if (!view) {
       view = {
         id: crypto.randomUUID(),
@@ -12522,6 +12532,7 @@ class FileStore {
         updatedAt: legacyPerson.updatedAt,
       };
       db.branchPersonViews.push(view);
+      index.branchPersonViewByKey.set(viewKey, view);
     } else {
       view.notes = legacyPerson.notes ?? null;
       view.familySummary = legacyPerson.familySummary ?? null;
@@ -12536,7 +12547,7 @@ class FileStore {
     // (blood-from-me, ancestors-of, etc.); for now every legacy
     // tree just becomes a manual-list branch and the rule grows
     // as people get added to the tree.
-    const branch = db.branches.find((b) => b.id === legacyPerson.treeId);
+    const branch = index.branchById.get(legacyPerson.treeId);
     if (branch) {
       if (
         !branch.includeRules ||
@@ -12683,11 +12694,12 @@ class FileStore {
     }
   }
 
-  _resolveGraphPersonIdForLegacy(db, legacyPersonId) {
+  // `index` — обязательные Map-индексы из _buildGraphSyncIndex
+  // (SPEED-9 A). personsById/graphPersonsByLegacyId заменяют два
+  // прежних .find() по db.persons/db.graphPersons.
+  _resolveGraphPersonIdForLegacy(db, legacyPersonId, index) {
     if (!legacyPersonId) return null;
-    const legacyPerson = (db.persons || []).find(
-      (p) => p.id === legacyPersonId,
-    );
+    const legacyPerson = index.personsById.get(legacyPersonId);
     if (legacyPerson) {
       const identityId = normalizeNullableString(legacyPerson.identityId);
       if (identityId) return identityId;
@@ -12695,39 +12707,36 @@ class FileStore {
     // Person already deleted — fall back to a stale lookup through
     // existing graph rows so callers still operating on a relation
     // mid-cleanup don't get null.
-    const fromGraph = (db.graphPersons || []).find((g) =>
-      Array.isArray(g.legacyPersonIds) &&
-      g.legacyPersonIds.includes(legacyPersonId),
-    );
+    const fromGraph = index.graphPersonsByLegacyId.get(legacyPersonId);
     return fromGraph ? fromGraph.id : null;
   }
 
-  _syncRelationToGraph(db, legacyRelation) {
+  _syncRelationToGraph(db, legacyRelation, index) {
     if (!legacyRelation) return;
     if (!Array.isArray(db.graphRelations)) db.graphRelations = [];
     const p1g = this._resolveGraphPersonIdForLegacy(
       db,
       legacyRelation.person1Id,
+      index,
     );
     const p2g = this._resolveGraphPersonIdForLegacy(
       db,
       legacyRelation.person2Id,
+      index,
     );
     if (!p1g || !p2g) return;
 
     const dedupKey = buildGraphRelationDedupKey(p1g, p2g, legacyRelation);
-    let graphRelation = db.graphRelations.find((entry) => {
-      if (
-        Array.isArray(entry.legacyRelationIds) &&
-        entry.legacyRelationIds.includes(legacyRelation.id)
-      ) {
-        return true;
-      }
-      return (
-        buildGraphRelationDedupKey(entry.person1Id, entry.person2Id, entry) ===
-        dedupKey
-      );
-    });
+    // Тот же приоритет, что и у прежнего .find(): точное совпадение
+    // по legacyRelationId — раньше, дедуп по ключу — fallback (для
+    // валидных данных, которые эти же функции и поддерживают,
+    // legacyRelationId принадлежит не более чем одному graphRelation
+    // и dedup-ключ не более чем одному graphRelation — коллизия
+    // порядка между двумя РАЗНЫМИ записями не возникает).
+    let graphRelation = index.graphRelationsByLegacyId.get(legacyRelation.id);
+    if (!graphRelation) {
+      graphRelation = index.graphRelationsByDedupKey.get(dedupKey);
+    }
 
     const nowTs = nowIso();
     if (!graphRelation) {
@@ -12762,8 +12771,21 @@ class FileStore {
         legacyTreeIds: legacyRelation.treeId ? [legacyRelation.treeId] : [],
       };
       db.graphRelations.push(graphRelation);
+      index.graphRelationsByLegacyId.set(legacyRelation.id, graphRelation);
+      index.graphRelationsByDedupKey.set(dedupKey, graphRelation);
       return;
     }
+
+    // relation1to2/relation2to1 входят в dedup-ключ и МОГУТ меняться
+    // ниже — если тип связи поменялся, следующая relation в этом же
+    // проходе, которая должна была бы задедуплицироваться в эту же
+    // graphRelation, обязана найти её по НОВОМУ ключу (раньше .find()
+    // просто пересчитывал ключ заново на каждый вызов).
+    const previousDedupKey = buildGraphRelationDedupKey(
+      graphRelation.person1Id,
+      graphRelation.person2Id,
+      graphRelation,
+    );
 
     graphRelation.relation1to2 = legacyRelation.relation1to2;
     graphRelation.relation2to1 = legacyRelation.relation2to1;
@@ -12801,6 +12823,23 @@ class FileStore {
       graphRelation.legacyTreeIds.push(legacyRelation.treeId);
     }
     graphRelation.version = (graphRelation.version || 0) + 1;
+
+    // Индекс — на случай, если legacyRelation.id раньше указывал на
+    // dedup-путь (не был в graphRelationsByLegacyId), и на случай,
+    // если relation1to2/relation2to1 поменялись и dedup-ключ сдвинулся.
+    index.graphRelationsByLegacyId.set(legacyRelation.id, graphRelation);
+    const updatedDedupKey = buildGraphRelationDedupKey(
+      graphRelation.person1Id,
+      graphRelation.person2Id,
+      graphRelation,
+    );
+    if (
+      updatedDedupKey !== previousDedupKey &&
+      index.graphRelationsByDedupKey.get(previousDedupKey) === graphRelation
+    ) {
+      index.graphRelationsByDedupKey.delete(previousDedupKey);
+    }
+    index.graphRelationsByDedupKey.set(updatedDedupKey, graphRelation);
   }
 
   // ── Phase 4: Find Blood Relation (BFS over the unified graph) ──────
@@ -14147,6 +14186,91 @@ class FileStore {
     return applyCanonicalProfileToPerson(personView, user.profile);
   }
 
+  // SPEED-9 A: строит все индексы ОДИН раз на весь проход
+  // `_syncGraphFromLegacy`, вместо того чтобы `_syncPersonToGraph`/
+  // `_syncRelationToGraph`/`_resolveGraphPersonIdForLegacy` делали
+  // линейный `.find()` по db.graphPersons/db.branchPersonViews/
+  // db.branches/db.persons/db.graphRelations на КАЖДОГО person и
+  // КАЖДУЮ relation (было O(persons×graphPersons +
+  // relations×(graphRelations+persons)) ≈ O(N²) над ГЛОБАЛЬНЫМИ
+  // коллекциями — измерено docs/speed_measurement.md SPEED-9: 136 мс
+  // при 1240 persons, 560 мс при 2480).
+  //
+  // Карты МУТИРУЮТСЯ теми же helper'ами по ходу прохода (push нового
+  // graphPerson/view/graphRelation, обновление dedup-ключа при смене
+  // типа отношения) — это обязательно, чтобы воспроизвести поведение
+  // живого `.find()` по массиву: он видел бы изменения, сделанные
+  // РАНЕЕ в этом же проходе (пример — тест "collapses identity-
+  // linked legacy persons across two trees onto one graphPerson":
+  // второй person с тем же identityId должен найти graphPerson,
+  // созданный первым в ЭТОМ ЖЕ вызове _syncGraphFromLegacy).
+  //
+  // Вызывается ПОСЛЕ цикла _syncTreeToBranch (тот может создавать
+  // новые db.branches) и ДО циклов по persons/relations — иначе
+  // branchById не увидел бы свежесозданные branch-строки.
+  _buildGraphSyncIndex(db) {
+    const graphPersonsById = new Map();
+    const graphPersonsByLegacyId = new Map();
+    for (const graphPerson of db.graphPersons) {
+      graphPersonsById.set(graphPerson.id, graphPerson);
+      if (Array.isArray(graphPerson.legacyPersonIds)) {
+        for (const legacyId of graphPerson.legacyPersonIds) {
+          // Первое совпадение по порядку массива — как и вернул бы
+          // .find(); при корректных (не повреждённых) данных
+          // legacyPersonId принадлежит не более чем одному graphPerson.
+          if (!graphPersonsByLegacyId.has(legacyId)) {
+            graphPersonsByLegacyId.set(legacyId, graphPerson);
+          }
+        }
+      }
+    }
+
+    const branchPersonViewByKey = new Map();
+    for (const view of db.branchPersonViews) {
+      branchPersonViewByKey.set(`${view.branchId} ${view.personId}`, view);
+    }
+
+    const branchById = new Map();
+    for (const branch of db.branches) {
+      branchById.set(branch.id, branch);
+    }
+
+    const personsById = new Map();
+    for (const person of db.persons || []) {
+      personsById.set(person.id, person);
+    }
+
+    const graphRelationsByLegacyId = new Map();
+    const graphRelationsByDedupKey = new Map();
+    for (const graphRelation of db.graphRelations) {
+      if (Array.isArray(graphRelation.legacyRelationIds)) {
+        for (const legacyId of graphRelation.legacyRelationIds) {
+          if (!graphRelationsByLegacyId.has(legacyId)) {
+            graphRelationsByLegacyId.set(legacyId, graphRelation);
+          }
+        }
+      }
+      const key = buildGraphRelationDedupKey(
+        graphRelation.person1Id,
+        graphRelation.person2Id,
+        graphRelation,
+      );
+      if (!graphRelationsByDedupKey.has(key)) {
+        graphRelationsByDedupKey.set(key, graphRelation);
+      }
+    }
+
+    return {
+      graphPersonsById,
+      graphPersonsByLegacyId,
+      branchPersonViewByKey,
+      branchById,
+      personsById,
+      graphRelationsByLegacyId,
+      graphRelationsByDedupKey,
+    };
+  }
+
   // Aggregate full-scan helper. Walks the legacy collections and
   // brings the graph side into sync with whatever's currently
   // there. Idempotent — every step is a no-op when its row is
@@ -14154,9 +14278,17 @@ class FileStore {
   // _write keeps the graph eventually consistent without wiring
   // a sync into each of the 30+ write paths individually.
   //
-  // The cost is O(persons + relations + trees) per call, which on
-  // today's scale (≤100 persons per user) is sub-millisecond. The
-  // helper goes away in Phase 3.4 once we drop the legacy mirror.
+  // SPEED-9 A (05.09.2026): раньше комментарий здесь утверждал
+  // O(persons + relations + trees) — это было НЕВЕРНО: три вложенных
+  // .find()-скана без индексов внутри _syncPersonToGraph/
+  // _syncRelationToGraph/_resolveGraphPersonIdForLegacy давали
+  // фактически O(N²) (см. docs/speed_measurement.md SPEED-9, замер
+  // bench_sync_scaling.js: 1240→2480 persons даёт ×4.1 времени —
+  // учебный квадрат). _buildGraphSyncIndex выше строит Map-индексы
+  // один раз на проход, так что теперь это ДЕЙСТВИТЕЛЬНО
+  // O(persons + relations + trees). Комментарий про Phase 3.4
+  // остаётся: CURRENT-PHASE.md явно держит graph-слой (не
+  // депрекейтить), так что эта функция никуда не денется.
   _syncGraphFromLegacy(db) {
     if (!db || typeof db !== "object") return;
     if (!Array.isArray(db.graphPersons)) db.graphPersons = [];
@@ -14172,19 +14304,23 @@ class FileStore {
       this._syncTreeToBranch(db, tree);
     }
 
+    // Индексы строятся ПОСЛЕ _syncTreeToBranch (мог создать новые
+    // db.branches) и ДО persons/relations — см. _buildGraphSyncIndex.
+    const graphSyncIndex = this._buildGraphSyncIndex(db);
+
     const liveLegacyPersonIds = new Set();
     const liveIdentityIds = new Set();
     for (const person of persons) {
       liveLegacyPersonIds.add(person.id);
       const identityId = normalizeNullableString(person.identityId);
       if (identityId) liveIdentityIds.add(identityId);
-      this._syncPersonToGraph(db, person);
+      this._syncPersonToGraph(db, person, graphSyncIndex);
     }
 
     const liveRelationIds = new Set();
     for (const relation of relations) {
       liveRelationIds.add(relation.id);
-      this._syncRelationToGraph(db, relation);
+      this._syncRelationToGraph(db, relation, graphSyncIndex);
     }
 
     // Drop branchPersonViews whose legacyPersonId is gone — the

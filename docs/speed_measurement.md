@@ -340,3 +340,113 @@ FromLegacy` — см. выше, отдельная запланированна�
 идентичностью ответа, полная картина требует отдельного прод-замера после
 деплоя (`/prod-diag`, slow-request лог по этому пути) и, возможно, той же
 техники (передача `db`) в `requireTreeAccess`.
+
+## SPEED-9 (D+A) — N+1 в ленте постов + O(N²) в _syncGraphFromLegacy (05.09.2026)
+
+Анализ `docs/speed9_proposal.md` (метод SPEED-8c/8d: `node`-скрипты
+напрямую через `FileStore`, без HTTP, на копии прод-блоба ~155 persons/144
+relations/25 деревьев) нашёл две независимые находки; владелец продукта
+утвердил обе к реализации (варианты B и C из документа — прогрев кэша при
+старте — оставлены как есть/не в периметре).
+
+### D — N+1 `_read()` в `GET /v1/posts`
+
+`post-routes.js` считал `commentCount` циклом
+`Promise.all(page.map(post => store.listPostComments(post.id)))` — на
+странице из K постов это K независимых полных `_read()` блоба ПОВЕРХ 2-3
+уже нужных (`requireTreeAccess`→`findTree`, `listUserTrees`, `listPosts`).
+На PostgresStore (после SPEED-8a) каждый такой лишний `_read()` — это
+`structuredClone` всего закэшированного состояния + 2 SQL round-trip'а
+(SELECT version + SELECT всей таблицы sessions), см. §2 анализа.
+
+Фикс: `store.listPostCommentsForPosts(postIds, {db})` — один `_read()` на
+всю страницу, группирует `db.comments` по `postId` в памяти. Общий хвост
+(сортировка по `createdAt`, hydrate `authorPhotoUrl` из `db.users`,
+`attachCommentReactions`) вынесен в `hydrateAndSortPostComments` +
+`buildUsersByIdMap` и используется ОБОИМИ `listPostComments` (одиночный,
+как раньше — используется в 5 других местах post-routes.js, не тронуты) и
+`listPostCommentsForPosts` — форма каждого элемента результата побайтово
+совпадает между ними, поскольку это буквально один и тот же код, а не две
+параллельные копии.
+
+| метрика (страница из 20 постов, копия прод-блоба на FileStore, 155
+persons/144 relations, посты — синтетика 3-5 комментариев с ответами и
+реакциями) | до | после |
+|---|---|---|
+| `_read()` на запрос | 23 (K=20 + 3) | **4** (константа, не растёт с K) |
+| median времени страницы (20 итераций) | 270,64 мс | **40,96 мс** (6,6×) |
+
+Идентичность результата доказана на двух уровнях: (1) построчно —
+`listPostCommentsForPosts(postIds).get(id)` побайтово равен
+`listPostComments(id)` на том же db для каждого поста фикстуры с ответами
+и реакциями; (2) на уровне HTTP — `commentCount` в обеих формах ответа
+`GET /v1/posts` (легаси-массив без `limit` и `{posts, nextCursor}` с
+`limit`) совпадает с прямым вызовом `listPostComments` по каждому посту.
+Тесты: `backend/test/posts-n1-comments.test.js` — плюс регресс `_read()`
+не растёт при увеличении страницы с 1 до 9 постов и с `limit=3` до
+`limit=9` (сравнение внутри одной авторизованной сессии, чтобы разница не
+объяснялась прогревом auth-кэша `findSession`/`findUserById`).
+
+### A — `_syncGraphFromLegacy`: O(N²) → O(N)
+
+Комментарий в store.js утверждал «O(persons + relations + trees) per
+call, ... sub-millisecond» — это было неверно уже на момент SPEED-8d.
+`_syncPersonToGraph` делал три линейных `.find()` на КАЖДОГО person
+(`db.graphPersons`, `db.branchPersonViews`, `db.branches`);
+`_syncRelationToGraph` + `_resolveGraphPersonIdForLegacy` — `.find()` по
+`db.graphRelations` и дважды по `db.persons`/`db.graphPersons` на КАЖДУЮ
+relation. Итог — `O(persons×graphPersons + relations×(graphRelations+
+persons))` ≈ O(N²) над ГЛОБАЛЬНЫМИ коллекциями (все деревья пользователя
+блоба разом, не одно дерево), с каждым `_read()`/`_write()`.
+
+Фикс: `_buildGraphSyncIndex(db)` строит 6 `Map`-индексов ОДИН раз в начале
+прохода (`graphPersonsById`, `graphPersonsByLegacyId`,
+`branchPersonViewByKey`, `branchById`, `personsById`,
+`graphRelationsByLegacyId`+`graphRelationsByDedupKey`) и передаёт их как
+обязательный параметр `index` в `_syncPersonToGraph`/
+`_syncRelationToGraph`/`_resolveGraphPersonIdForLegacy` (единственный
+caller всех трёх — `_syncGraphFromLegacy`, других мест не было). Индексы
+МУТИРУЮТСЯ этими же helper'ами по ходу прохода (новый graphPerson/view/
+graphRelation, сдвиг dedup-ключа при смене типа отношения) — это
+воспроизводит поведение живого `.find()` по массиву, который видел бы
+изменения, сделанные РАНЕЕ в этом же вызове (иначе разошлось бы с тестом
+"collapses identity-linked legacy persons across two trees onto one
+graphPerson").
+
+| N (persons≈relations, синтетика: цепочка parent→child в одном дереве) | до, мс (steady-state median) | после, мс | ускорение |
+|---|---|---|---|
+| 155 (масштаб копии прод-блоба) | 2,54 | 0,82 | 3,1× |
+| 1240 | 140,87 | 6,75 | 20,9× |
+| 2480 | 559,97 | 24,76 | 22,6× |
+
+Рост 1240→2480 (×2 по N) теперь даёт ×3,7 времени (было ×4,1 — учебный
+квадрат) — линейность подтверждена; абсолютные цифры «до» совпадают с
+замером анализа (`bench_sync_scaling.js`: 136,42/559,69 мс) в пределах
+шума JIT/итераций.
+
+Идентичность результата доказана сравнением с ЗАМОРОЖЕННОЙ копией
+дореформенного алгоритма (`backend/test/graph-sync-speed9-index.test.js`,
+`referenceSyncGraphFromLegacy` — построчная копия старого кода) на
+фикстуре с: дублями по `identityId` на разных деревьях (схлопывание в
+один graphPerson с двумя `branchPersonViews`), create- и update-путём
+(person без graphPerson vs person с устаревшими каноническими полями),
+view, создаваемым поверх уже существующего graphPerson,
+`_resolveGraphPersonIdForLegacy` через fallback (legacy person уже
+удалён, резолвится только через `graphPerson.legacyPersonIds`), и
+намеренно — двумя relations в одном проходе, где ПЕРВАЯ меняет тип связи
+(сдвигая dedup-ключ существующей graphRelation), а ВТОРАЯ, ранее не
+привязанная, обязана задедуплицироваться в неё же по НОВОМУ ключу —
+единственный сценарий, где наивная «построил индекс один раз и забыл»
+оптимизация разошлась бы с оригиналом. Плюс существующие
+`graph-sync.test.js` (30 тестов) и `branch-include-rules.test.js` (31
+тест) остались зелёными без изменений — включая идемпотентность
+(повторный проход не плодит дублей и не меняет id).
+
+Не тронуто и почему: комментарий про Phase 3.4 (helper исчезнет после
+неё) оставлен — `docs/connected-trees-refactor/CURRENT-PHASE.md` явно
+держит graph-слой навсегда, Phase 3.4 ушла в прод как UI-фича без снятия
+легаси-зеркала; сама частота вызовов `_syncGraphFromLegacy` (Вариант B из
+анализа — реже вызывать) не менялась, только его внутренняя сложность.
+
+Тесты: `npm --prefix backend test` — **699/699**, ~19-21 с (флейков
+`api.test.js` в этих прогонах не было).
