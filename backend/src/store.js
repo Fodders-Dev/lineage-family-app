@@ -6369,6 +6369,27 @@ class FileStore {
     return run;
   }
 
+  // Test/shutdown hook: drain every mutation/persist already enqueued before
+  // the caller tears down the process/dataPath (e.g. a test deleting its
+  // tempDir). `_mutate`/`_write` are fire-and-forget from route handlers'
+  // point of view (send/push dispatch replies BEFORE the blob write lands),
+  // so a snapshot-then-await of `_mutateQueue` can miss work appended WHILE
+  // we're waiting — that's exactly what caused the Windows ENOTEMPTY flake
+  // (rm() walks a directory that gains a fresh `*.tmp` from an in-flight
+  // _write mid-delete). Loop until a full await cycle appends nothing new,
+  // i.e. the queue reference is stable — only then is the store quiescent.
+  // Purely additive: reads existing fields, calls nothing that isn't already
+  // called by normal mutation traffic, so it changes no production timing.
+  async close() {
+    let previous = null;
+    let current = this._mutateQueue;
+    while (current !== previous) {
+      previous = current;
+      await current;
+      current = this._mutateQueue;
+    }
+  }
+
   /**
    * store-race guard: enforce the invariant that a terminal call never
    * un-terminates. The whole-document store persists all of `data` on every
