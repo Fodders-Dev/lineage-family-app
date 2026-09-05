@@ -150,11 +150,24 @@ class _SessionsScreenState extends State<SessionsScreen> {
               return const SizedBox.shrink();
             }
             final sessions = result.sessions;
+            // Плотность: раньше каждая сессия была отдельной скруглённой
+            // Material-карточкой (паддинг 16 со всех сторон, radius 16)
+            // с 8dp зазором — «Заблокированные» до чанка 9b раздувались
+            // тем же паттерном. Теперь это плоский список с hairline-
+            // разделителем; шапка-подсказка остаётся единственной рамкой.
             return ListView.separated(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
               itemCount: sessions.length + 1,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              separatorBuilder: (_, index) {
+                if (index == 0) return const SizedBox(height: 12);
+                return Divider(
+                  height: 1,
+                  thickness: 0.7,
+                  indent: 60,
+                  color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
+                );
+              },
               itemBuilder: (context, index) {
                 if (index == 0) {
                   return _buildHeaderHint(theme, sessions.length);
@@ -174,48 +187,58 @@ class _SessionsScreenState extends State<SessionsScreen> {
   }
 
   Widget _buildError(ThemeData theme, Object? error) {
-    return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      children: [
-        const SizedBox(height: 64),
-        Icon(
-          Icons.cloud_off_rounded,
-          size: 48,
-          color: theme.colorScheme.onSurfaceVariant,
-        ),
-        const SizedBox(height: 16),
-        Center(
-          child: Text(
-            'Не удалось загрузить сессии',
-            style: theme.textTheme.titleMedium,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Center(
-          child: Text(
-            '$error',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+    // Было: фиксированный SizedBox(64) сверху + иконка без Center —
+    // на широких экранах прижималась к левому краю, а не к центру
+    // сообщения об ошибке. Центрируем весь блок относительно
+    // реальной высоты вьюпорта, а не магическим отступом.
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.cloud_off_rounded,
+                  size: 44,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Не удалось загрузить сессии',
+                  style: theme.textTheme.titleMedium,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '$error',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: _refresh,
+                  child: const Text('Повторить'),
+                ),
+              ],
             ),
           ),
         ),
-        const SizedBox(height: 24),
-        Center(
-          child: FilledButton(
-            onPressed: _refresh,
-            child: const Text('Повторить'),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
   Widget _buildHeaderHint(ThemeData theme, int count) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
         children: [
@@ -258,95 +281,72 @@ class _SessionTile extends StatelessWidget {
         : DateFormat('d MMM, HH:mm', 'ru').format(lastSeen);
     final platform = session.platform ?? 'unknown';
     final deviceName = session.deviceName ?? 'Безымянное устройство';
+    final platformLine = _platformLabel(platform) +
+        (session.appVersion != null ? ' • ${session.appVersion}' : '');
 
-    return Material(
-      color: theme.colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onRename,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              CircleAvatar(
-                radius: 22,
-                backgroundColor:
-                    theme.colorScheme.primaryContainer.withValues(alpha: 0.6),
-                child: Icon(
-                  _platformIcon(platform),
-                  color: theme.colorScheme.onPrimaryContainer,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            deviceName,
-                            style: theme.textTheme.titleMedium,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        if (session.isCurrent)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.primary
-                                  .withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              'этот',
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: theme.colorScheme.primary,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _platformLabel(platform) +
-                          (session.appVersion != null
-                              ? ' • ${session.appVersion}'
-                              : ''),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Активен: $lastSeenLabel',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (onRevoke != null)
-                IconButton(
-                  tooltip: 'Завершить',
-                  icon: const Icon(Icons.logout_rounded),
-                  onPressed: () {
-                    onRevoke!();
-                  },
-                ),
-            ],
-          ),
+    // Плотность: было — своя скруглённая Material-карточка (паддинг 16
+    // по кругу, radius 16) + две отдельных строки подписи ≈100dp на
+    // сессию. Теперь плоская строка списка (как «Активные устройства»
+    // в Telegram): платформа+версия и «Активен» — одной строкой.
+    return ListTile(
+      visualDensity: const VisualDensity(vertical: -1),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+      onTap: onRename,
+      leading: CircleAvatar(
+        radius: 20,
+        backgroundColor:
+            theme.colorScheme.primaryContainer.withValues(alpha: 0.6),
+        child: Icon(
+          _platformIcon(platform),
+          color: theme.colorScheme.onPrimaryContainer,
         ),
       ),
+      title: Row(
+        children: [
+          Flexible(
+            child: Text(
+              deviceName,
+              style: theme.textTheme.titleMedium,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (session.isCurrent) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                'этот',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+      subtitle: Text(
+        '$platformLine • Активен: $lastSeenLabel',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+      trailing: onRevoke == null
+          ? null
+          : IconButton(
+              tooltip: 'Завершить',
+              icon: const Icon(Icons.logout_rounded),
+              onPressed: () {
+                onRevoke!();
+              },
+            ),
     );
   }
 
