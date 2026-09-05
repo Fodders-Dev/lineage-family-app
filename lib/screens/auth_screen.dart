@@ -1667,7 +1667,7 @@ class _AuthScreenState extends State<AuthScreen> {
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 500),
       child: GlassPanel(
-        padding: EdgeInsets.all(compact ? 20 : 28),
+        padding: EdgeInsets.all(compact ? 18 : 28),
         borderRadius: BorderRadius.circular(28),
         clipBehavior: kIsWeb ? Clip.none : Clip.antiAlias,
         color: cardColor,
@@ -1872,7 +1872,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 },
               ),
               if (!_isLogin) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 // Обязательное согласие (тексты — docs/legal/SOGLASIE_PDN.md):
                 // вся строка — тап-цель чекбокса, ссылки открывают документы.
                 InkWell(
@@ -1898,13 +1898,13 @@ class _AuthScreenState extends State<AuthScreen> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Padding(
-                            padding: const EdgeInsets.only(top: 6),
+                            padding: const EdgeInsets.only(top: 4),
                             child: Text.rich(
                               TextSpan(
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   fontSize: 13,
                                   color: secondaryTextColor,
-                                  height: 1.35,
+                                  height: 1.25,
                                 ),
                                 children: [
                                   const TextSpan(text: 'Я принимаю '),
@@ -1940,7 +1940,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                 ),
               ],
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               FilledButton(
                 key: const Key('auth-submit'),
                 onPressed: _isLoading ||
