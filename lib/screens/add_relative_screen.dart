@@ -1242,7 +1242,9 @@ class _AddRelativeScreenState extends State<AddRelativeScreen> {
                         return null;
                       },
                     ),
-                    SizedBox(height: 16),
+                    // Плотность (чанк 12): ФИО — одна смысловая группа,
+                    // между полями внутри неё — 10dp, не 16 (Telegram-мерка).
+                    SizedBox(height: 10),
 
                     // Имя
                     TextFormField(
@@ -1262,7 +1264,7 @@ class _AddRelativeScreenState extends State<AddRelativeScreen> {
                         return null;
                       },
                     ),
-                    SizedBox(height: 16),
+                    SizedBox(height: 10),
 
                     // Отчество
                     TextFormField(
@@ -1275,7 +1277,7 @@ class _AddRelativeScreenState extends State<AddRelativeScreen> {
                         prefixIcon: Icon(Icons.person_outline),
                       ),
                     ),
-                    SizedBox(height: 24),
+                    SizedBox(height: 20),
 
                     // Пол
                     Text(
@@ -1314,26 +1316,26 @@ class _AddRelativeScreenState extends State<AddRelativeScreen> {
                         ),
                       ],
                     ),
-                    SizedBox(height: 24),
+                    SizedBox(height: 20),
 
                     // Виджет выбора родственной связи
                     _buildRelationshipSelector(),
-                    SizedBox(height: 24),
+                    SizedBox(height: 20),
 
                     _buildBirthDateField(),
-                    SizedBox(height: 16),
+                    SizedBox(height: 10),
 
                     // F1: дата смерти — в основном потоке рядом с датой
                     // рождения (была закопана в «Расширенно»).
                     _buildDeathDateField(),
-                    SizedBox(height: 24),
+                    SizedBox(height: 20),
 
                     _buildMediaSection(),
-                    SizedBox(height: 24),
+                    SizedBox(height: 20),
 
                     if (widget.isEditing && widget.person != null) ...[
                       _buildEditMediaAndHistoryCard(),
-                      SizedBox(height: 24),
+                      SizedBox(height: 20),
                     ],
 
                     // F1: «Из моих других деревьев» — второстепенный
@@ -1341,14 +1343,14 @@ class _AddRelativeScreenState extends State<AddRelativeScreen> {
                     // полями, свёрнута по умолчанию.
                     if (!widget.isEditing) ...[
                       _buildOtherTreesPickerCard(),
-                      SizedBox(height: 16),
+                      SizedBox(height: 12),
                     ],
 
                     if (_isAdvancedMode)
                       _buildOptionalDetailsSection()
                     else
                       _buildAdvancedHintCard(),
-                    SizedBox(height: 24),
+                    SizedBox(height: 20),
 
                     _buildSubmitSection(),
                     SizedBox(height: 32),
