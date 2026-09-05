@@ -77,13 +77,18 @@ class _AccessGrantsIncomingTabState extends State<AccessGrantsIncomingTab> {
     }
     final grants = _grants ?? const <EditGrant>[];
     if (grants.isEmpty) {
+      // Плотность: см. outgoing-таб — центрируем по реальной высоте
+      // вместо фиксированного отступа сверху.
       return RefreshIndicator(
         onRefresh: _load,
-        child: ListView(
-          children: const [
-            SizedBox(height: 80),
-            _EmptyIncomingState(),
-          ],
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: const Center(child: _EmptyIncomingState()),
+            ),
+          ),
         ),
       );
     }
@@ -159,9 +164,9 @@ class _IncomingCard extends StatelessWidget {
     final revokedGrants =
         group.grants.where((g) => g.isRevoked).toList(growable: false);
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
