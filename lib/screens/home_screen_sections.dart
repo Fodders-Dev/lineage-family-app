@@ -1307,51 +1307,52 @@ extension _HomeScreenSections on _HomeScreenState {
         borderRadius: BorderRadius.circular(16),
         plain: true,
         child: Padding(
-          // Плотность: 76 → ~56dp — одна строка, как поле ввода в чате.
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          // Плотность (чанк 19): 56 → ≤48dp. Вертикальный паддинг здесь
+          // почти номинальный — фактическую высоту строки задаёт «+»
+          // (44×44 ниже), Row центрирует аватар/текст внутри неё.
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
           child: Row(
             children: [
               Expanded(
                 child: InkWell(
                   borderRadius: BorderRadius.circular(20),
                   onTap: () => _openCreatePost(),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 32,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            gradient: tokens.accentGradient,
-                            shape: BoxShape.circle,
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            initials,
-                            style: theme.textTheme.labelLarge?.copyWith(
-                              color: tokens.accentInk,
-                              fontWeight: FontWeight.w800,
-                            ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          gradient: tokens.accentGradient,
+                          shape: BoxShape.circle,
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          initials,
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: tokens.accentInk,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            _treeProviderInstance?.selectedTreeKind ==
-                                    TreeKind.friends
-                                ? 'Поделиться с кругом...'
-                                : 'Поделиться с роднёй...',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                              fontWeight: FontWeight.w600,
-                            ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _treeProviderInstance?.selectedTreeKind ==
+                                  TreeKind.friends
+                              ? 'Поделиться с кругом...'
+                              : 'Поделиться с роднёй...',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          // bodyLarge (16sp) — плотность требует ≥16sp для
+                          // текста-контента; было bodyMedium (14sp).
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -1359,15 +1360,21 @@ extension _HomeScreenSections on _HomeScreenState {
               // One consolidated «+» entry → bottom-sheet create menu.
               // Replaces the old row of inline icons (photo · video ·
               // gathering · poll) that squeezed the teaser text once Phase E
-              // added a fourth icon.
+              // added a fourth icon. Fixed 44×44 (was the IconButton
+              // default 48×48 padded tap target) — meets the ≥44dp touch
+              // rule while letting the whole pill fit in ≤48dp.
               IconButton.filledTonal(
                 key: const Key('compose-open'),
                 tooltip: 'Создать',
                 onPressed: _openComposeMenu,
-                icon: const Icon(Icons.add_rounded),
+                icon: const Icon(Icons.add_rounded, size: 22),
                 style: IconButton.styleFrom(
                   backgroundColor: tokens.accentSoft,
                   foregroundColor: tokens.accent,
+                  minimumSize: const Size(44, 44),
+                  fixedSize: const Size(44, 44),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  padding: EdgeInsets.zero,
                 ),
               ),
             ],

@@ -1586,10 +1586,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final ordered = byAuthor.values.toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-    // Плотность (02.09.2026): рейл 88 → 76dp — кольцо 50 вместо 56,
-    // боковые поля как у остального контента (14).
+    // Плотность (05.09.2026, чанк 19): рейл 76 → 64dp — кольцо 48 вместо
+    // 50, подпись 12sp с явным height:1.0 (не даёт built-in line-height
+    // шрифта раздувать строку); боковые поля прежние (14).
     return SizedBox(
-      height: 76,
+      height: 64,
       child: ListView(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
@@ -1685,8 +1686,8 @@ class _StoryRing extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              width: 50,
-              height: 50,
+              width: 48,
+              height: 48,
               padding: const EdgeInsets.all(2.5),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
@@ -1737,7 +1738,7 @@ class _StoryRing extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 5),
+            const SizedBox(height: 4),
             SizedBox(
               width: 64,
               child: Text(
@@ -1745,10 +1746,14 @@ class _StoryRing extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
+                // Явный height:1.0 — иначе built-in line-height шрифта
+                // (обычно ~1.2-1.3×) не даёт рейлу уложиться в 64dp даже
+                // при увеличенном (было 11) кегле подписи.
                 style: AppTheme.sans(
                   color: tokens.inkSecondary,
-                  fontSize: 11,
+                  fontSize: 12,
                   fontWeight: FontWeight.w600,
+                  height: 1.0,
                 ),
               ),
             ),
