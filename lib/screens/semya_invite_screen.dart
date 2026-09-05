@@ -101,7 +101,7 @@ class _SemyaInviteScreenState extends State<SemyaInviteScreen> {
             color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         TextField(
           key: const Key('semya-invite-email'),
           controller: _emailController,
@@ -112,7 +112,7 @@ class _SemyaInviteScreenState extends State<SemyaInviteScreen> {
             prefixIcon: Icon(Icons.alternate_email),
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
         TextField(
           key: const Key('semya-invite-phone'),
           controller: _phoneController,
@@ -123,7 +123,7 @@ class _SemyaInviteScreenState extends State<SemyaInviteScreen> {
             prefixIcon: Icon(Icons.phone_outlined),
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
         Text(
           'Роль',
           style: theme.textTheme.titleSmall?.copyWith(
