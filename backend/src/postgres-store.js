@@ -438,7 +438,13 @@ class PostgresStore extends FileStore {
         cursor.version !== null &&
         cursor.version !== undefined
       ) {
-        this._cachedState = structuredClone(cursor.state);
+        // Как на промахе _read(): зеркало графа синхронизируется с
+        // легаси-коллекциями ДО попадания состояния в кэш — иначе первые
+        // попадания отдавали бы несинхронизированный граф до ближайшей
+        // записи (Phase 3.1c; идемпотентно, O(N) после SPEED-9 A).
+        const primed = structuredClone(cursor.state);
+        this._syncGraphFromLegacy(primed);
+        this._cachedState = primed;
         this._cachedVersion = cursor.version;
       }
     } else {
@@ -452,16 +458,20 @@ class PostgresStore extends FileStore {
   }
 
   // SPEED-9 C-boot: единственное чтение строки состояния для всего буста
-  // (см. комментарий в _bootstrap()). Тот же литерал SQL, что и у старых
-  // независимых шагов (`SELECT data FROM`) — так тесты, считающие полные
-  // чтения блоба по этому литералу, продолжают видеть корректную картину;
-  // version получаем отдельным дешёвым запросом (_selectStateVersion,
-  // уже существует, сам гасит любую ошибку в null) — это НЕ второй SELECT
-  // блоба, колонка version весит несколько байт против мегабайтного JSONB.
-  // Любая ошибка чтения данных — null целиком: вызывающий уходит в старый
-  // режим независимых чтений на каждом шаге (защита от «БД моргнула»).
+  // (см. комментарий в _bootstrap()). Любая ошибка чтения — null целиком:
+  // вызывающий уходит в старый режим независимых чтений на каждом шаге
+  // (защита от «БД моргнула»).
   async _readBootStateRow() {
     try {
+      // ПОРЯДОК ВАЖЕН: сначала version, потом data. Если чужая запись
+      // проскочит между двумя запросами, кэш получит НОВЫЕ данные под
+      // СТАРОЙ версией — первый _read() увидит несовпадение и честно
+      // перечитает (одно лишнее чтение). Обратный порядок (data, потом
+      // version) дал бы старые данные под новой версией — устаревший кэш
+      // до следующей записи, молча ломая SPEED-8a-инвариант. Версия —
+      // отдельный дешёвый запрос (_selectStateVersion гасит ошибку в
+      // null → кэш просто не прогреется), а не второй SELECT блоба.
+      const version = await this._selectStateVersion();
       const result = await this._pool.query(
         `SELECT data FROM ${this._qualifiedTableName} WHERE id = $1`,
         [this._rowId],
@@ -470,7 +480,6 @@ class PostgresStore extends FileStore {
       const state = normalizeDbState(
         typeof rawData === "string" ? JSON.parse(rawData) : rawData,
       );
-      const version = await this._selectStateVersion();
       return {state, version};
     } catch (error) {
       console.warn(
