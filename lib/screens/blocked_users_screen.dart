@@ -121,8 +121,11 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
 
           return RefreshIndicator(
             onRefresh: _refresh,
+            // Плотность: это по сути список, а не стопка карточек — каждая
+            // строка раньше красилась своим скруглённым фоном и отделялась
+            // 10dp зазором. Теперь строки плоские с hairline-разделителем.
             child: ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
               itemBuilder: (context, index) {
                 final block = blocks[index];
                 final formattedDate = DateFormat('d MMM yyyy, HH:mm', 'ru')
@@ -130,14 +133,8 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
                 final avatarImage =
                     buildAvatarImageProvider(block.blockedUserPhotoUrl);
                 return ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  tileColor: theme.colorScheme.surfaceContainerLow,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
+                  dense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 4),
                   leading: CircleAvatar(
                     backgroundImage: avatarImage,
                     child: avatarImage == null
@@ -160,7 +157,12 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
                   ),
                 );
               },
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              separatorBuilder: (_, __) => Divider(
+                height: 1,
+                thickness: 0.7,
+                indent: 56,
+                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
+              ),
               itemCount: blocks.length,
             ),
           );

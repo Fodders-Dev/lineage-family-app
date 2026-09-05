@@ -154,7 +154,7 @@ extension _ProfileScreenSections on _ProfileScreenState {
             : RodnyaDesignTokens.light);
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+      padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
       decoration: BoxDecoration(
         color: tokens.surfaceStrong,
         borderRadius: BorderRadius.circular(20),
@@ -536,7 +536,7 @@ extension _ProfileScreenSections on _ProfileScreenState {
             : RodnyaDesignTokens.light);
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
       decoration: BoxDecoration(
         color: tokens.surfaceStrong,
         borderRadius: BorderRadius.circular(20),

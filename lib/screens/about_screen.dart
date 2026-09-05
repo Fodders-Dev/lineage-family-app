@@ -61,9 +61,9 @@ class AboutScreen extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _BrandBlock(tokens: tokens, theme: theme, future: _loadVersionLabel()),
-        const SizedBox(height: 32),
+        const SizedBox(height: 20),
         _DescriptionBlock(theme: theme, tokens: tokens),
-        const SizedBox(height: 24),
+        const SizedBox(height: 16),
         _LinksList(),
         const SizedBox(height: 16),
         _CopyrightLine(theme: theme, tokens: tokens),
@@ -121,20 +121,23 @@ class _BrandBlock extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
+        // Плотность: 140dp — чисто декоративный круг без единой строки
+        // информации; на телефоне это пятая часть первого экрана «О
+        // приложении». 96dp по-прежнему заметно, но не съедает попусту.
         Container(
-          width: 140,
-          height: 140,
+          width: 96,
+          height: 96,
           decoration: BoxDecoration(
             color: tokens.accentSoft,
             shape: BoxShape.circle,
           ),
           child: Icon(
             Icons.eco_outlined,
-            size: 64,
+            size: 44,
             color: tokens.accentStrong,
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 14),
         Text(
           'Родня',
           style: theme.textTheme.headlineMedium?.copyWith(

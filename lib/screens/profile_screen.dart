@@ -1009,7 +1009,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 680),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
               child: PillButton(
                 label: _graphProfilesLabel(context),
                 icon: Icons.people_outline,
@@ -1066,7 +1066,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(
               16,
-              12,
+              8,
               16,
               0,
             ),
@@ -1081,7 +1081,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(
               16.0,
-              16.0,
+              10.0,
               16.0,
               0,
             ),
@@ -1093,7 +1093,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(
               16.0,
-              16.0,
+              10.0,
               16.0,
               0,
             ),
@@ -1108,7 +1108,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(
           16.0,
-          16.0,
+          12.0,
           16.0,
           0,
         ),
@@ -1180,7 +1180,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ),
       SliverPadding(
-        padding: const EdgeInsets.fromLTRB(16.0, 24.0, 16.0, 8.0),
+        // Было 24dp сверху — заметно больше соседних заголовков секций
+        // (16 у «Предложений от семьи»), хотя раздел того же ранга.
+        padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 6.0),
         sliver: SliverToBoxAdapter(
           child: Text(
             _graphPostsTitle(context),
@@ -1240,7 +1242,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 680),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
               child: _SignOutButton(onTap: _signOut),
             ),
           ),

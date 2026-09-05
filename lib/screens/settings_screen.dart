@@ -1140,8 +1140,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          _buildSettingsHeader(),
-                          const SizedBox(height: 16),
                           if (isWide)
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1381,38 +1379,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ];
   }
 
-  Widget _buildSettingsHeader() {
-    final theme = Theme.of(context);
-    return GlassPanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Управление аккаунтом',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Здесь всё про доступ, уведомления, внешний вид и безопасность вашего профиля.',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              height: 1.35,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _appVersionLabel,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildCallSettingsSection() {
     if (_callSettingsLoading) {
       return _buildSectionCard('Звонки', const [
@@ -1471,22 +1437,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildAndroidDownloadRow() {
     if (_latestAndroidApkLoading) {
-      final theme = Theme.of(context);
-      return DecoratedBox(
-        decoration: BoxDecoration(
-          color:
-              theme.colorScheme.surfaceContainerLowest.withValues(alpha: 0.88),
-          borderRadius: BorderRadius.circular(20),
+      return const ListTile(
+        dense: true,
+        visualDensity: VisualDensity.compact,
+        contentPadding: EdgeInsets.symmetric(horizontal: 4),
+        leading: SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2),
         ),
-        child: const ListTile(
-          leading: SizedBox(
-            width: 24,
-            height: 24,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-          title: Text('Ищем последнюю сборку'),
-          subtitle: Text('Проверяем сервер обновлений'),
-        ),
+        title: Text('Ищем последнюю сборку'),
+        subtitle: Text('Проверяем сервер обновлений'),
       );
     }
     final latest = _latestAndroidApk;
@@ -1568,26 +1529,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  /// Секция настроек — ОДНА рамка (эта GlassPanel), а не рамка на секцию
+  /// плюс своя рамка на каждую строку внутри: раньше `_buildActionRow` /
+  /// `_buildSwitchRow` красили каждую строку отдельным скруглённым фоном
+  /// и разделяли их 10dp зазором — «Звонки» из 5 строк раздувались на
+  /// ~350dp рамок-в-рамках. Строки теперь плоские, разделены тонкой
+  /// hairline-чертой (как список, а не стопка карточек).
   Widget _buildSectionCard(String title, List<Widget> children) {
+    final divider = Divider(
+      height: 1,
+      thickness: 0.7,
+      indent: 52,
+      color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.6),
+    );
     final spacedChildren = <Widget>[];
     for (var i = 0; i < children.length; i++) {
       spacedChildren.add(children[i]);
       if (i != children.length - 1) {
-        spacedChildren.add(const SizedBox(height: 10));
+        spacedChildren.add(divider);
       }
     }
 
     return GlassPanel(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            title,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 6),
+            child: Text(
+              title,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
           ),
-          const SizedBox(height: 12),
           ...spacedChildren,
         ],
       ),
@@ -1603,26 +1579,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
     bool destructive = false,
   }) {
     final theme = Theme.of(context);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLowest.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(20),
+    return ListTile(
+      dense: true,
+      visualDensity: VisualDensity.compact,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+      enabled: enabled,
+      onTap: onTap,
+      leading: Icon(
+        icon,
+        color:
+            destructive ? theme.colorScheme.error : theme.colorScheme.primary,
       ),
-      child: ListTile(
-        enabled: enabled,
-        onTap: onTap,
-        leading: Icon(
-          icon,
-          color:
-              destructive ? theme.colorScheme.error : theme.colorScheme.primary,
-        ),
-        title: Text(
-          title,
-          style: destructive ? TextStyle(color: theme.colorScheme.error) : null,
-        ),
-        subtitle: Text(subtitle),
-        trailing: destructive ? null : const Icon(Icons.chevron_right_rounded),
+      title: Text(
+        title,
+        style: destructive ? TextStyle(color: theme.colorScheme.error) : null,
       ),
+      subtitle: Text(subtitle),
+      trailing: destructive ? null : const Icon(Icons.chevron_right_rounded),
     );
   }
 
@@ -1670,55 +1643,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
         break;
     }
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerLowest.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Padding(
-        // Tokenized + slightly tighter (was 16,14,16,16).
-        padding: EdgeInsets.fromLTRB(
-            tokens.space16, tokens.space12, tokens.space16, tokens.space12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.palette_outlined, color: scheme.primary, size: 20),
-                const SizedBox(width: 10),
-                Text(
-                  'Тема',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
+    // Плотность: секция «Внешний вид» уже даёт рамку (GlassPanel) и
+    // заголовок — свой скруглённый фон здесь был рамкой в рамке ради
+    // единственной строки. tokens.space* больше не даёт лишний инсет:
+    // горизонтальный отступ уже есть у секции.
+    return Padding(
+      padding: EdgeInsets.fromLTRB(4, 0, 4, tokens.space4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.palette_outlined, color: scheme.primary, size: 20),
+              const SizedBox(width: 10),
+              Text(
+                'Тема',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              for (var i = 0; i < options.length; i++) ...[
+                Expanded(
+                  child: _ThemePickerChip(
+                    option: options[i],
+                    selected: options[i].mode == mode,
+                    onTap: () =>
+                        unawaited(themeProvider.setThemeMode(options[i].mode)),
                   ),
                 ),
+                if (i != options.length - 1) const SizedBox(width: 8),
               ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                for (var i = 0; i < options.length; i++) ...[
-                  Expanded(
-                    child: _ThemePickerChip(
-                      option: options[i],
-                      selected: options[i].mode == mode,
-                      onTap: () => unawaited(
-                          themeProvider.setThemeMode(options[i].mode)),
-                    ),
-                  ),
-                  if (i != options.length - 1) const SizedBox(width: 8),
-                ],
-              ],
-            ),
-          ],
-        ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -1770,18 +1739,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required ValueChanged<bool> onChanged,
   }) {
     final theme = Theme.of(context);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLowest.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: SwitchListTile(
-        secondary: Icon(icon, color: theme.colorScheme.primary),
-        title: Text(title),
-        subtitle: Text(subtitle),
-        value: value,
-        onChanged: onChanged,
-      ),
+    return SwitchListTile(
+      dense: true,
+      visualDensity: VisualDensity.compact,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+      secondary: Icon(icon, color: theme.colorScheme.primary),
+      title: Text(title),
+      subtitle: Text(subtitle),
+      value: value,
+      onChanged: onChanged,
     );
   }
 
@@ -1796,29 +1762,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildOneTimePurchaseRow() {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Theme.of(context)
-            .colorScheme
-            .surfaceContainerLowest
-            .withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: ListTile(
-        leading: const Icon(Icons.shopping_cart_outlined),
-        title: const Text('Тестовая покупка'),
-        subtitle: Text(ONE_TIME_PRODUCT_ID),
-        trailing: _oneTimePurchaseLoading
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : FilledButton.tonal(
-                onPressed: _purchaseOneTimeProduct,
-                child: const Text('Купить'),
-              ),
-      ),
+    return ListTile(
+      dense: true,
+      visualDensity: VisualDensity.compact,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+      leading: const Icon(Icons.shopping_cart_outlined),
+      title: const Text('Тестовая покупка'),
+      subtitle: Text(ONE_TIME_PRODUCT_ID),
+      trailing: _oneTimePurchaseLoading
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : FilledButton.tonal(
+              onPressed: _purchaseOneTimeProduct,
+              child: const Text('Купить'),
+            ),
     );
   }
 
