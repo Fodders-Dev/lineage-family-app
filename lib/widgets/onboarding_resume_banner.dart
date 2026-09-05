@@ -31,8 +31,7 @@ class OnboardingResumeBanner extends StatefulWidget {
   }
 
   @override
-  State<OnboardingResumeBanner> createState() =>
-      _OnboardingResumeBannerState();
+  State<OnboardingResumeBanner> createState() => _OnboardingResumeBannerState();
 }
 
 class _OnboardingResumeBannerState extends State<OnboardingResumeBanner> {
@@ -78,9 +77,8 @@ class _OnboardingResumeBannerState extends State<OnboardingResumeBanner> {
       return;
     }
     try {
-      final fetched =
-          await (service as OnboardingCapableFamilyTreeService)
-              .getOnboardingState();
+      final fetched = await (service as OnboardingCapableFamilyTreeService)
+          .getOnboardingState();
       if (!mounted) return;
       setState(() {
         _state = fetched;
@@ -107,29 +105,27 @@ class _OnboardingResumeBannerState extends State<OnboardingResumeBanner> {
     final tokens = theme.extension<RodnyaDesignTokens>() ??
         (isDark ? RodnyaDesignTokens.dark : RodnyaDesignTokens.light);
 
-    // 2b: компактная одно-двухстрочная плашка вместо высокой карточки —
-    // условные баннеры не должны конкурировать с лентой за первый экран.
+    // Плотность, чанк 17 (05.09.2026): рамка-карточка (border + скругление
+    // 20) → лёгкая заливка без обводки, паддинг ужат — та же строка
+    // «заголовок 15sp / подпись 13sp», но ближе к ≤56dp. Показ/дисмисс/тап
+    // в /setup — без изменений.
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
       child: Material(
-        color: tokens.surfaceStrong.withValues(alpha: isDark ? 0.92 : 0.96),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(tokens.radiusMd),
-          side: BorderSide(
-            color: theme.colorScheme.primary.withValues(alpha: 0.45),
-          ),
-        ),
+        color:
+            theme.colorScheme.primary.withValues(alpha: isDark ? 0.14 : 0.08),
+        borderRadius: BorderRadius.circular(tokens.radiusSm),
         child: InkWell(
           key: const Key('onboarding-resume-banner'),
-          borderRadius: BorderRadius.circular(tokens.radiusMd),
+          borderRadius: BorderRadius.circular(tokens.radiusSm),
           onTap: () => context.go('/setup'),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 6, 4, 6),
+            padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
             child: Row(
               children: [
                 Icon(
                   Icons.account_tree_rounded,
-                  size: 18,
+                  size: 20,
                   color: theme.colorScheme.primary,
                 ),
                 const SizedBox(width: 10),
