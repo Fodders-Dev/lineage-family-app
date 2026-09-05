@@ -1048,9 +1048,10 @@ class _RodnyaInput extends StatelessWidget {
       maxLines: multi ? null : 1,
       minLines: multi ? 3 : 1,
       keyboardType: multi ? TextInputType.multiline : null,
+      // M3 (50+): было 14.5 — ниже общей планки «ввод/подсказка ≥16sp».
       style: AppTheme.sans(
         color: tokens.ink,
-        fontSize: 14.5,
+        fontSize: AppTheme.formInputFontSize,
         fontWeight: FontWeight.w600,
         letterSpacing: 0,
       ),
@@ -1058,7 +1059,7 @@ class _RodnyaInput extends StatelessWidget {
         hintText: hint,
         hintStyle: AppTheme.sans(
           color: tokens.inkMuted,
-          fontSize: 14.5,
+          fontSize: AppTheme.formInputFontSize,
           fontWeight: FontWeight.w500,
           letterSpacing: 0,
         ),
