@@ -5,7 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const {newDb} = require("pg-mem");
 
-const {createStore} = require("../src/store-factory");
+const {createStore, warmPostgresReadCache} = require("../src/store-factory");
 
 test("createStore creates file-backed store by default", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "rodnya-store-"));
@@ -108,6 +108,39 @@ test("touchSession throttles repeated writes for hot auth traffic", async () => 
   assert.equal(repeatedTouch, null);
   const repeatedSessionSnapshot = await store.findSession(sessionTokens.token);
   assert.equal(repeatedSessionSnapshot.lastSeenAt, refreshedSession.lastSeenAt);
+});
+
+test("createStore warms the postgres read cache during boot (SPEED-9)", async () => {
+  const db = newDb();
+  const {Pool} = db.adapters.createPg();
+  const pool = new Pool();
+  const store = await createStore({
+    storageBackend: "postgres",
+    postgresUrl: "postgresql://unused/rodnya",
+    postgresSchema: "public",
+    postgresStateTable: "rodnya_state",
+    postgresStateRowId: "default",
+    _pool: pool,
+  });
+
+  try {
+    // The warm-up read already ran inside createStore(); the cache should
+    // be populated без дополнительного вызова _read() из теста.
+    assert.notEqual(store._cachedState, null);
+    assert.notEqual(store._cachedVersion, null);
+  } finally {
+    await store.close();
+  }
+});
+
+test("warmPostgresReadCache swallows read failures so boot never fails (SPEED-9)", async () => {
+  const fakeStore = {
+    _read: async () => {
+      throw new Error("boom — connection refused");
+    },
+  };
+
+  await assert.doesNotReject(warmPostgresReadCache(fakeStore));
 });
 
 test("touchSession collapses parallel touches for the same token into one write", async () => {
