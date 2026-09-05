@@ -81,67 +81,96 @@ class _NotificationPermissionBannerState
 
     // N3: на iOS вне PWA — инструкция вместо кнопки запроса.
     final iosAddToHome = service.iosNeedsStandaloneForPush;
-    final message = iosAddToHome
-        ? 'Чтобы получать уведомления, добавьте «Родню» на экран «Домой».'
-        : 'Включите уведомления, чтобы не пропустить сообщения и дни рождения.';
+    // Заголовок + подпись вместо одной длинной фразы: рядом с кнопкой и
+    // крестиком на 360–412dp строка вмещает ~30 символов, и «…чтобы не
+    // пропустить сообщ…» резалось многоточием даже в две строки.
+    final title = iosAddToHome
+        ? 'Добавьте «Родню» на экран «Домой»'
+        : 'Включите уведомления';
+    final subtitle = iosAddToHome
+        ? 'Так на iPhone приходят уведомления'
+        : 'Сообщения, звонки и дни рождения';
 
-    return Container(
-      key: const Key('notification-permission-banner'),
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: tokens.surfaceLine)),
-      ),
-      padding: const EdgeInsets.fromLTRB(14, 2, 4, 2),
-      child: Row(
-        children: [
-          Icon(
-            Icons.notifications_active_outlined,
-            size: 20,
-            color: theme.colorScheme.primary,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              message,
-              // Две строки, а не многоточие: на телефоне 360–412dp рядом с
-              // кнопкой и крестиком одна строка вмещает ~30 символов.
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: tokens.ink,
+    // Баннер показывается и на Android (разрешение не выдано) — в мобильном
+    // шелле он верхний элемент без инсета, как AppUpdateBanner (FX-A): без
+    // SafeArea текст уходил под статус-бар. Под AppBar/SafeArea — no-op.
+    return SafeArea(
+      top: true,
+      bottom: false,
+      left: false,
+      right: false,
+      child: Container(
+        key: const Key('notification-permission-banner'),
+        decoration: BoxDecoration(
+          border: Border(bottom: BorderSide(color: tokens.surfaceLine)),
+        ),
+        padding: const EdgeInsets.fromLTRB(14, 2, 4, 2),
+        child: Row(
+          children: [
+            Icon(
+              Icons.notifications_active_outlined,
+              size: 20,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: tokens.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontSize: 13,
+                      color: tokens.inkSecondary,
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
-          if (!iosAddToHome) ...[
-            const SizedBox(width: 8),
-            TextButton(
-              key: const Key('notification-permission-enable'),
-              onPressed: _busy ? null : _enable,
-              style: TextButton.styleFrom(
-                minimumSize: const Size(0, 44),
-                padding: const EdgeInsets.symmetric(horizontal: 10),
+            if (!iosAddToHome) ...[
+              const SizedBox(width: 8),
+              TextButton(
+                key: const Key('notification-permission-enable'),
+                onPressed: _busy ? null : _enable,
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(0, 44),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+                child: _busy
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Включить'),
               ),
-              child: _busy
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Включить'),
+            ],
+            // ≥44dp тап-цель для закрытия (2c-ритм для 50+).
+            IconButton(
+              key: const Key('notification-permission-dismiss'),
+              icon: const Icon(Icons.close_rounded, size: 18),
+              tooltip: 'Скрыть',
+              color: tokens.inkSecondary,
+              constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+              padding: EdgeInsets.zero,
+              onPressed: _dismiss,
             ),
           ],
-          // ≥44dp тап-цель для закрытия (2c-ритм для 50+).
-          IconButton(
-            key: const Key('notification-permission-dismiss'),
-            icon: const Icon(Icons.close_rounded, size: 18),
-            tooltip: 'Скрыть',
-            color: tokens.inkSecondary,
-            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-            padding: EdgeInsets.zero,
-            onPressed: _dismiss,
-          ),
-        ],
+        ),
       ),
     );
   }
