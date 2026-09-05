@@ -133,7 +133,8 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
                 final avatarImage =
                     buildAvatarImageProvider(block.blockedUserPhotoUrl);
                 return ListTile(
-                  dense: true,
+                  // Плотность −1 без dense: строка ~56dp с 16sp — планка для 50+.
+                  visualDensity: const VisualDensity(vertical: -1),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 4),
                   leading: CircleAvatar(
                     backgroundImage: avatarImage,
