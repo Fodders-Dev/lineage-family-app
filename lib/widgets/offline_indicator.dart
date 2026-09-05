@@ -4,6 +4,10 @@ import 'package:go_router/go_router.dart';
 
 import '../services/app_status_service.dart';
 
+/// Плотность, чанк 17 (05.09.2026): плавающая карточка со скруглением 18
+/// и рамкой → полоса во всю ширину с нижним hairline, как у остальных
+/// глобальных плашек шелла (баннер обновления, уведомлений). Условия
+/// показа/ретрая/логина/дисмисса — без изменений.
 class OfflineIndicator extends StatelessWidget {
   const OfflineIndicator({super.key});
 
@@ -32,52 +36,56 @@ class OfflineIndicator extends StatelessWidget {
           icon = Icons.lock_clock_outlined;
           foregroundColor = const Color(0xFF7A2600);
           backgroundColor = const Color(0xFFFFE2D4);
-          message = issue?.message ?? 'Сессия истекла. Войдите снова.';
+          message = issue?.message ?? 'Сессия истекла.';
         } else if (appStatusService.isOffline) {
           icon = Icons.cloud_off_outlined;
           foregroundColor = const Color(0xFF6A4A12);
           backgroundColor = const Color(0xFFFFF0CC);
-          message =
-              'Нет сети. Последние данные останутся на экране, пока соединение не вернётся.';
+          message = 'Нет сети. Показываем последние данные.';
         } else {
           icon = Icons.error_outline;
           foregroundColor = const Color(0xFF7A2600);
           backgroundColor = const Color(0xFFFFE7D9);
-          message = issue?.message ??
-              'Не удалось обновить данные. Попробуйте ещё раз.';
+          message = issue?.message ?? 'Не удалось обновить данные.';
         }
 
         return Material(
           color: Colors.transparent,
           child: Container(
             width: double.infinity,
-            margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               color: backgroundColor,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: foregroundColor.withValues(alpha: 0.18),
+              border: Border(
+                bottom: BorderSide(
+                  color: foregroundColor.withValues(alpha: 0.18),
+                ),
               ),
             ),
+            padding: const EdgeInsets.fromLTRB(14, 2, 6, 2),
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(icon, color: foregroundColor, size: 20),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     message,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: foregroundColor,
                       fontWeight: FontWeight.w600,
-                      height: 1.25,
+                      fontSize: 14,
                     ),
                   ),
                 ),
                 if (showRetryAction)
                   TextButton(
                     onPressed: appStatusService.requestRetry,
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(0, 44),
+                      foregroundColor: foregroundColor,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                    ),
                     child: const Text('Повторить'),
                   ),
                 if (showLoginAction)
@@ -86,6 +94,11 @@ class OfflineIndicator extends StatelessWidget {
                       appStatusService.clearSessionIssue();
                       context.go('/login');
                     },
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(0, 44),
+                      foregroundColor: foregroundColor,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                    ),
                     child: const Text('Войти'),
                   )
                 else if (!appStatusService.isOffline)
@@ -93,8 +106,10 @@ class OfflineIndicator extends StatelessWidget {
                     tooltip: 'Скрыть',
                     onPressed: appStatusService.clearIssue,
                     icon: const Icon(Icons.close, size: 18),
-                    visualDensity: VisualDensity.compact,
                     color: foregroundColor,
+                    constraints:
+                        const BoxConstraints(minWidth: 44, minHeight: 44),
+                    padding: EdgeInsets.zero,
                   ),
               ],
             ),
