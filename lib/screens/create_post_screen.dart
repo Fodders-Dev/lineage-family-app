@@ -1482,7 +1482,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           // panel in the side column, so the summary would be redundant.
           if (compact) ...[
             _buildAudienceSummaryRow(),
-            const SizedBox(height: 18),
+            const SizedBox(height: 12),
           ],
           // Reference compose textarea is transparent — no border, no bg, just
           // text inside the outer card. Drop the inner DecoratedBox so the
@@ -1527,7 +1527,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           // hint card reserves the space and re-opens the picker on
           // tap, so the user can see ahead of time where media will
           // land.
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           if (_selectedMedia.isEmpty)
             _buildMediaEmptyHint()
           else
@@ -1678,11 +1678,14 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         key: const Key('compose-audience-summary'),
         borderRadius: BorderRadius.circular(14),
         onTap: _showAudienceSheet,
+        // Плотность (чанк 12): строка уже сидит на заливке Material
+        // ВНУТРИ обведённой карточки композера — свой контур поверх
+        // контура карточки был рамкой в рамке. Заливка отличает пилюлю
+        // от фона карточки без второго контура.
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: tokens.surfaceLine),
           ),
           child: Row(
             children: [
@@ -1892,65 +1895,66 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         (theme.brightness == Brightness.dark
             ? RodnyaDesignTokens.dark
             : RodnyaDesignTokens.light);
-    return InkWell(
-      onTap: _openMediaPicker,
-      borderRadius: BorderRadius.circular(tokens.radiusMd),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 18),
-        decoration: BoxDecoration(
-          color: tokens.surfaceStrong.withValues(alpha: 0.5),
+    // Плотность (чанк 12): плитка сидела в своей рамке ВНУТРИ уже
+    // обведённой карточки композера — рамка на рамке. Отделяем hairline
+    // сверху (граница карточки уже есть снаружи) вместо второго контура.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Divider(height: 1, color: tokens.surfaceLine),
+        InkWell(
+          onTap: _openMediaPicker,
           borderRadius: BorderRadius.circular(tokens.radiusMd),
-          border: Border.all(
-            color: tokens.surfaceLine,
-            style: BorderStyle.solid,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: tokens.accentSoft,
+                    borderRadius: BorderRadius.circular(tokens.radiusSm),
+                  ),
+                  child: Icon(
+                    Icons.add_photo_alternate_outlined,
+                    color: tokens.accent,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Добавить фото или видео',
+                        style: AppTheme.sans(
+                          color: tokens.ink,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Можно прикрепить до $kMaxPostMedia файлов',
+                        style: AppTheme.sans(
+                          color: tokens.inkSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: tokens.inkSecondary,
+                ),
+              ],
+            ),
           ),
         ),
-        child: Row(
-          children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: tokens.accentSoft,
-                borderRadius: BorderRadius.circular(tokens.radiusSm),
-              ),
-              child: Icon(
-                Icons.add_photo_alternate_outlined,
-                color: tokens.accent,
-                size: 22,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Добавить фото или видео',
-                    style: AppTheme.sans(
-                      color: tokens.ink,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'Можно прикрепить до $kMaxPostMedia файлов',
-                    style: AppTheme.sans(
-                      color: tokens.inkSecondary,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(
-              Icons.chevron_right_rounded,
-              color: tokens.inkSecondary,
-            ),
-          ],
-        ),
-      ),
+      ],
     );
   }
 
