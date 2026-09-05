@@ -600,18 +600,21 @@ extension _HomeScreenSections on _HomeScreenState {
                           overflow: TextOverflow.ellipsis,
                           style: AppTheme.sans(
                             color: tokens.ink,
-                            fontSize: 14.5,
+                            fontSize: 15,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           state.message,
-                          maxLines: 1,
+                          // Две строки: тёплая подсказка («…фото или короткой
+                          // историей») в одну строку рядом с действием
+                          // резалась многоточием на 412dp.
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: AppTheme.sans(
                             color: tokens.inkMuted,
-                            fontSize: 13,
+                            fontSize: 13.5,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
