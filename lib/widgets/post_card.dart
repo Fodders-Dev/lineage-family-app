@@ -632,80 +632,9 @@ class _PostCardState extends State<PostCard>
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (_likeCount > 0 || _commentCount > 0)
-          Padding(
-            // Плотность (чанк 20): было space16/space8, счётчики 12sp —
-            // боковые инсеты сужены до space12, счётчики подняты до 14sp
-            // (спека «ряд действий: счётчики 14sp»).
-            padding: EdgeInsets.fromLTRB(
-                tokens.space12, 0, tokens.space12, tokens.space4),
-            child: Row(
-              children: [
-                if (_likeCount > 0)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 9,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: tokens.surface.withValues(alpha: 0.7),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: tokens.surfaceLine),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Unified «тепло» vocabulary: the same warm
-                        // Material heart the action button uses, not a
-                        // stray white-heart emoji.
-                        Icon(Icons.favorite, size: 12, color: tokens.warm),
-                        const SizedBox(width: 4),
-                        Text(
-                          _likeCount.toString(),
-                          style: AppTheme.sans(
-                            color: tokens.inkSecondary,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                const Spacer(),
-                if (_commentCount > 0)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 9,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: tokens.surface.withValues(alpha: 0.7),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: tokens.surfaceLine),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.mode_comment_outlined,
-                          size: 13,
-                          color: tokens.accent,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          _commentCount.toString(),
-                          style: AppTheme.sans(
-                            color: tokens.inkSecondary,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-          ),
+        // Счётчики «тепла» и ответов — внутри кнопок действий («Тепло 3»,
+        // «Ответить 2»), как в Telegram: отдельная строка чипов над
+        // действиями стоила ~34dp на каждом посте с реакциями.
         Padding(
           // Плотность (чанк 20): разделитель убран (был Container 0.7dp
           // с ~12dp паддинга вокруг) — строка действий сама держит ровно
@@ -732,6 +661,7 @@ class _PostCardState extends State<PostCard>
                     ),
                   ),
                   label: 'Тепло',
+                  count: _likeCount,
                   active: _isLikedByCurrentUser,
                 ),
               ),
@@ -744,6 +674,7 @@ class _PostCardState extends State<PostCard>
                     size: 18,
                   ),
                   label: 'Ответить',
+                  count: _commentCount,
                 ),
               ),
               Expanded(
@@ -780,12 +711,16 @@ class _PostActionButton extends StatelessWidget {
     required this.onPressed,
     required this.icon,
     required this.label,
+    this.count = 0,
     this.active = false,
   });
 
   final VoidCallback onPressed;
   final Widget icon;
   final String label;
+
+  /// Счётчик рядом с подписью (0 — не показывать).
+  final int count;
   final bool active;
 
   @override
@@ -822,6 +757,17 @@ class _PostActionButton extends StatelessWidget {
                 ),
               ),
             ),
+            if (count > 0) ...[
+              const SizedBox(width: 5),
+              Text(
+                count.toString(),
+                style: AppTheme.sans(
+                  color: active ? tokens.warm : tokens.inkSecondary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
           ],
         ),
       ),

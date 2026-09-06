@@ -65,10 +65,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 250));
 
-    // Unified «тепло» vocabulary (P3b): the warm Material heart now
-    // appears on BOTH the action button (filled, since liked) and the
-    // like-count pill — two hearts, not one heart + a 🤍 emoji.
-    expect(find.byIcon(Icons.favorite), findsNWidgets(2));
+    // Ревью чанка 20: отдельной строки чипов-счётчиков больше нет —
+    // счётчик стоит внутри кнопки «Тепло» рядом с единственным сердцем.
+    expect(find.byIcon(Icons.favorite), findsOneWidget);
     expect(find.text('2'), findsOneWidget);
   });
 
