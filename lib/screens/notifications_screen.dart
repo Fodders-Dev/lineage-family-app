@@ -575,11 +575,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     // Overview-карта имеет смысл только при непрочитанных: после
     // «прочитать всё» экран открывается сразу историей.
     final headerCount = _notifications.isEmpty ? 0 : 1;
+    // Плотность (чанк 23): секция непрочитанных получает свой заголовок
+    // «Сегодня», как «Ранее» — унифицированный паттерн групп 28dp вместо
+    // одной большой сводной карточки, отвечающей за всё сразу.
+    final todayHeaderCount = groupedNotifications.isNotEmpty ? 1 : 0;
     final listView = ListView.separated(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       itemCount: groupedNotifications.length +
           headerCount +
+          todayHeaderCount +
           historyBlockCount +
           (showHistoryLoader ? 1 : 0),
       // Плотность: строки разделяет волосяная линия внутри строки, а не
@@ -594,7 +599,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             typeSummary: sortedTypeSummary,
           );
         }
-        final groupIndex = index - headerCount;
+        final afterHeader = index - headerCount;
+        if (todayHeaderCount > 0 && afterHeader == 0) {
+          return _buildSectionHeader(context, 'Сегодня');
+        }
+        final groupIndex = afterHeader - todayHeaderCount;
         if (groupIndex < groupedNotifications.length) {
           final group = groupedNotifications[groupIndex];
           final item = group.first;
@@ -606,16 +615,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         }
         final historyIndex = groupIndex - groupedNotifications.length;
         if (historyIndex == 0) {
-          return Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Text(
-              'Ранее',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-          );
+          return _buildSectionHeader(context, 'Ранее');
         }
         final readItemIndex = historyIndex - 1;
         if (readItemIndex >= _readHistory.length) {
@@ -638,6 +638,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           child: _NotificationCard(
             item: item,
             groupedCount: 1,
+            isUnread: false,
             // Прочитанное открывается без повторного markRead.
             onTap: _isMutating
                 ? null
@@ -824,6 +825,26 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
+  /// Плотность: заголовок группы («Сегодня» / «Ранее») — фиксированные
+  /// 28dp вместо свободно растущего Padding, единый паттерн для обеих
+  /// секций списка.
+  Widget _buildSectionHeader(BuildContext context, String label) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      height: 28,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          label,
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildPanelStatChip(
     ThemeData theme, {
     required IconData icon,
@@ -896,11 +917,17 @@ class _NotificationCard extends StatelessWidget {
     required this.item,
     required this.groupedCount,
     required this.onTap,
+    this.isUnread = true,
   });
 
   final AppNotificationItem item;
   final int groupedCount;
   final VoidCallback? onTap;
+
+  /// Точка непрочитанного (8dp) в строке заголовка. История («Ранее»)
+  /// приходит уже прочитанной — там точки нет (плюс приглушённая Opacity
+  /// у вызывающей стороны).
+  final bool isUnread;
 
   @override
   Widget build(BuildContext context) {
@@ -925,20 +952,20 @@ class _NotificationCard extends StatelessWidget {
               ),
             ),
           ),
-          padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+          padding: const EdgeInsets.fromLTRB(14, 9, 14, 9),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 36,
-                height: 36,
+                width: 40,
+                height: 40,
                 decoration: BoxDecoration(
                   color: theme.colorScheme.primary.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
                   _notificationIconForType(item.type),
-                  size: 20,
+                  size: 22,
                   color: theme.colorScheme.primary,
                 ),
               ),
@@ -986,6 +1013,17 @@ class _NotificationCard extends StatelessWidget {
                               color: theme.colorScheme.onSurfaceVariant,
                             ),
                           ),
+                        if (isUnread) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                     const SizedBox(height: 2),
@@ -1003,9 +1041,10 @@ class _NotificationCard extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         _formatBody(item.body),
-                        maxLines: 2,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium?.copyWith(
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontSize: 13,
                           color: theme.colorScheme.onSurfaceVariant,
                           height: 1.3,
                         ),
@@ -1142,6 +1181,11 @@ class _NotificationsMessageState extends StatelessWidget {
   }
 }
 
+/// Плотность (чанк 23): было — карточка 18dp паддинга + иконка 44×44 +
+/// заголовок/описание + до 3 чипов-типов ≈ 170–200dp, дублируя и заголовок
+/// AppBar «Активность», и то, что и так видно построчно ниже. Стало —
+/// заголовок и иконка в одной строке, короткое описание под ней, а разбивка
+/// по типам — одна строка чипов ≤ 32dp вместо переносящегося Wrap.
 class _NotificationsOverviewCard extends StatelessWidget {
   const _NotificationsOverviewCard({
     required this.totalCount,
@@ -1158,95 +1202,81 @@ class _NotificationsOverviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final topTypes = typeSummary.take(3).toList();
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.65),
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(14),
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.onSecondaryContainer
-                  .withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(
-              isFriendsTree
-                  ? Icons.diversity_3_outlined
-                  : Icons.notifications_active_outlined,
-              color: theme.colorScheme.onSecondaryContainer,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
+          Row(
+            children: [
+              Icon(
+                isFriendsTree
+                    ? Icons.diversity_3_outlined
+                    : Icons.notifications_active_outlined,
+                size: 18,
+                color: theme.colorScheme.onSecondaryContainer,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
                   'Сейчас $totalCount ${_activityEventCountLabel(totalCount)}',
-                  style: theme.textTheme.titleMedium?.copyWith(
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w800,
                     color: theme.colorScheme.onSecondaryContainer,
                   ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  'Сообщения, приглашения и запросы для $graphLabel — всё в одном месте.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSecondaryContainer,
-                    height: 1.4,
-                  ),
-                ),
-                if (typeSummary.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: typeSummary
-                        .take(3)
-                        .map(
-                          (entry) => Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 7,
-                            ),
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.onSecondaryContainer
-                                  .withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  _notificationIconForType(entry.key),
-                                  size: 16,
-                                  color: theme.colorScheme.onSecondaryContainer,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  '${_notificationLabelForType(entry.key)} · ${entry.value}',
-                                  style: theme.textTheme.labelLarge?.copyWith(
-                                    color:
-                                        theme.colorScheme.onSecondaryContainer,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                        .toList(),
-                  ),
-                ],
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Сообщения, приглашения и запросы для $graphLabel — всё в одном месте.',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSecondaryContainer,
+              height: 1.3,
             ),
           ),
+          if (topTypes.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 26,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: topTypes.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 6),
+                itemBuilder: (context, index) {
+                  final entry = topTypes[index];
+                  return Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.onSecondaryContainer
+                          .withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '${_notificationLabelForType(entry.key)} · ${entry.value}',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSecondaryContainer,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         ],
       ),
     );
