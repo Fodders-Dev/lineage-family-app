@@ -63,15 +63,20 @@ class _MonthSection {
 class _MonthHeaderDelegate extends SliverPersistentHeaderDelegate {
   _MonthHeaderDelegate({
     required this.label,
+    required this.count,
     required this.background,
     required this.textStyle,
+    required this.countStyle,
   });
 
   final String label;
+  final int count;
   final Color background;
   final TextStyle? textStyle;
+  final TextStyle? countStyle;
 
-  static const double _height = 40;
+  // Плотность (чанк 23): заголовок группы — 28dp вместо 40.
+  static const double _height = 28;
 
   @override
   double get minExtent => _height;
@@ -86,15 +91,25 @@ class _MonthHeaderDelegate extends SliverPersistentHeaderDelegate {
       color: background,
       alignment: Alignment.centerLeft,
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Text(label, style: textStyle),
+      child: Row(
+        children: [
+          Text(label, style: textStyle),
+          const SizedBox(width: 6),
+          // Счётчик в заголовке — сколько фото в этом месяце, без захода
+          // в каждую плитку по отдельности.
+          Text('$count фото', style: countStyle),
+        ],
+      ),
     );
   }
 
   @override
   bool shouldRebuild(_MonthHeaderDelegate old) =>
       old.label != label ||
+      old.count != count ||
       old.background != background ||
-      old.textStyle != textStyle;
+      old.textStyle != textStyle ||
+      old.countStyle != countStyle;
 }
 
 class FamilyAlbumScreen extends StatefulWidget {
@@ -386,25 +401,32 @@ class _FamilyAlbumScreenState extends State<FamilyAlbumScreen> {
             : RodnyaDesignTokens.light);
     final visible = _visiblePhotos;
     return Scaffold(
-      appBar: AppBar(title: const Text('Альбом семьи')),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _uploading ? null : _pickAndUpload,
-        // Глобальная тема задаёт FAB'ам CircleBorder — для extended-варианта
-        // это означает круглый фон, из которого подпись торчит наружу.
-        // Возвращаем «таблетку» точечно, не трогая обычные круглые FAB'ы.
-        shape: const StadiumBorder(),
-        icon: _uploading
-            ? SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  value: _uploadProgress?.value,
-                  color: tokens.accentInk,
-                ),
-              )
-            : const Icon(Icons.add_photo_alternate_outlined),
-        label: Text(_fabLabel),
+      appBar: AppBar(
+        title: const Text('Альбом семьи'),
+        actions: [
+          // Плотность (чанк 23): «добавить» — действие топбара (44dp), а не
+          // плавающая кнопка поверх нижних плиток грида. Тот же _fabLabel
+          // (включая живой счётчик «Загружено X из Y») и _pickAndUpload —
+          // логика загрузки не тронута, поменялось только место кнопки.
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: TextButton.icon(
+              onPressed: _uploading ? null : _pickAndUpload,
+              icon: _uploading
+                  ? SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        value: _uploadProgress?.value,
+                        color: theme.colorScheme.primary,
+                      ),
+                    )
+                  : const Icon(Icons.add_photo_alternate_outlined),
+              label: Text(_fabLabel),
+            ),
+          ),
+        ],
       ),
       body: _loading && _photos.isEmpty
           ? const Center(child: CircularProgressIndicator())
@@ -631,26 +653,28 @@ class _FamilyAlbumScreenState extends State<FamilyAlbumScreen> {
             pinned: true,
             delegate: _MonthHeaderDelegate(
               label: _monthLabel(section.month),
+              count: section.items.length,
               background: tokens.bgBase,
               textStyle: theme.textTheme.titleSmall?.copyWith(
                 fontFamily: 'Lora',
                 fontWeight: FontWeight.w700,
                 color: tokens.ink,
               ),
+              countStyle: theme.textTheme.bodySmall?.copyWith(
+                color: tokens.inkMuted,
+              ),
             ),
           ),
+          // Плотность (чанк 23): сетка во всю ширину — зазор 2dp между
+          // плитками вместо 12dp полей + 8dp между плитками, без полей у
+          // краёв экрана.
           SliverPadding(
-            padding: EdgeInsets.fromLTRB(
-              tokens.space12,
-              tokens.space8,
-              tokens.space12,
-              tokens.space16,
-            ),
+            padding: const EdgeInsets.fromLTRB(0, 2, 0, 8),
             sliver: SliverGrid(
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
-                crossAxisSpacing: tokens.space8,
-                mainAxisSpacing: tokens.space8,
+                crossAxisSpacing: 2,
+                mainAxisSpacing: 2,
               ),
               delegate: SliverChildBuilderDelegate(
                 (_, i) {
