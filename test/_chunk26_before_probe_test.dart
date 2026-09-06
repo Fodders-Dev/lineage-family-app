@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:rodnya/backend/interfaces/auth_service_interface.dart';
 import 'package:rodnya/backend/interfaces/family_tree_service_interface.dart';
 import 'package:rodnya/backend/interfaces/post_service_interface.dart';
@@ -128,6 +129,13 @@ void main() {
   });
 
   setUp(() async {
+    // Without this, CoachMarkTour.shouldShow()'s SharedPreferences.getInstance()
+    // has no mock platform channel wired up in a bare widget test — matches
+    // the pattern every other HomeScreen test already uses (see
+    // home_screen_test.dart setUp).
+    SharedPreferences.setMockInitialValues(
+      <String, Object>{'coach_marks_home_tour_shown_v1': true},
+    );
     await getIt.reset();
     getIt.registerSingleton<AuthServiceInterface>(_FakeAuthService());
     getIt.registerSingleton<LocalStorageService>(
@@ -186,7 +194,13 @@ void main() {
           child: const MaterialApp(home: HomeScreen()),
         ),
       );
-      await tester.pumpAndSettle();
+      // Bounded pumps (not pumpAndSettle) — this widget tree keeps
+      // scheduling frames indefinitely under pumpAndSettle in this
+      // harness (10-minute internal safety timeout hit twice while
+      // investigating), so settle a fixed number of frames instead.
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
 
       final feedBox = find.byWidgetPredicate(
         (w) => w is ConstrainedBox && w.constraints.maxWidth == 720,
