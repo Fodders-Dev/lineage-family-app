@@ -145,8 +145,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Starts with empty tally.
-    expect(find.text('Пойдут: 0 · Может: 0 · Нет: 0'), findsOneWidget);
+    // Ревью чанка 24: отдельной строки-тальи «Пойдут: N · Может: N ·
+    // Нет: N» больше нет — счётчики переехали внутрь кнопок (как «Тепло
+    // N» у PostCard, чанк 20). При нуле голосов кнопка «Пойду» не несёт
+    // цифру вовсе — до первого ответа Text('0') нигде не появляется.
+    expect(find.text('Пойду'), findsOneWidget);
+    expect(find.text('0'), findsNothing);
 
     await tester.tap(find.byKey(const Key('gathering-rsvp-yes')));
     await tester.pump(); // optimistic frame — setRsvp already invoked
@@ -155,7 +159,8 @@ void main() {
     expect(svc.lastStatus, 'yes');
 
     await tester.pumpAndSettle(); // server reconcile
-    expect(find.text('Пойдут: 1 · Может: 0 · Нет: 0'), findsOneWidget);
+    // Счётчик «Пойду» = 1 — Text('Пойду') и Text('1') оба внутри кнопки.
+    expect(find.text('1'), findsOneWidget);
   });
 
   testWidgets('reverts the optimistic RSVP when setRsvp fails', (tester) async {
@@ -177,12 +182,12 @@ void main() {
     await tester.tap(find.byKey(const Key('gathering-rsvp-yes')));
     await tester.pump(); // optimistic frame (server still pending)
     expect(svc.setRsvpCalls, 1);
-    expect(find.text('Пойдут: 1 · Может: 0 · Нет: 0'), findsOneWidget);
+    expect(find.text('1'), findsOneWidget); // «Пойду 1» — optimistic count
 
     // Server fails → optimistic state reverts.
     svc.deferred!.completeError(Exception('boom'));
     await tester.pump(); // revert + snackbar
-    expect(find.text('Пойдут: 0 · Может: 0 · Нет: 0'), findsOneWidget);
+    expect(find.text('1'), findsNothing);
     expect(find.text('Не удалось сохранить ответ'), findsOneWidget);
   });
 
@@ -204,7 +209,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // going = u1(1) + u2(1+2) = 4; maybe = 1; no = 1.
-    expect(find.text('Пойдут: 4 · Может: 1 · Нет: 1'), findsOneWidget);
+    // going = u1(1) + u2(1+2) = 4; maybe = 1; no = 1. Counts now live
+    // inside the RSVP buttons (ревью чанка 24) rather than a standalone
+    // tally sentence.
+    expect(find.text('4'), findsOneWidget); // «Пойду 4»
+    expect(find.text('1'), findsNWidgets(2)); // «Может 1» и «Не пойду 1»
+
+    // Ряд аватаров-участников (чанк 24): u1 и u2 ответили «да» → два
+    // пузыря-инициала (буквы из userId, т.к. в rsvps нет имени/фото).
+    expect(find.byKey(const Key('gathering-participants')), findsOneWidget);
+    expect(find.text('U'), findsNWidgets(2)); // 'u1'/'u2' → инициал 'U'
   });
 }

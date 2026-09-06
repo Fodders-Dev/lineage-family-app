@@ -111,6 +111,19 @@ Widget _routerHost(_FakeGatheringService svc,
   return MaterialApp.router(theme: AppTheme.lightTheme, routerConfig: router);
 }
 
+// Плотность (чанк 24): «Создать» переехало из AppBar-action (всегда на
+// экране) в CTA внизу прокручиваемой формы (см. CreateGatheringScreen).
+// flutter_test по умолчанию даёт крошечный canvas (800×600лп) — сильно
+// меньше формы с аудиторией/медиа — и ListView строит offscreen-детей
+// лениво, так что find.byKey('gathering-submit') не находит вообще
+// ничего без прокрутки. Высокий тестовый canvas решает это без
+// добавления scroll-хореографии в сами тесты.
+void _useTallViewport(WidgetTester tester) {
+  tester.view.physicalSize = const Size(800 * 2, 3000 * 2);
+  tester.view.devicePixelRatio = 2;
+  addTearDown(tester.view.reset);
+}
+
 void main() {
   setUpAll(() async {
     await initializeDateFormatting('ru');
@@ -118,6 +131,7 @@ void main() {
 
   testWidgets('create calls the service with title + startAt + treeId',
       (tester) async {
+    _useTallViewport(tester);
     final svc = _FakeGatheringService();
     final start = DateTime(2026, 7, 1, 15, 0);
     await tester.pumpWidget(_routerHost(svc, initialStartAt: start));
@@ -147,6 +161,7 @@ void main() {
   });
 
   testWidgets('validation: missing startAt blocks create', (tester) async {
+    _useTallViewport(tester);
     final svc = _FakeGatheringService();
     await tester.pumpWidget(_plainHost(svc)); // no initialStartAt
     await tester.pumpAndSettle();
@@ -163,6 +178,7 @@ void main() {
   });
 
   testWidgets('validation: missing title blocks create', (tester) async {
+    _useTallViewport(tester);
     final svc = _FakeGatheringService();
     await tester.pumpWidget(
       _plainHost(svc, initialStartAt: DateTime(2026, 7, 1, 15, 0)),

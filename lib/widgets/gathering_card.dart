@@ -124,10 +124,13 @@ class _GatheringCardState extends State<GatheringCard> {
             ? RodnyaDesignTokens.dark
             : RodnyaDesignTokens.light);
 
+    // Плотность (чанк 24): было padding: EdgeInsets.all(16) на весь
+    // контейнер — 16dp сверху и снизу впустую поверх содержимого секций.
+    // Теперь паддинг локальный на каждую секцию (12 по бокам, вертикаль
+    // под конкретный бюджет), как в PostCard (чанк 20).
     return Container(
       key: Key('gathering-card-${_gathering.id}'),
-      margin: EdgeInsets.only(bottom: tokens.space12),
-      padding: EdgeInsets.all(tokens.space16),
+      margin: EdgeInsets.only(bottom: tokens.space8),
       decoration: BoxDecoration(
         color: tokens.surfaceStrong,
         borderRadius: BorderRadius.circular(tokens.radiusLg),
@@ -136,20 +139,32 @@ class _GatheringCardState extends State<GatheringCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildHeader(theme, tokens),
-          SizedBox(height: tokens.space12),
-          _buildBody(theme, tokens),
-          if (_gathering.renderableImageUrls.isNotEmpty) ...[
-            SizedBox(height: tokens.space12),
-            _buildPhotos(tokens),
-          ],
-          SizedBox(height: tokens.space12),
-          _buildRsvp(theme, tokens),
+          Padding(
+            padding: EdgeInsets.fromLTRB(tokens.space12, 8, tokens.space8, 8),
+            child: _buildHeader(theme, tokens),
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+                tokens.space12, 0, tokens.space12, tokens.space8),
+            child: _buildBody(theme, tokens),
+          ),
+          if (_gathering.renderableImageUrls.isNotEmpty) _buildPhotos(tokens),
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+                tokens.space12, 0, tokens.space12, tokens.space12),
+            child: _buildRsvp(theme, tokens),
+          ),
         ],
       ),
     );
   }
 
+  // Плотность (чанк 24): шапка ≤56dp — аватар 40 + 8/8 вертикали. Время
+  // публикации и аудитория объединены в одну строку метаданных (было:
+  // отдельная строка даты + отдельный чип аудитории после «когда·где» —
+  // тот чип стоил ~38dp сам по себе). Тот же приём, что у PostCard
+  // (чанк 20): Flexible + «·»-разделитель гарантируют одну строку даже
+  // на длинных лейблах / крупном системном шрифте.
   Widget _buildHeader(ThemeData theme, RodnyaDesignTokens tokens) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -159,21 +174,49 @@ class _GatheringCardState extends State<GatheringCard> {
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 _gathering.authorName,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
+                style: AppTheme.sans(
                   color: tokens.ink,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  height: 1.15,
                 ),
               ),
               const SizedBox(height: 2),
-              Text(
-                _formatPosted(_gathering.createdAt),
-                style: theme.textTheme.bodySmall?.copyWith(
+              DefaultTextStyle.merge(
+                style: AppTheme.sans(
                   color: tokens.inkMuted,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  height: 1.2,
+                ),
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        _formatPosted(_gathering.createdAt),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Text('·'),
+                    const SizedBox(width: 6),
+                    Icon(_audienceIcon, size: 13, color: tokens.inkMuted),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        _audienceLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -184,6 +227,18 @@ class _GatheringCardState extends State<GatheringCard> {
       ],
     );
   }
+
+  // Короткие ярлыки для строки метаданных шапки (было: отдельный чип
+  // «Вся семья» / «Отдельные ветки» после «когда·где»).
+  String get _audienceLabel =>
+      _gathering.scopeType == TreeContentScopeType.branches
+          ? 'Ветки'
+          : 'Семья';
+
+  IconData get _audienceIcon =>
+      _gathering.scopeType == TreeContentScopeType.branches
+          ? Icons.alt_route
+          : Icons.eco_outlined;
 
   Widget _buildAvatar(ThemeData theme, RodnyaDesignTokens tokens) {
     final photo = _gathering.renderableAuthorPhotoUrl;
@@ -244,36 +299,37 @@ class _GatheringCardState extends State<GatheringCard> {
     );
   }
 
+  // Плотность (чанк 24): заголовок 18sp (было titleLarge ≈22) + «когда·где»
+  // объединены в одну строку с иконками 18dp (было: две отдельные строки
+  // schedule/place + отдельный чип аудитории — три строки контента вместо
+  // одной). Аудитория переехала в шапку (см. _buildHeader).
   Widget _buildBody(ThemeData theme, RodnyaDesignTokens tokens) {
     final description = _gathering.description?.trim() ?? '';
-    final place = _gathering.place?.trim() ?? '';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           _gathering.title,
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontFamily: 'Lora',
-            fontWeight: FontWeight.w700,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: AppTheme.serif(
             color: tokens.ink,
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
             height: 1.2,
           ),
         ),
         SizedBox(height: tokens.space8),
-        _buildInfoRow(theme, tokens, Icons.schedule_outlined, _formatWhen()),
-        if (place.isNotEmpty) ...[
-          SizedBox(height: tokens.space4),
-          _buildInfoRow(theme, tokens, Icons.place_outlined, place),
-        ],
-        SizedBox(height: tokens.space8),
-        _buildAudienceChip(theme, tokens),
+        _buildWhenWhere(tokens),
         if (description.isNotEmpty) ...[
-          SizedBox(height: tokens.space12),
+          SizedBox(height: tokens.space8),
           Text(
             description,
-            style: theme.textTheme.bodyMedium?.copyWith(
+            style: AppTheme.sans(
               color: tokens.ink,
-              height: 1.4,
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              height: 1.3,
             ),
           ),
         ],
@@ -281,54 +337,41 @@ class _GatheringCardState extends State<GatheringCard> {
     );
   }
 
-  Widget _buildInfoRow(
-    ThemeData theme,
-    RodnyaDesignTokens tokens,
-    IconData icon,
-    String text,
-  ) {
+  Widget _buildWhenWhere(RodnyaDesignTokens tokens) {
+    final place = _gathering.place?.trim() ?? '';
+    final textStyle = AppTheme.sans(
+      color: tokens.ink,
+      fontSize: 14,
+      fontWeight: FontWeight.w600,
+    );
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 16, color: tokens.accent),
-        SizedBox(width: tokens.space8),
-        Expanded(
+        Icon(Icons.schedule_outlined, size: 18, color: tokens.accent),
+        const SizedBox(width: 6),
+        Flexible(
           child: Text(
-            text,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: tokens.ink,
-              fontWeight: FontWeight.w600,
-            ),
+            _formatWhen(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: textStyle,
           ),
         ),
-      ],
-    );
-  }
-
-  Widget _buildAudienceChip(ThemeData theme, RodnyaDesignTokens tokens) {
-    final label = _gathering.scopeType == TreeContentScopeType.branches
-        ? 'Отдельные ветки'
-        : 'Вся семья';
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.group_outlined, size: 13, color: tokens.inkMuted),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: tokens.inkMuted,
-              fontWeight: FontWeight.w700,
+        if (place.isNotEmpty) ...[
+          const SizedBox(width: 8),
+          Text('·', style: textStyle.copyWith(color: tokens.inkMuted)),
+          const SizedBox(width: 8),
+          Icon(Icons.place_outlined, size: 18, color: tokens.accent),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              place,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: textStyle,
             ),
           ),
         ],
-      ),
+      ],
     );
   }
 
@@ -338,9 +381,9 @@ class _GatheringCardState extends State<GatheringCard> {
       imageUrls: images,
       caption: _gathering.title,
       captionPrefix: 'Фото встречи',
-      // The card already pads its content (space16) — render edge-to-edge
-      // within it instead of double-insetting.
-      padding: EdgeInsets.zero,
+      // Плотность (чанк 24): контейнер больше не паддит контент целиком
+      // (было EdgeInsets.all(16)) — дефолтный инсет галереи (space12
+      // бока+низ) теперь и есть единственный инсет, без двойного счёта.
       onTap: (index) {
         MediaLightbox.show(
           context,
@@ -354,71 +397,152 @@ class _GatheringCardState extends State<GatheringCard> {
   }
 
   // ── RSVP (Phase E3b) ──
-
+  //
+  // Плотность (чанк 24): было — 3 кнопки статуса + отдельная строка
+  // «Пойдут: N · Может: N · Нет: N» под ними (~20dp сама по себе).
+  // Счётчики переехали внутрь кнопок («Пойду 4», как «Тепло 3» у
+  // PostCard, чанк 20) — так «действия одной строкой 44dp, счётчики
+  // внутри» из спеки чанка 24 не тянет за собой отдельную строку-дубль.
+  // «Кто идёт» теперь виден как ряд аватаров-инициалов над кнопками
+  // (только когда есть хоть один «да» — до первого ответа ряд пуст и
+  // не занимает места).
   Widget _buildRsvp(ThemeData theme, RodnyaDesignTokens tokens) {
     final myStatus = _gathering.myRsvpStatus(_currentUserId);
+    final participants = _buildParticipants(tokens);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            _buildRsvpButton(theme, tokens, 'yes', 'Пойду', myStatus),
-            SizedBox(width: tokens.space8),
-            _buildRsvpButton(theme, tokens, 'maybe', 'Может', myStatus),
-            SizedBox(width: tokens.space8),
-            _buildRsvpButton(theme, tokens, 'no', 'Не пойду', myStatus),
-          ],
+        if (participants != null) ...[
+          participants,
+          SizedBox(height: tokens.space8),
+        ],
+        SizedBox(
+          height: 44,
+          child: Row(
+            children: [
+              Expanded(
+                child: _buildRsvpButton(
+                  tokens,
+                  'yes',
+                  'Пойду',
+                  myStatus,
+                  _gathering.goingCount,
+                ),
+              ),
+              SizedBox(width: tokens.space8),
+              Expanded(
+                child: _buildRsvpButton(
+                  tokens,
+                  'maybe',
+                  'Может',
+                  myStatus,
+                  _gathering.maybeCount,
+                ),
+              ),
+              SizedBox(width: tokens.space8),
+              Expanded(
+                child: _buildRsvpButton(
+                  tokens,
+                  'no',
+                  'Не пойду',
+                  myStatus,
+                  _gathering.notGoingCount,
+                ),
+              ),
+            ],
+          ),
         ),
         if (myStatus == 'yes') ...[
           SizedBox(height: tokens.space8),
           _buildHeadcountStepper(theme, tokens),
         ],
-        SizedBox(height: tokens.space8),
-        Text(
-          key: const Key('gathering-rsvp-tally'),
-          'Пойдут: ${_gathering.goingCount} · '
-          'Может: ${_gathering.maybeCount} · '
-          'Нет: ${_gathering.notGoingCount}',
-          style: theme.textTheme.bodySmall?.copyWith(color: tokens.inkMuted),
-        ),
       ],
     );
   }
 
+  /// Ряд аватаров-инициалов (28dp) для тех, кто ответил «Пойду», + «+N»
+  /// на остальных (включая headcount — людей, которых ведут с собой).
+  /// Модель не несёт имя/фото участника (только userId в rsvps) — берём
+  /// первый символ userId как инициал, тот же приём, что и у
+  /// _buildInitials для автора, просто применённый к чужим id.
+  Widget? _buildParticipants(RodnyaDesignTokens tokens) {
+    final going =
+        _gathering.rsvps.where((r) => r['status']?.toString() == 'yes');
+    if (going.isEmpty) return null;
+    const maxAvatars = 4;
+    final shown = going.take(maxAvatars).toList();
+    final remaining = _gathering.goingCount - shown.length;
+    return SizedBox(
+      key: const Key('gathering-participants'),
+      height: 28,
+      child: Row(
+        children: [
+          for (final r in shown) ...[
+            _ParticipantBubble(
+              tokens: tokens,
+              seed: r['userId']?.toString() ?? '',
+            ),
+            const SizedBox(width: 4),
+          ],
+          if (remaining > 0) _ParticipantBubble(tokens: tokens, label: '+$remaining'),
+        ],
+      ),
+    );
+  }
+
   Widget _buildRsvpButton(
-    ThemeData theme,
     RodnyaDesignTokens tokens,
     String status,
     String label,
     String? myStatus,
+    int count,
   ) {
     final selected = myStatus == status;
-    return Expanded(
-      child: Material(
-        color: selected ? tokens.accent : tokens.surface,
+    final fg = selected ? tokens.accentInk : tokens.ink;
+    return Material(
+      color: selected ? tokens.accent : tokens.surface,
+      borderRadius: BorderRadius.circular(tokens.radiusSm),
+      child: InkWell(
+        key: Key('gathering-rsvp-$status'),
         borderRadius: BorderRadius.circular(tokens.radiusSm),
-        child: InkWell(
-          key: Key('gathering-rsvp-$status'),
-          borderRadius: BorderRadius.circular(tokens.radiusSm),
-          onTap: _submitting ? null : () => _respond(status),
-          child: Container(
-            alignment: Alignment.center,
-            padding: const EdgeInsets.symmetric(vertical: 9),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(tokens.radiusSm),
-              border: Border.all(
-                color: selected ? tokens.accent : tokens.surfaceLine,
-              ),
+        onTap: _submitting ? null : () => _respond(status),
+        child: Container(
+          height: 44,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(tokens.radiusSm),
+            border: Border.all(
+              color: selected ? tokens.accent : tokens.surfaceLine,
             ),
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: selected ? tokens.accentInk : tokens.ink,
-                fontWeight: FontWeight.w700,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.sans(
+                    color: fg,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
-            ),
+              if (count > 0) ...[
+                const SizedBox(width: 4),
+                Text(
+                  '$count',
+                  style: AppTheme.sans(
+                    color: fg,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
       ),
@@ -436,9 +560,12 @@ class _GatheringCardState extends State<GatheringCard> {
             style: theme.textTheme.bodySmall?.copyWith(color: tokens.ink),
           ),
         ),
+        // ≥44dp тач-цель без VisualDensity.compact (density-правило
+        // чанка 24) — фиксированные constraints вместо density-сжатия.
         IconButton(
           key: const Key('gathering-headcount-dec'),
-          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
           onPressed: _submitting || _myHeadcount == 0
               ? null
               : () => _changeHeadcount(-1),
@@ -447,7 +574,8 @@ class _GatheringCardState extends State<GatheringCard> {
         Text('$_myHeadcount', style: theme.textTheme.titleSmall),
         IconButton(
           key: const Key('gathering-headcount-inc'),
-          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
           onPressed: _submitting ? null : () => _changeHeadcount(1),
           icon: const Icon(Icons.add_circle_outline, size: 20),
         ),
@@ -483,5 +611,44 @@ class _GatheringCardState extends State<GatheringCard> {
 
   String _formatPosted(DateTime createdAt) {
     return DateFormat('d MMMM', 'ru').format(createdAt);
+  }
+}
+
+/// One 28dp avatar bubble in the participants row — an initial letter
+/// (from a userId seed, since rsvps carry no name/photo) or an explicit
+/// overflow label («+N»).
+class _ParticipantBubble extends StatelessWidget {
+  const _ParticipantBubble({required this.tokens, this.seed, this.label});
+
+  final RodnyaDesignTokens tokens;
+  final String? seed;
+  final String? label;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = label ??
+        (seed != null && seed!.isNotEmpty
+            ? String.fromCharCode(seed!.runes.first).toUpperCase()
+            : '?');
+    return Container(
+      width: 28,
+      height: 28,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: tokens.accentSoft,
+        shape: BoxShape.circle,
+        border: Border.all(color: tokens.surfaceLine),
+      ),
+      child: Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.clip,
+        style: AppTheme.sans(
+          color: tokens.accent,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
   }
 }

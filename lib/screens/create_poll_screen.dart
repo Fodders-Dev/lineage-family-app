@@ -23,6 +23,7 @@ import '../providers/tree_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/audience_picker.dart';
 import '../widgets/person_multi_picker_sheet.dart';
+import '../widgets/profile_redesign.dart' show PillButton;
 
 class CreatePollScreen extends StatefulWidget {
   const CreatePollScreen({
@@ -288,46 +289,34 @@ class _CreatePollScreenState extends State<CreatePollScreen> {
             ? RodnyaDesignTokens.dark
             : RodnyaDesignTokens.light);
 
+    // Плотность (чанк 24): заголовок только в AppBar, без action-кнопки
+    // «Создать» там — было единственным способом отправить форму без
+    // явного CTA. Главное действие — CTA 52dp внизу формы (см.
+    // CreateGatheringScreen, тот же приём).
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Новый опрос'),
-        actions: [
-          TextButton(
-            key: const Key('poll-submit'),
-            onPressed: _isLoading ? null : _create,
-            child: _isLoading
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('Создать'),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Новый опрос')),
       body: SafeArea(
         child: ListView(
           padding: EdgeInsets.fromLTRB(
-            tokens.space16,
-            tokens.space16,
-            tokens.space16,
-            tokens.space16 + MediaQuery.of(context).viewPadding.bottom,
+            tokens.space12,
+            12,
+            tokens.space12,
+            12 + MediaQuery.of(context).viewPadding.bottom,
           ),
           children: [
-            TextField(
+            _FieldLabel(label: 'Вопрос'),
+            const SizedBox(height: 4),
+            _FormField(
               key: const Key('poll-question-field'),
               controller: _questionController,
+              hint: 'Например, когда собираемся?',
               textCapitalization: TextCapitalization.sentences,
               minLines: 1,
               maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Вопрос',
-                hintText: 'Например, когда собираемся?',
-              ),
             ),
-            SizedBox(height: tokens.space16),
+            const SizedBox(height: 14),
             _buildOptionsSection(theme, tokens),
-            SizedBox(height: tokens.space8),
+            const SizedBox(height: 10),
             SwitchListTile.adaptive(
               key: const Key('poll-multiple-switch'),
               contentPadding: EdgeInsets.zero,
@@ -335,82 +324,144 @@ class _CreatePollScreenState extends State<CreatePollScreen> {
               value: _allowMultiple,
               onChanged: (value) => setState(() => _allowMultiple = value),
             ),
-            ListTile(
-              key: const Key('poll-closes-tile'),
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.schedule_outlined),
-              title: const Text('Закрыть опрос (необязательно)'),
-              subtitle: Text(
-                _closesAt == null
-                    ? 'Без срока'
-                    : DateFormat('d MMMM y', 'ru').format(_closesAt!),
-              ),
-              trailing: _closesAt == null
-                  ? const Icon(Icons.chevron_right)
-                  : IconButton(
-                      tooltip: 'Убрать',
-                      icon: const Icon(Icons.close),
-                      onPressed: () => setState(() => _closesAt = null),
-                    ),
-              onTap: _pickClosesAt,
-            ),
-            SizedBox(height: tokens.space16),
+            const SizedBox(height: 4),
+            _buildClosesAtRow(tokens),
+            const SizedBox(height: 14),
             _buildMediaSection(theme, tokens),
-            SizedBox(height: tokens.space16),
+            const SizedBox(height: 14),
             _buildAudienceSection(theme, tokens),
+            const SizedBox(height: 14),
+            PillButton(
+              key: const Key('poll-submit'),
+              label: _isLoading ? 'Создаём…' : 'Создать опрос',
+              icon: Icons.bar_chart_rounded,
+              expanded: true,
+              height: 52,
+              onPressed: _isLoading ? null : _create,
+            ),
           ],
         ),
       ),
     );
   }
 
+  Widget _buildClosesAtRow(RodnyaDesignTokens tokens) {
+    if (_closesAt == null) {
+      return InkWell(
+        key: const Key('poll-closes-add'),
+        borderRadius: BorderRadius.circular(14),
+        onTap: _pickClosesAt,
+        child: Container(
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          alignment: Alignment.centerLeft,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.schedule_outlined, size: 18, color: tokens.accent),
+              const SizedBox(width: 6),
+              Text(
+                'Закрыть опрос по дате',
+                style: AppTheme.sans(
+                  color: tokens.accent,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _FieldLabel(label: 'Закрыть опрос'),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Expanded(
+              child: _DateTimeChip(
+                key: const Key('poll-closes-tile'),
+                icon: Icons.schedule_outlined,
+                label: DateFormat('d MMMM y', 'ru').format(_closesAt!),
+                onTap: _pickClosesAt,
+              ),
+            ),
+            const SizedBox(width: 4),
+            IconButton(
+              key: const Key('poll-closes-clear'),
+              tooltip: 'Убрать срок',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+              onPressed: () => setState(() => _closesAt = null),
+              icon: const Icon(Icons.close, size: 18),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // Плотность (чанк 24): строки-варианты 50dp (было TextField с
+  // isDense:true + плавающим лейблом — высота «плавала» в районе
+  // 56–60dp), «+ добавить вариант» — явная тач-цель 44dp.
   Widget _buildOptionsSection(ThemeData theme, RodnyaDesignTokens tokens) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Варианты ответа',
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w800,
-            color: tokens.ink,
-          ),
-        ),
-        SizedBox(height: tokens.space8),
+        const _SectionHeader(title: 'Варианты ответа'),
+        const SizedBox(height: 6),
         for (var i = 0; i < _optionControllers.length; i++)
           Padding(
             padding: EdgeInsets.only(bottom: tokens.space8),
             child: Row(
               children: [
                 Expanded(
-                  child: TextField(
+                  child: _FormField(
                     key: Key('poll-option-$i'),
                     controller: _optionControllers[i],
+                    hint: 'Вариант ${i + 1}',
                     textCapitalization: TextCapitalization.sentences,
-                    decoration: InputDecoration(
-                      labelText: 'Вариант ${i + 1}',
-                      isDense: true,
-                    ),
                   ),
                 ),
                 IconButton(
                   key: Key('poll-remove-option-$i'),
                   tooltip: 'Удалить вариант',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
                   onPressed: _optionControllers.length <= 2
                       ? null
                       : () => _removeOption(i),
-                  icon: const Icon(Icons.remove_circle_outline),
+                  icon: const Icon(Icons.remove_circle_outline, size: 20),
                 ),
               ],
             ),
           ),
         if (_optionControllers.length < _maxOptions)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              key: const Key('poll-add-option'),
-              onPressed: _addOption,
-              icon: const Icon(Icons.add),
-              label: const Text('Добавить вариант'),
+          InkWell(
+            key: const Key('poll-add-option'),
+            borderRadius: BorderRadius.circular(14),
+            onTap: _addOption,
+            child: Container(
+              height: 44,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              alignment: Alignment.centerLeft,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.add, size: 18, color: tokens.accent),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Добавить вариант',
+                    style: AppTheme.sans(
+                      color: tokens.accent,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
       ],
@@ -423,19 +474,11 @@ class _CreatePollScreenState extends State<CreatePollScreen> {
       children: [
         Row(
           children: [
-            Expanded(
-              child: Text(
-                'Фото (необязательно)',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: tokens.ink,
-                ),
-              ),
-            ),
+            const Expanded(child: _SectionHeader(title: 'Фото (необязательно)')),
             TextButton.icon(
               key: const Key('poll-add-photo'),
               onPressed: _images.length >= _maxImages ? null : _pickImages,
-              icon: const Icon(Icons.add_photo_alternate_outlined),
+              icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
               label: Text(
                 _images.isEmpty ? 'Добавить' : '${_images.length}/$_maxImages',
               ),
@@ -507,13 +550,7 @@ class _CreatePollScreenState extends State<CreatePollScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Кого спрашиваем?',
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w800,
-            color: tokens.ink,
-          ),
-        ),
+        const _SectionHeader(title: 'Кого спрашиваем?'),
         SizedBox(height: tokens.space8),
         AudiencePicker(
           circles: _audienceCircles,
@@ -575,13 +612,7 @@ class _CreatePollScreenState extends State<CreatePollScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Спросить также в:',
-          style: theme.textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.w800,
-            color: tokens.ink,
-          ),
-        ),
+        _FieldLabel(label: 'Спросить также в'),
         SizedBox(height: tokens.space8),
         Wrap(
           spacing: tokens.space8,
@@ -604,6 +635,166 @@ class _CreatePollScreenState extends State<CreatePollScreen> {
           }).toList(),
         ),
       ],
+    );
+  }
+}
+
+// Плотность (чанк 24): те же приёмы, что у CreateGatheringScreen —
+// подпись 13sp uppercase над полем 50dp вместо плавающего
+// Material-лейбла, заголовок секции 15sp uppercase без своей карточки.
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.title});
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = Theme.of(context).extension<RodnyaDesignTokens>() ??
+        RodnyaDesignTokens.light;
+    return Text(
+      title.toUpperCase(),
+      style: AppTheme.sans(
+        color: tokens.ink,
+        fontSize: 15,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.2,
+        height: 1.15,
+      ),
+    );
+  }
+}
+
+class _FieldLabel extends StatelessWidget {
+  const _FieldLabel({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = Theme.of(context).extension<RodnyaDesignTokens>() ??
+        RodnyaDesignTokens.light;
+    return Text(
+      label.toUpperCase(),
+      style: AppTheme.sans(
+        color: tokens.inkMuted,
+        fontSize: 13,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.4,
+        height: 1.2,
+      ),
+    );
+  }
+}
+
+/// 50dp text field — hint-only (no floating Material label; that lives
+/// above as [_FieldLabel]) so the field height stays fixed regardless of
+/// focus/fill state, matching the reference forms (чанки 18/21).
+class _FormField extends StatelessWidget {
+  const _FormField({
+    super.key,
+    required this.controller,
+    this.hint,
+    this.textCapitalization = TextCapitalization.none,
+    this.minLines = 1,
+    this.maxLines = 1,
+  });
+
+  final TextEditingController controller;
+  final String? hint;
+  final TextCapitalization textCapitalization;
+  final int minLines;
+  final int maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = Theme.of(context).extension<RodnyaDesignTokens>() ??
+        RodnyaDesignTokens.light;
+    return TextField(
+      controller: controller,
+      textCapitalization: textCapitalization,
+      minLines: minLines,
+      maxLines: maxLines,
+      style: AppTheme.sans(
+        color: tokens.ink,
+        fontSize: AppTheme.formInputFontSize,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0,
+      ),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: AppTheme.sans(
+          color: tokens.inkMuted,
+          fontSize: AppTheme.formInputFontSize,
+          fontWeight: FontWeight.w500,
+          letterSpacing: 0,
+        ),
+        filled: true,
+        fillColor: tokens.bgTintWarm,
+        isDense: true,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: tokens.surfaceLine),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: tokens.surfaceLine),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: tokens.accent, width: 2),
+        ),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      ),
+    );
+  }
+}
+
+/// One 50dp tappable date/time chip.
+class _DateTimeChip extends StatelessWidget {
+  const _DateTimeChip({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = Theme.of(context).extension<RodnyaDesignTokens>() ??
+        RodnyaDesignTokens.light;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 50,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: tokens.bgTintWarm,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: tokens.surfaceLine),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: tokens.accent),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTheme.sans(
+                  color: tokens.ink,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
