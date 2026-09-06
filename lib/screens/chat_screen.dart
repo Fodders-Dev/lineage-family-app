@@ -9763,7 +9763,7 @@ class _ChatBubble extends StatelessWidget {
                   // video notes do — TG / WA convention.
                   padding: (_isVideoNoteOnly || _isNakedMediaOnly)
                       ? EdgeInsets.zero
-                      : const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                      : const EdgeInsets.fromLTRB(12, 6, 12, 6),
                   decoration: (_isVideoNoteOnly || _isNakedMediaOnly)
                       ? null
                       : BoxDecoration(
