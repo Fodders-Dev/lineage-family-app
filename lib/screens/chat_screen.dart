@@ -9622,8 +9622,10 @@ class _ChatBubble extends StatelessWidget {
           timeLabel,
           style: theme.textTheme.labelSmall?.copyWith(
             color: metaColor,
-            // M3 (50+): labelSmall (11) мелковат для времени — 12.5 читаемо.
-            fontSize: 12.5,
+            // Плотность (чанк 22): было 12.5 — спека держит время ровно
+            // на 12sp (labelSmall/11 мелковат, но 12.5 уже не давало
+            // экономии против явного значения из тикета).
+            fontSize: 12,
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -9738,10 +9740,9 @@ class _ChatBubble extends StatelessWidget {
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 360),
                   curve: Curves.easeOutCubic,
-                  // Reference `.msg` (Telegram-tight density pass): padding
-                  // 6px 11px, radius 16 + 6 on the tail corner. Was 9/13/8 +
-                  // 18/6 — recovers vertical space without shrinking the 16px
-                  // body font (kept readable for 50+).
+                  // Плотность (чанк 22): паддинг 8/12 (было 6/11) — спека
+                  // держит пузырь на «8 верт / 12 гориз» (Telegram `.msg`),
+                  // радиус 16 + 6 на «хвостовом» углу без изменений.
                   //
                   // Special case: a "naked" кружочек skips the bubble
                   // entirely (no padding, no background, no border) and
@@ -9752,7 +9753,7 @@ class _ChatBubble extends StatelessWidget {
                   // video notes do — TG / WA convention.
                   padding: (_isVideoNoteOnly || _isNakedMediaOnly)
                       ? EdgeInsets.zero
-                      : const EdgeInsets.fromLTRB(11, 6, 11, 6),
+                      : const EdgeInsets.fromLTRB(12, 8, 12, 8),
                   decoration: (_isVideoNoteOnly || _isNakedMediaOnly)
                       ? null
                       : BoxDecoration(

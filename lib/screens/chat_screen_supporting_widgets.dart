@@ -1040,12 +1040,13 @@ class _HighlightedMessageTextState extends State<_HighlightedMessageText> {
     if (normalizedQuery.isEmpty && urlMatches.isEmpty) {
       return Text(
         body,
-        // M3 (50+): 16/1.35 — раньше 14.5 по веб-референсу, но на
+        // M3 (50+): 16/1.3 — раньше 14.5 по веб-референсу, но на
         // 720×1560 старшим читать тяжело; 16 — минимум для сообщений.
+        // Плотность (чанк 22): 1.35 → 1.3 (спека), 16sp не трогаем.
         style: TextStyle(
           color: color,
           fontSize: 16,
-          height: 1.35,
+          height: 1.3,
         ),
       );
     }
@@ -1059,7 +1060,7 @@ class _HighlightedMessageTextState extends State<_HighlightedMessageText> {
     final baseStyle = TextStyle(
       color: color,
       fontSize: 16,
-      height: 1.35,
+      height: 1.3,
     );
     final linkStyle = baseStyle.copyWith(
       color: linkColor,
