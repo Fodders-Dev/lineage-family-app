@@ -240,7 +240,6 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               _buildHeroIntro(tokens),
-                              const SizedBox(height: 4),
                               if (isWide)
                                 Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -281,85 +280,42 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
   }
 
   Widget _buildHeroIntro(RodnyaDesignTokens tokens) {
+    // Плотность (чанк 21): убрали иллюстративный градиент-кавер +
+    // плашку «Добро пожаловать» и карточку-в-карточке (surfaceStrong +
+    // рамка) — это первый экран после регистрации, а не витрина, и он
+    // не должен занимать треть 412×915 до полей. Заголовок + одна
+    // строка подписи прямо на фоне скаффолда, как у экрана входа
+    // (чанк 18).
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-      child: Container(
-        decoration: BoxDecoration(
-          color: tokens.surfaceStrong,
-          borderRadius: BorderRadius.circular(28),
-          border: Border.all(color: tokens.surfaceLine),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Cover gradient identical to ProfileHeroCard so the
-            // registration step feels like the canonical profile
-            // surface — no visual context-switch when the user lands
-            // on /profile after completing.
-            Container(
-              height: 110,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [tokens.accent, tokens.warm],
-                ),
-              ),
-              alignment: Alignment.bottomLeft,
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.32),
-                  ),
-                ),
-                child: Text(
-                  'Добро пожаловать',
-                  style: AppTheme.sans(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1,
-                  ),
-                ),
-              ),
+      key: const Key('complete-profile-hero'),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Расскажите о себе',
+            style: AppTheme.serif(
+              color: tokens.ink,
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.3,
+              height: 1.12,
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Расскажите о себе',
-                    style: AppTheme.serif(
-                      color: tokens.ink,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: -0.4,
-                      height: 1.15,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Эти данные увидит ваша семья. Телефон и канал входа можно настроить позже — мы строим доверие через привязанные каналы вроде Telegram или Google.',
-                    style: AppTheme.sans(
-                      color: tokens.inkSecondary,
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0,
-                      height: 1.5,
-                    ),
-                  ),
-                ],
-              ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Эти данные увидит только семья',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTheme.sans(
+              color: tokens.inkSecondary,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0,
+              height: 1.2,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
