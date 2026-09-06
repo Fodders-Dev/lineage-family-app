@@ -142,7 +142,7 @@ void main() {
           FamilyPerson(
             id: 'p$i',
             treeId: 'tree-1',
-            name: 'Родственник $i',
+            name: 'Иван $i',
             gender: Gender.male,
             birthDate: DateTime(
               1950 + i,

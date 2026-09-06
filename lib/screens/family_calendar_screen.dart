@@ -49,8 +49,18 @@ class _FamilyCalendarScreenState extends State<FamilyCalendarScreen> {
   /// зашиты, а не через intl: DateFormat('LLL', 'ru') не гарантирует
   /// стабильную короткую форму на всех платформах/версиях ICU.
   static const List<String> _shortMonths = [
-    'янв', 'фев', 'мар', 'апр', 'май', 'июн',
-    'июл', 'авг', 'сен', 'окт', 'ноя', 'дек',
+    'янв',
+    'фев',
+    'мар',
+    'апр',
+    'май',
+    'июн',
+    'июл',
+    'авг',
+    'сен',
+    'окт',
+    'ноя',
+    'дек',
   ];
 
   late final EventService _service = widget.serviceOverride ?? EventService();
@@ -579,10 +589,18 @@ class _FamilyCalendarScreenState extends State<FamilyCalendarScreen> {
     final color = _markerColor(event.type, theme, tokens);
     final age = event.ageAtEvent;
     final title = event.isLinkedToPerson ? event.personName : event.title;
+    // status дальше недели — просто дата («21 сен»): она уже в бейдже и в
+    // заголовке дня, не дублируем; ближе — «Сегодня/Завтра/Через N дней»,
+    // это полезно и остаётся.
+    final now = DateTime.now();
+    final daysUntil =
+        DateTime(event.date.year, event.date.month, event.date.day)
+            .difference(DateTime(now.year, now.month, now.day))
+            .inDays;
     final subtitleParts = <String>[
       if (event.isLinkedToPerson) event.title,
       if (age != null) 'исполнится $age',
-      event.status,
+      if (daysUntil <= 7) event.status,
     ];
 
     return Padding(
@@ -623,8 +641,8 @@ class _FamilyCalendarScreenState extends State<FamilyCalendarScreen> {
                         ),
                       ),
                       Text(
-                        _FamilyCalendarScreenState._shortMonths[
-                            event.date.month - 1],
+                        _FamilyCalendarScreenState
+                            ._shortMonths[event.date.month - 1],
                         style: AppTheme.sans(
                           color: color,
                           fontSize: 11,
@@ -647,21 +665,23 @@ class _FamilyCalendarScreenState extends State<FamilyCalendarScreen> {
                         overflow: TextOverflow.ellipsis,
                         style: AppTheme.sans(
                           color: tokens.ink,
-                          fontSize: 15,
+                          fontSize: 16,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        subtitleParts.join(' · '),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTheme.sans(
-                          color: tokens.inkMuted,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w500,
+                      if (subtitleParts.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitleParts.join(' · '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.sans(
+                            color: tokens.inkMuted,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),
