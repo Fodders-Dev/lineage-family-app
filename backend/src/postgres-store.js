@@ -19,6 +19,7 @@ const {
   createChatDraftRecord,
   createChatPinRecord,
   createPersonIdentityRecord,
+  deepFreezeState,
   deriveSessionPublicId,
   describeMessagePreview,
   isMessageReadByUser,
@@ -262,6 +263,33 @@ class PostgresStore extends FileStore {
     // _cachedState. null = кэш не подтверждён (после буста из sidecar,
     // после fallback'а, после fake-pool без version) → _read идёт в БД.
     this._cachedVersion = null;
+    // SPEED-11: single-flight для «проверка версии» (SELECT version FROM) —
+    // конкурентный бёрст readSharedSnapshot() на попадании кэша ждёт ОДИН
+    // общий SQL, а не по одному на каждый вызов. Не даёт временного окна:
+    // очищается сразу после разрешения, следующий вызов (даже сразу после)
+    // идёт в БД заново — только конкурентность схлопывается, не свежесть.
+    this._versionQueryPromise = null;
+    // SPEED-11: single-flight для «промах — перечитать и закоммитить кэш»
+    // (_refreshSharedSnapshotOnMiss) — без этого конкурентный бёрст
+    // промахов (например, сразу после чужой записи) делал бы N честных
+    // SELECT+structuredClone+_syncGraphFromLegacy+sidecar-запись вместо
+    // одного. _cachedState сам служит «замороженным разделяемым снимком»
+    // (см. _commitCachedState) — отдельного поля под него не нужно.
+    this._cacheRefreshPromise = null;
+    // SPEED-11: обёртка без db.sessions (_buildSharedSnapshotView) поверх
+    // _cachedState, кэшированная по ССЫЛКЕ на исходное состояние — контракт
+    // readSharedSnapshot() («попадание отдаёт ОДИН И ТОТ ЖЕ объект») не
+    // выполнялся бы, если строить {...state} заново на каждый вызов (это
+    // дёшево по CPU, но ломает === для вызывающих, которые полагаются на
+    // идентичность — ровно как req.storeSnapshot в app.js должен быть
+    // одним объектом на весь HTTP-запрос). _cachedState ВСЕГДА переприсва-
+    // ивается целиком, никогда не мутируется на месте (см. _commitCachedState
+    // и аудит SPEED-11 в docs/speed_measurement.md) — поэтому сравнение по
+    // ссылке (_sharedSnapshotViewSource === state) само по себе и есть
+    // инвалидация: как только _cachedState заменился (запись/промах/прайм),
+    // ссылка перестаёт совпадать и обёртка перестраивается.
+    this._sharedSnapshotView = null;
+    this._sharedSnapshotViewSource = null;
     this._loadedSnapshotVersion = null;
     this._snapshotLoadPromise = null;
     this.storageMode = "postgres";
@@ -444,8 +472,7 @@ class PostgresStore extends FileStore {
         // записи (Phase 3.1c; идемпотентно, O(N) после SPEED-9 A).
         const primed = structuredClone(cursor.state);
         this._syncGraphFromLegacy(primed);
-        this._cachedState = primed;
-        this._cachedVersion = cursor.version;
+        this._commitCachedState(primed, cursor.version);
       }
     } else {
       await this._backfillPersonIdentitiesInStateRow();
@@ -5156,8 +5183,10 @@ class PostgresStore extends FileStore {
       // prod even though backend was deployed). Idempotent — no-op
       // when the graph already matches the legacy side.
       this._syncGraphFromLegacy(normalizedState);
-      this._cachedState = structuredClone(normalizedState);
-      this._cachedVersion = this._loadedSnapshotVersion;
+      this._commitCachedState(
+        structuredClone(normalizedState),
+        this._loadedSnapshotVersion,
+      );
       await this._persistSnapshotCache(this._cachedState);
       return normalizedState;
     } catch (error) {
@@ -5231,14 +5260,165 @@ class PostgresStore extends FileStore {
         this._lastChatsProjectionHash = nextChatsHash;
       }
       // Клон: `data` остаётся у вызывающего и может мутировать дальше —
-      // кэш, который теперь отдаётся на каждом чтении, обязан быть своим.
-      this._cachedState = structuredClone(normalizeDbState(data));
-      // Кэш = только что записанное состояние под его версией: следующее
-      // чтение после записи не перечитывает блоб. Без RETURNING (fake-pool)
-      // версия неизвестна → кэш не подтверждён → честное чтение.
-      this._cachedVersion = writtenVersion;
+      // кэш, который теперь отдаётся на каждом чтении (и на каждом
+      // попадании readSharedSnapshot() — БЕЗ повторного клона, см.
+      // _commitCachedState), обязан быть своим. Кэш = только что
+      // записанное состояние под его версией: следующее чтение после
+      // записи не перечитывает блоб. Без RETURNING (fake-pool) версия
+      // неизвестна → кэш не подтверждён → честное чтение.
+      this._commitCachedState(structuredClone(normalizeDbState(data)), writtenVersion);
       await this._persistSnapshotCache(this._cachedState);
     });
+  }
+
+  // SPEED-11: единственная точка, где _cachedState получает НОВОЕ значение
+  // одновременно с ПОДТВЕРЖДЁННОЙ версией строки — замораживает состояние
+  // (deepFreezeState, store.js) РОВНО ОДИН РАЗ здесь же, так что
+  // readSharedSnapshot() на попадании кэша отдаёт эту же ссылку без клона
+  // и без повторного обхода дерева (deepFreezeState на уже замороженном
+  // значении — O(1), см. её ранний возврат). Бут-миграции
+  // (_migrateChatCollectionsToTables/_migrateNotificationCollectionsToTables/
+  // _migrateTreeChangeCollectionsToTables/_backfillPersonIdentitiesInStateRow)
+  // присваивают this._cachedState НАПРЯМУЮ, в обход этого метода, — они
+  // никогда не подтверждают версию (см. комментарий у _cachedVersion в
+  // конструкторе), поэтому их состояние в любом случае будет замещено
+  // первым же честным _read()/readSharedSnapshot() ниже; замораживать его
+  // там бессмысленно и означало бы трогать код миграций без необходимости
+  // (вне периметра SPEED-11).
+  _commitCachedState(state, version) {
+    deepFreezeState(state);
+    this._cachedState = state;
+    this._cachedVersion = version;
+    return state;
+  }
+
+  // SPEED-11: single-flight обёртка над _selectStateVersion() специально
+  // для readSharedSnapshot() — на бёрсте параллельных GET (10-12 запросов
+  // за один вход клиента, см. docs/speed_measurement.md) все конкурентные
+  // попадания в кэш ждут ОДИН общий SELECT version вместо одного на
+  // каждый вызов. Промис вычищается сразу после разрешения (успех ИЛИ
+  // ошибка) — следующий вызов (даже в следующем тике) идёт в БД заново,
+  // так что это схлопывает только конкурентность ВНУТРИ одного всплеска,
+  // не кэширует свежесть на будущее (тот же паттерн, что и у _loadSnapshot
+  // ниже).
+  _sharedVersionCheck() {
+    if (this._versionQueryPromise) {
+      return this._versionQueryPromise;
+    }
+    this._versionQueryPromise = this._selectStateVersion().finally(() => {
+      this._versionQueryPromise = null;
+    });
+    return this._versionQueryPromise;
+  }
+
+  // SPEED-11: промах readSharedSnapshot() — честная перезагрузка блоба,
+  // схлопнутая в один общий полёт на конкурентный бёрст промахов (иначе N
+  // параллельных промахов делали бы N SELECT+normalizeDbState+граф-синк+
+  // sidecar-запись, хотя итог для всех N одинаков). _loadSnapshot() уже
+  // single-flight'ит сам SQL (её собственный _snapshotLoadPromise) — этот
+  // промис достраивает поверх граф-синк + freeze + коммит кэша + sidecar,
+  // которые _loadSnapshot() не делает и которые дороги при повторе на
+  // большом снимке (deepFreezeState — O(размера состояния) на первом,
+  // ещё НЕзамороженном значении).
+  //
+  // Зеркалит промах-ветку _read() один в один (кроме db.sessions — см.
+  // readSharedSnapshot), включая обновление _lastUsersProjectionHash:
+  // без него следующий _write() решил бы, что таблица-проекция
+  // пользователей разошлась с блобом, и лишний раз переписала бы её.
+  // _lastSessionsProjectionHash сознательно НЕ трогаем — readSharedSnapshot()
+  // не читает db.sessions вообще, это и есть половина экономии SPEED-11.
+  async _refreshSharedSnapshotOnMiss() {
+    if (this._cacheRefreshPromise) {
+      return this._cacheRefreshPromise;
+    }
+    this._cacheRefreshPromise = (async () => {
+      const normalizedState = await this._loadSnapshot();
+      this._lastUsersProjectionHash = computeProjectionHash(normalizedState.users);
+      this._syncGraphFromLegacy(normalizedState);
+      this._commitCachedState(
+        structuredClone(normalizedState),
+        this._loadedSnapshotVersion,
+      );
+      await this._persistSnapshotCache(this._cachedState);
+      return this._cachedState;
+    })().finally(() => {
+      this._cacheRefreshPromise = null;
+    });
+    return this._cacheRefreshPromise;
+  }
+
+  // SPEED-11: как _read(), но БЕЗ клона на попадании кэша и БЕЗ SQL
+  // сессий — для GET-маршрутов, которым нужен блоб только чтобы передать
+  // его дальше как prefetchedDb/db (requireTreeAccess в app.js кладёт
+  // результат на req.storeSnapshot; шесть маршрутов бёрста входа —
+  // persons/person/graph/gatherings/polls/stories — прокидывают его в
+  // findMembership/listPersons/findPerson/listHiddenPersonIdsForCaller/
+  // getTreeGraphSnapshot/listGatherings/listPolls/listStories). Ни один
+  // из них не читает db.sessions и не мутирует db — полный аудит
+  // (включая ensureCirclesForTree/backfillPersonIdentities под
+  // капотом _canUserViewCircleContent) в docs/speed_measurement.md,
+  // раздел SPEED-11.
+  //
+  // На попадании кэша единственный SQL — проверка версии (single-flight,
+  // см. _sharedVersionCheck); 0 structuredClone (~480 КБ на прод-блобе),
+  // 0 SELECT session_data. На промахе — честная перезагрузка, тоже
+  // single-flight (_refreshSharedSnapshotOnMiss). Возвращаемое значение
+  // ВСЕГДА глубоко заморожено и без db.sessions (см. _buildSharedSnapshotView
+  // в store.js) — вызывающий, который попробует мутировать снимок или
+  // прочитать .sessions, получит явную ошибку вместо тихого искажения
+  // общего для всех запросов состояния.
+  async readSharedSnapshot() {
+    await this.initialize();
+    await this._hydrateCachedStateFromSnapshotCache();
+
+    let currentVersion;
+    try {
+      await this._awaitReadConsistency();
+      currentVersion = await this._sharedVersionCheck();
+    } catch (error) {
+      const fallback = this._serveCachedSnapshotFallback(error, {phase: "read"});
+      return this._sharedSnapshotViewFor(deepFreezeState(fallback));
+    }
+
+    if (
+      currentVersion !== null &&
+      this._cachedState &&
+      this._cachedVersion === currentVersion
+    ) {
+      // Защитный вызов: _cachedState обязан быть заморожен уже
+      // _commitCachedState (единственное место присвоения на пути,
+      // который может дать подтверждённую версию — см. её комментарий).
+      // deepFreezeState на уже замороженном значении — O(1) (ранний
+      // возврат по Object.isFrozen), так что это самокорректируется на
+      // случай регрессии (новое место записи забыло пройти через
+      // _commitCachedState), а не тихо отдаёт мутируемый снимок.
+      return this._sharedSnapshotViewFor(deepFreezeState(this._cachedState));
+    }
+
+    const refreshed = await this._refreshSharedSnapshotOnMiss();
+    return this._sharedSnapshotViewFor(refreshed);
+  }
+
+  // SPEED-11: _buildSharedSnapshotView (store.js) строит {...state} заново
+  // на каждый вызов — дёшево по CPU (shallow-spread верхнего уровня), но
+  // отдавало бы РАЗНЫЙ объект-обёртку на каждый readSharedSnapshot(), даже
+  // когда `state` (== this._cachedState) не менялся. Это ломает контракт
+  // «попадание отдаёт ОДИН И ТОТ ЖЕ объект» — важно не само по себе, а
+  // потому что requireTreeAccess (app.js) кладёт результат на
+  // req.storeSnapshot ОДИН раз и полагается на то, что это один и тот же
+  // объект для ВСЕХ store-методов в рамках HTTP-запроса. Кэшируем обёртку
+  // по ССЫЛКЕ на исходное состояние: `state` меняется только через
+  // _commitCachedState (полная переприсвоение, никогда мутация на месте),
+  // так что сравнение по ссылке — само по себе корректная инвалидация без
+  // отдельного счётчика версий.
+  _sharedSnapshotViewFor(state) {
+    if (this._sharedSnapshotView && this._sharedSnapshotViewSource === state) {
+      return this._sharedSnapshotView;
+    }
+    const view = this._buildSharedSnapshotView(state);
+    this._sharedSnapshotViewSource = state;
+    this._sharedSnapshotView = view;
+    return view;
   }
 
   async _loadSnapshot() {
