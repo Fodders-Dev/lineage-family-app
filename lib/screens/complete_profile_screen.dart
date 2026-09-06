@@ -229,7 +229,10 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                   final isWide = constraints.maxWidth >= 980;
                   final dateFormat = DateFormat.yMMMd('ru');
 
-                  return Center(
+                  // По верху, не по центру: Center при контенте короче
+                  // экрана отдавал 25–33dp пустоты над заголовком формы.
+                  return Align(
+                    alignment: Alignment.topCenter,
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 720),
                       child: SingleChildScrollView(
