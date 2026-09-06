@@ -465,6 +465,7 @@ class _DiscoverRelativesScreenState extends State<DiscoverRelativesScreen> {
           ),
         for (final profile in _searchResults)
           _SearchResultTile(
+            key: ValueKey('discover-result-${profile.id}'),
             profile: profile,
             onTap: () => _selectTarget(profile),
           ),
@@ -708,8 +709,16 @@ class _DiscoverRelativesScreenState extends State<DiscoverRelativesScreen> {
 
 // ── Helper widgets ────────────────────────────────────────────────
 
+/// Плотность (чанк 25): было Card(elevation:0)+ListTile — рамка-в-рамке
+/// (каждая строка — отдельная скруглённая карточка на фоне страницы) с
+/// паддингом 12/6, ~72dp на строку. Стало — плоская строка 56dp с
+/// волосяной линией-разделителем (как остальные списки этого чанка):
+/// аватар 40dp (CircleAvatar default radius уже даёт 40dp), имя 16sp,
+/// @username/email 13sp, шеврон — визуальная подсказка, вся строка уже
+/// тап-цель (высота 56dp ≥ 44dp).
 class _SearchResultTile extends StatelessWidget {
   const _SearchResultTile({
+    super.key,
     required this.profile,
     required this.onTap,
   });
@@ -724,47 +733,78 @@ class _SearchResultTile extends StatelessWidget {
     final usernameLine = profile.username.isNotEmpty
         ? '@${profile.username}'
         : (profile.email.isNotEmpty ? profile.email : '');
-    return Card(
-      elevation: 0,
-      color: theme.colorScheme.surfaceContainerLow,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 6,
-        ),
-        leading: CircleAvatar(
-          backgroundColor: theme.colorScheme.primaryContainer,
-          backgroundImage:
-              profile.photoURL != null && profile.photoURL!.isNotEmpty
-                  ? NetworkImage(profile.photoURL!)
-                  : null,
-          child: profile.photoURL == null || profile.photoURL!.isEmpty
-              ? Text(
-                  _initialOf(displayName),
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: theme.colorScheme.onPrimaryContainer,
-                    fontWeight: FontWeight.w800,
-                  ),
-                )
-              : null,
-        ),
-        title: Text(
-          displayName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: usernameLine.isEmpty
-            ? null
-            : Text(
-                usernameLine,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-        trailing: const Icon(Icons.chevron_right_rounded),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
         onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(
+                color: theme.colorScheme.outlineVariant.withValues(
+                  alpha: 0.35,
+                ),
+                width: 0.6,
+              ),
+            ),
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: theme.colorScheme.primaryContainer,
+                backgroundImage:
+                    profile.photoURL != null && profile.photoURL!.isNotEmpty
+                        ? NetworkImage(profile.photoURL!)
+                        : null,
+                child: profile.photoURL == null || profile.photoURL!.isEmpty
+                    ? Text(
+                        _initialOf(displayName),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: theme.colorScheme.onPrimaryContainer,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      )
+                    : null,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (usernameLine.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        usernameLine,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontSize: 13,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -170,8 +170,7 @@ class _SemyaDetailsScreenState extends State<SemyaDetailsScreen> {
                     'Пригласите близких — вести семейное дерево вместе '
                     'теплее и проще.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color:
-                              Theme.of(context).colorScheme.onSurfaceVariant,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                           height: 1.35,
                         ),
                   ),
@@ -187,8 +186,8 @@ class _SemyaDetailsScreenState extends State<SemyaDetailsScreen> {
                           ),
                         ),
                       ),
-                      icon: const Icon(Icons.person_add_alt_1_outlined,
-                          size: 18),
+                      icon:
+                          const Icon(Icons.person_add_alt_1_outlined, size: 18),
                       label: const Text('Пригласить'),
                     ),
                   ],
@@ -368,7 +367,8 @@ class _SemyaDetailsScreenState extends State<SemyaDetailsScreen> {
           : null,
       onTap: isLastOwner || isPending
           ? null
-          : () => _confirmAndSelfLeave(context, controller, details, currentUserId),
+          : () =>
+              _confirmAndSelfLeave(context, controller, details, currentUserId),
     );
   }
 
@@ -553,6 +553,9 @@ class _RoleChip extends StatelessWidget {
   }
 }
 
+/// Плотность (чанк 25): секционный заголовок — 28dp вместо ~44dp
+/// (titleSmall с паддингом 16/8). Тот же паттерн, что и группы в
+/// списке приглашений (semya_invitations_list_screen.dart).
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader(this.label);
 
@@ -562,12 +565,16 @@ class _SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-      child: Text(
-        label,
-        style: theme.textTheme.titleSmall?.copyWith(
-          fontWeight: FontWeight.w700,
-          color: theme.colorScheme.onSurfaceVariant,
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+      child: SizedBox(
+        height: 16,
+        child: Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: theme.colorScheme.onSurfaceVariant,
+            letterSpacing: 0.2,
+          ),
         ),
       ),
     );
@@ -651,95 +658,129 @@ class _MemberRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final initials = _initialsOf(membership.displayLabel);
-    return ListTile(
-      leading: _buildAvatar(theme, initials),
-      title: Row(
-        children: [
-          Flexible(
-            child: Text(
-              membership.displayLabel,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: _isSelf ? const TextStyle(fontWeight: FontWeight.w700) : null,
-            ),
+    // Плотность (чанк 25): было ListTile (title+subtitle+leading+trailing
+    // дефолтные паддинги, ~76dp); стало кастомный Row 56dp — аватар 40dp,
+    // имя 16sp + подпись «дата вступления» 13sp, роль+меню справа
+    // (меню — тач-цель 44dp).
+    return Container(
+      key: ValueKey('semya-member-row-${membership.userId}'),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
+            width: 0.6,
           ),
-          if (_isSelf)
-            Padding(
-              padding: const EdgeInsets.only(left: 6),
-              child: Text(
-                '(это я)',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-        ],
-      ),
-      subtitle: Text(
-        _formatJoinedAt(membership.joinedAt),
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
         ),
       ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: [
+          _buildAvatar(theme, initials),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        membership.displayLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          fontSize: 16,
+                          fontWeight:
+                              _isSelf ? FontWeight.w700 : FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (_isSelf)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 6),
+                        child: Text(
+                          '(это я)',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _formatJoinedAt(membership.joinedAt),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontSize: 13,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
           _RoleChip(role: membership.role),
           if (_showMenu) ...[
             const SizedBox(width: 4),
-            MembershipActionMenu(
-              membership: membership,
-              isPending: controller.isPending(membership.userId),
-              actions: MembershipActions(
-                onChangeRole: (role) =>
-                    controller.updateMemberRoleOrGrant(
-                  userId: membership.userId,
-                  role: role,
-                ),
-                onToggleInviteGrant: (enabled) =>
-                    controller.updateMemberRoleOrGrant(
-                  userId: membership.userId,
-                  hasInviteGrant: enabled,
-                ),
-                onKick: () async {
-                  // Capture the messenger BEFORE the kick — a successful
-                  // kick reloads the list and disposes this row (and its
-                  // context), so we can't show the undo toast from the
-                  // row's context afterwards.
-                  final messenger = ScaffoldMessenger.of(context);
-                  final removed = await controller.removeMember(
+            SizedBox(
+              width: 44,
+              height: 44,
+              child: MembershipActionMenu(
+                membership: membership,
+                isPending: controller.isPending(membership.userId),
+                actions: MembershipActions(
+                  onChangeRole: (role) => controller.updateMemberRoleOrGrant(
                     userId: membership.userId,
-                  );
-                  if (removed == null || removed.wasSelfLeave) return;
-                  final kicked = removed.membership;
-                  messenger.showSnackBar(
-                    SnackBar(
-                      content: const Text('Участник удалён'),
-                      duration: const Duration(seconds: 10),
-                      action: SnackBarAction(
-                        label: 'Отменить',
-                        onPressed: () async {
-                          // Re-add restores editor/viewer (owners aren't
-                          // kicked). joinedAt is reassigned server-side.
-                          final restored = await controller.addMember(
-                            userId: kicked.userId,
-                            role: kicked.role,
-                            hasInviteGrant: kicked.hasInviteGrant,
-                          );
-                          messenger.showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                restored
-                                    ? 'Участник восстановлен'
-                                    : 'Не удалось восстановить участника',
+                    role: role,
+                  ),
+                  onToggleInviteGrant: (enabled) =>
+                      controller.updateMemberRoleOrGrant(
+                    userId: membership.userId,
+                    hasInviteGrant: enabled,
+                  ),
+                  onKick: () async {
+                    // Capture the messenger BEFORE the kick — a successful
+                    // kick reloads the list and disposes this row (and its
+                    // context), so we can't show the undo toast from the
+                    // row's context afterwards.
+                    final messenger = ScaffoldMessenger.of(context);
+                    final removed = await controller.removeMember(
+                      userId: membership.userId,
+                    );
+                    if (removed == null || removed.wasSelfLeave) return;
+                    final kicked = removed.membership;
+                    messenger.showSnackBar(
+                      SnackBar(
+                        content: const Text('Участник удалён'),
+                        duration: const Duration(seconds: 10),
+                        action: SnackBarAction(
+                          label: 'Отменить',
+                          onPressed: () async {
+                            // Re-add restores editor/viewer (owners aren't
+                            // kicked). joinedAt is reassigned server-side.
+                            final restored = await controller.addMember(
+                              userId: kicked.userId,
+                              role: kicked.role,
+                              hasInviteGrant: kicked.hasInviteGrant,
+                            );
+                            messenger.showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  restored
+                                      ? 'Участник восстановлен'
+                                      : 'Не удалось восстановить участника',
+                                ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
             ),
           ],
@@ -750,7 +791,7 @@ class _MemberRow extends StatelessWidget {
 
   Widget _buildAvatar(ThemeData theme, String initials) {
     final fallback = CircleAvatar(
-      radius: 18,
+      radius: 20,
       backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.16),
       child: Text(
         initials,
@@ -765,8 +806,8 @@ class _MemberRow extends StatelessWidget {
     final url = normalizePhotoUrl(raw) ?? raw;
     return ClipOval(
       child: SizedBox(
-        width: 36,
-        height: 36,
+        width: 40,
+        height: 40,
         child: CachedNetworkImage(
           imageUrl: url,
           fit: BoxFit.cover,
@@ -778,11 +819,8 @@ class _MemberRow extends StatelessWidget {
   }
 
   static String _initialsOf(String label) {
-    final parts = label
-        .trim()
-        .split(RegExp(r'\s+'))
-        .where((p) => p.isNotEmpty)
-        .toList();
+    final parts =
+        label.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
     if (parts.isEmpty) return '?';
     if (parts.length == 1) {
       final p = parts.first;

@@ -92,16 +92,22 @@ class _SemyaInviteScreenState extends State<SemyaInviteScreen> {
   Widget _buildForm(SemyaInvitationsController controller) {
     final theme = Theme.of(context);
     return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       children: [
+        // Плотность (чанк 25): пояснение — не абзац, а одна вводная
+        // строка (maxLines 2 — страховка для узких экранов), 14sp вместо
+        // bodyMedium по умолчанию (14-15).
         Text(
           'Укажите контакт, чтобы подписать приглашение. Родня создаст '
           'персональную ссылку — отправить её нужно будет самостоятельно.',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
           style: theme.textTheme.bodyMedium?.copyWith(
+            fontSize: 14,
             color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
         TextField(
           key: const Key('semya-invite-email'),
           controller: _emailController,
@@ -123,7 +129,7 @@ class _SemyaInviteScreenState extends State<SemyaInviteScreen> {
             prefixIcon: Icon(Icons.phone_outlined),
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 10),
         Text(
           'Роль',
           style: theme.textTheme.titleSmall?.copyWith(
@@ -158,7 +164,7 @@ class _SemyaInviteScreenState extends State<SemyaInviteScreen> {
             color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 16),
         if (controller.errorMessage != null) ...[
           Container(
             padding: const EdgeInsets.all(12),
@@ -173,20 +179,27 @@ class _SemyaInviteScreenState extends State<SemyaInviteScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
         ],
-        FilledButton(
-          key: const Key('semya-invite-submit'),
-          onPressed: controller.isSending ? null : _submit,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: controller.isSending
-                ? const SizedBox(
-                    height: 18,
-                    width: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('Создать ссылку'),
+        // Плотность (чанк 25): CTA — фиксированные 52dp вместо
+        // FilledButton с двойным вертикальным паддингом (тема даёт 14
+        // сверху/снизу + был ещё Padding(vertical: 12) внутри — вместе
+        // ~70dp на кнопку одной строки). SizedBox снаружи держит высоту,
+        // Center внутри — спиннер/текст по центру той же коробки.
+        SizedBox(
+          height: 52,
+          child: FilledButton(
+            key: const Key('semya-invite-submit'),
+            onPressed: controller.isSending ? null : _submit,
+            child: Center(
+              child: controller.isSending
+                  ? const SizedBox(
+                      height: 18,
+                      width: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Создать ссылку'),
+            ),
           ),
         ),
       ],
@@ -201,91 +214,165 @@ class _SuccessView extends StatelessWidget {
 
   String get _shareLink => 'https://rodnya-tree.ru/invite/${invitation.token}';
 
+  Future<void> _copyLink(BuildContext context) async {
+    await Clipboard.setData(ClipboardData(text: _shareLink));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ссылка скопирована')),
+      );
+    }
+  }
+
+  Future<void> _shareLinkNow() async {
+    await SharePlus.instance.share(
+      ShareParams(text: 'Приглашение в семью на Rodnya: $_shareLink'),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Плотность (чанк 25): было — иконка 64dp + заголовок headlineSmall +
+    // пояснение + отдельный блок ссылки + строка из 2 полноширинных
+    // кнопок (Скопировать/Поделиться) — «вступление» одно съедало
+    // страницы. Стало — компактная иконка+заголовок в одну группу,
+    // пояснение ≤2 строк 14sp, ссылка одной строкой 50dp со
+    // встроенной кнопкой копирования 44dp, «Поделиться» — пилюля 46dp
+    // (как соцвход на экране входа, _SocialAuthChip) — всё умещается
+    // на первом экране без прокрутки.
     return ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
       children: [
         Icon(
           Icons.check_circle_outline,
-          size: 64,
+          size: 40,
           color: theme.colorScheme.primary,
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 10),
         Text(
           'Ссылка для приглашения готова',
-          style: theme.textTheme.headlineSmall?.copyWith(
+          style: theme.textTheme.titleLarge?.copyWith(
             fontWeight: FontWeight.w800,
           ),
           textAlign: TextAlign.center,
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         Text(
-          'Отправьте ссылку родственнику любым удобным способом — после '
-          'открытия он сможет войти и принять приглашение.',
+          'Отправьте ссылку родственнику — после открытия он войдёт и '
+          'примет приглашение.',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
           style: theme.textTheme.bodyMedium?.copyWith(
+            fontSize: 14,
             color: theme.colorScheme.onSurfaceVariant,
           ),
           textAlign: TextAlign.center,
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
         Container(
-          padding: const EdgeInsets.all(14),
+          height: 50,
+          padding: const EdgeInsets.only(left: 14),
           decoration: BoxDecoration(
             color: theme.colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
           ),
-          child: SelectableText(
-            _shareLink,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              fontFamily: 'monospace',
-            ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _shareLink,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontFamily: 'monospace',
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 44,
+                height: 44,
+                child: IconButton(
+                  key: const Key('semya-invite-copy'),
+                  tooltip: 'Скопировать',
+                  icon: const Icon(Icons.copy_rounded, size: 20),
+                  onPressed: () => _copyLink(context),
+                ),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 16),
-        Row(
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
           children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                key: const Key('semya-invite-copy'),
-                onPressed: () async {
-                  await Clipboard.setData(
-                    ClipboardData(text: _shareLink),
-                  );
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Ссылка скопирована')),
-                    );
-                  }
-                },
-                icon: const Icon(Icons.copy_rounded),
-                label: const Text('Скопировать'),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: FilledButton.icon(
-                key: const Key('semya-invite-share'),
-                onPressed: () async {
-                  await SharePlus.instance.share(
-                    ShareParams(
-                      text: 'Приглашение в семью на Rodnya: $_shareLink',
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.share_outlined),
-                label: const Text('Поделиться'),
-              ),
+            _InviteActionPill(
+              key: const Key('semya-invite-share'),
+              label: 'Поделиться',
+              icon: Icons.share_outlined,
+              onTap: _shareLinkNow,
             ),
           ],
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 20),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Закрыть'),
         ),
       ],
+    );
+  }
+}
+
+/// Плотность (чанк 25): визуальный близнец `_SocialAuthChip` со
+/// экрана входа (density chunk 18) — icon+label пилюля 46dp высотой.
+/// Здесь только реальные действия (Поделиться); Telegram/WhatsApp/QR
+/// пиктограммы в макете не добавлены — под них нет отдельных каналов
+/// шаринга в сервисном слое (SharePlus открывает системный лист, где
+/// Telegram/WhatsApp уже доступны как приложения получателя).
+class _InviteActionPill extends StatelessWidget {
+  const _InviteActionPill({
+    super.key,
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Material(
+      color: Colors.transparent,
+      shape: StadiumBorder(side: BorderSide(color: scheme.outlineVariant, width: 1.2)),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          height: 46,
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          alignment: Alignment.center,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 20, color: scheme.onSurface),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: scheme.onSurface,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

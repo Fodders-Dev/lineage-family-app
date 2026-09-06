@@ -276,4 +276,56 @@ void main() {
     expect(service.revokeCalls, 1);
     expect(find.text('Приглашение отозвано'), findsOneWidget);
   });
+
+  testWidgets(
+    'density chunk 25: row height ~56-64dp + ≥10 rows visible on 412x915',
+    (tester) async {
+      // Regression guard for chunk 25 (invitations list). Before: ListTile
+      // rows at 72dp each → 12 rows visible on a 412×915 screen. After:
+      // custom 56-64dp row (icon-avatar + name/time + status/role) под
+      // группами «Ожидают»/«История» → ≥10 rows visible even with the
+      // extra 28dp group header.
+      tester.view.physicalSize = const Size(412 * 3, 915 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      final invitations =
+          List.generate(20, (i) => _invitation(id: '$i', email: 'u$i@x.io'));
+      getIt.registerSingleton<FamilyTreeServiceInterface>(
+        _FakeService(invitations: invitations),
+      );
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: SemyaInvitationsListScreen(
+            semyaId: 'semya-1',
+            canInvite: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final row0 =
+          tester.getRect(find.byKey(const Key('semya-invitation-tile-0')));
+      expect(
+        row0.height,
+        inInclusiveRange(56, 64),
+        reason: 'Строка приглашения должна быть 56-64dp (до чанка 25 было '
+            '72dp у ListTile).',
+      );
+
+      var visible = 0;
+      for (var i = 0; i < invitations.length; i++) {
+        final finder = find.byKey(Key('semya-invitation-tile-$i'));
+        if (finder.evaluate().isEmpty) break;
+        if (tester.getRect(finder).top < 915) visible++;
+      }
+      expect(
+        visible,
+        greaterThanOrEqualTo(10),
+        reason: 'На первом экране 412×915 должно помещаться ≥10 строк '
+            '(до чанка 25 — 12 строк без секций; после — с заголовком '
+            'группы поместилось 14).',
+      );
+    },
+  );
 }

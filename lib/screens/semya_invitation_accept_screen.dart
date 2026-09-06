@@ -156,19 +156,26 @@ class _SemyaInvitationAcceptScreenState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Плотность (чанк 25): у этого экрана нет отдельного шага
+    // подтверждения — mount сразу вызывает acceptInvitation (см. комментарий
+    // класса выше и initState); поэтому здесь нет hero «кто приглашает +
+    // в какую семью» и CTA «Присоединиться» — их пришлось бы городить
+    // поверх нового confirm-шага, а это уже логика принятия приглашения
+    // (запрещено правкой только вёрстки). Плотность применена к двум
+    // реальным состояниям: обработка и ошибка.
     return Scaffold(
       appBar: AppBar(
         title: const Text('Приглашение в семью'),
       ),
       body: Center(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(20),
           child: _processing
               ? Column(
                   mainAxisSize: MainAxisSize.min,
                   children: const [
                     CircularProgressIndicator(),
-                    SizedBox(height: 16),
+                    SizedBox(height: 12),
                     Text('Проверяем приглашение...'),
                   ],
                 )
@@ -177,20 +184,27 @@ class _SemyaInvitationAcceptScreenState
                   children: [
                     Icon(
                       Icons.error_outline_rounded,
-                      size: 56,
+                      size: 40,
                       color: theme.colorScheme.error,
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                     Text(
                       _errorMessage ?? 'Не удалось обработать приглашение',
-                      style: theme.textTheme.bodyLarge,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        fontSize: 15,
+                      ),
                       textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 24),
-                    FilledButton(
-                      key: const Key('invitation-accept-go-home'),
-                      onPressed: () => context.go('/'),
-                      child: const Text('Вернуться на главную'),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      height: 52,
+                      child: FilledButton(
+                        key: const Key('invitation-accept-go-home'),
+                        onPressed: () => context.go('/'),
+                        child: const Center(
+                          child: Text('Вернуться на главную'),
+                        ),
+                      ),
                     ),
                   ],
                 ),

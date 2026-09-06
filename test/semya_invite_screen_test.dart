@@ -230,4 +230,63 @@ void main() {
     await tester.pumpAndSettle();
     expect(service.lastRole, SemyaRole.editor);
   });
+
+  testWidgets(
+    'density chunk 25: form CTA + success-view actions fit above the fold on 412x915',
+    (tester) async {
+      // Regression guard for chunk 25 (invite screen). Before: form CTA
+      // bottom 538dp, success-view copy/share buttons bottom 512dp
+      // (full-width Row двух кнопок ниже блока ссылки). After: form CTA
+      // 444dp (52dp fixed height, no double padding), success-view copy
+      // 315dp / share pill 376dp — link row + share pill both land in
+      // the first ~400dp, no scroll needed to grab the link.
+      tester.view.physicalSize = const Size(412 * 3, 915 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      final service = _FakeService(createResult: _invitation());
+      getIt.registerSingleton<FamilyTreeServiceInterface>(service);
+      await tester.pumpWidget(
+        const MaterialApp(home: SemyaInviteScreen(semyaId: 'semya-1')),
+      );
+      await tester.pumpAndSettle();
+
+      final formSubmitRect =
+          tester.getRect(find.byKey(const Key('semya-invite-submit')));
+      expect(
+        formSubmitRect.height,
+        52,
+        reason: 'CTA «Создать ссылку» должна быть фиксированной 52dp.',
+      );
+      expect(
+        formSubmitRect.bottom,
+        lessThanOrEqualTo(480),
+        reason: 'Низ CTA формы должен помещаться в верхние 480dp '
+            '(до чанка 25 было 538dp).',
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('semya-invite-email')),
+        'x@y.z',
+      );
+      await tester.tap(find.byKey(const Key('semya-invite-submit')));
+      await tester.pumpAndSettle();
+
+      final copyRect =
+          tester.getRect(find.byKey(const Key('semya-invite-copy')));
+      final shareRect =
+          tester.getRect(find.byKey(const Key('semya-invite-share')));
+      expect(
+        copyRect.height,
+        44,
+        reason: 'Кнопка «Копировать» — тач-цель 44dp внутри строки ссылки.',
+      );
+      expect(
+        shareRect.bottom,
+        lessThanOrEqualTo(420),
+        reason: 'Пилюля «Поделиться» должна попадать в верхние 420dp '
+            '(до чанка 25 обе кнопки были на 512dp).',
+      );
+    },
+  );
 }
