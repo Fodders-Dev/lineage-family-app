@@ -1,2 +1,7 @@
 node_modules/
 data/dev-db.json
+
+# SPEED-10 (docs/speed_measurement.md): локальные копии прод-блоба и
+# результаты профилирования для backend/tool/speed10_*.js — НИКОГДА
+# не коммитить (персональные данные семей).
+.scratch/

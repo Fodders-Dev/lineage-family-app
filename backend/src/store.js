@@ -10,6 +10,8 @@ const {
   normalizedBirthYear,
   scorePersonPair,
   findCrossTreeIdentitySuggestions,
+  normalizePersonForScoring,
+  scoreNormalizedPersons,
 } = require("./identity-matcher");
 const {
   GRAPH_PERSON_CANONICAL_FIELDS,
@@ -2503,15 +2505,25 @@ function applyCanonicalProfileToPerson(person, profile = {}, {
   return person;
 }
 
+// SPEED-10: `usersById` — опциональная карта id→user (buildUsersByIdMap),
+// построенная ОДИН раз вызывающим циклом (listPersons и т.п.), вместо
+// db.users.find(...) на КАЖДОГО person — было O(persons_в_дереве ×
+// users_всего) на listPersons, см. docs/speed_measurement.md SPEED-10.
+// Без параметра — прежнее поведение, честный .find() (searchPersonsForUser
+// и fallback внутри _buildPersonViewFromGraph зовут одиночно, карту строить
+// ради одного person незачем).
 function buildCanonicalPersonView(db, person, {
   touchUpdatedAt = false,
+  usersById = null,
 } = {}) {
   const personView = structuredClone(person);
   if (!personView?.userId) {
     return personView;
   }
 
-  const user = db.users.find((entry) => entry.id === personView.userId);
+  const user = usersById
+    ? usersById.get(String(personView.userId || "").trim())
+    : db.users.find((entry) => entry.id === personView.userId);
   if (!user?.profile) {
     return personView;
   }
@@ -10291,12 +10303,16 @@ class FileStore {
   // SPEED-9 B: prefetchedDb — опциональный уже прочитанный блоб
   // (например, снимок requireTreeAccess из app.js). Без него — как
   // раньше, честный собственный _read().
+  //
+  // SPEED-10: usersById строится ОДИН раз на весь вызов (было: db.users
+  // .find(...) внутри buildCanonicalPersonView на КАЖДОГО person — O(P×U)).
   async listPersons(treeId, prefetchedDb = null) {
     const db = prefetchedDb || (await this._read());
+    const usersById = buildUsersByIdMap(db);
     return db.persons
       .filter((person) => person.treeId === treeId)
       .sort((left, right) => String(left.name || "").localeCompare(String(right.name || "")))
-      .map((person) => buildCanonicalPersonView(db, person));
+      .map((person) => buildCanonicalPersonView(db, person, {usersById}));
   }
 
   async findPerson(treeId, personId, prefetchedDb = null) {
@@ -10811,7 +10827,35 @@ class FileStore {
     };
   }
 
-  _mergeProposalStillActionable(db, proposal) {
+  // SPEED-10: normCache — опциональная Map personId→normalizePersonForScoring
+  // (см. identity-matcher.js), построенная и переиспользуемая вызывающим
+  // на протяжении ОДНОГО listPendingMergeProposalsForUser: тот же person
+  // проверяется тут МНОГОКРАТНО (кандидат в _ensureCrossTreeMergeProposals,
+  // потом снова в _markStaleMergeProposals, потом снова в финальном
+  // .filter()) — без кэша каждый раз заново гонял normalizeName/
+  // normalizeNameTokens/normalizeIsoDate по обеим сторонам (scorePersonPair).
+  // Без normCache — прежнее поведение (reviewMergeProposal и т.п.
+  // одиночные вызовы, кэш ради одной пары не нужен).
+  _scorePersonPairCached(left, right, normCache = null) {
+    if (!normCache) {
+      return scorePersonPair(left, right);
+    }
+    const leftKey = left?.id;
+    const rightKey = right?.id;
+    let leftNorm = leftKey && normCache.get(leftKey);
+    if (!leftNorm) {
+      leftNorm = normalizePersonForScoring(left);
+      if (leftKey) normCache.set(leftKey, leftNorm);
+    }
+    let rightNorm = rightKey && normCache.get(rightKey);
+    if (!rightNorm) {
+      rightNorm = normalizePersonForScoring(right);
+      if (rightKey) normCache.set(rightKey, rightNorm);
+    }
+    return scoreNormalizedPersons(leftNorm, rightNorm);
+  }
+
+  _mergeProposalStillActionable(db, proposal, normCache = null) {
     if (!proposal || proposal.status !== "pending") {
       return false;
     }
@@ -10846,10 +10890,10 @@ class FileStore {
     ) {
       return false;
     }
-    return Boolean(scorePersonPair(fromPerson, candidatePerson));
+    return Boolean(this._scorePersonPairCached(fromPerson, candidatePerson, normCache));
   }
 
-  _markStaleMergeProposals(db) {
+  _markStaleMergeProposals(db, normCache = null) {
     let changed = false;
     db.mergeProposals = Array.isArray(db.mergeProposals)
       ? db.mergeProposals
@@ -10857,7 +10901,7 @@ class FileStore {
     for (const proposal of db.mergeProposals) {
       if (
         proposal.status === "pending" &&
-        !this._mergeProposalStillActionable(db, proposal)
+        !this._mergeProposalStillActionable(db, proposal, normCache)
       ) {
         proposal.status = "stale";
         proposal.resolvedAt = nowIso();
@@ -11006,7 +11050,14 @@ class FileStore {
     }
   }
 
-  _ensureCrossTreeMergeProposals(db, userId, {limit = 50} = {}) {
+  // SPEED-10: normCache — см. _scorePersonPairCached. Этот метод — сам
+  // главный потребитель: цикл stewardPersons × allPersons без кэша
+  // renormализовал ОБОИХ persons на КАЖДУЮ пару, хотя allPersons — тот же
+  // фиксированный набор на протяжении всего двойного цикла (и candidatePerson
+  // повторно перебирается для каждого fromPerson) — см. docs/speed_measurement.md
+  // SPEED-10 (profile: normalizeIsoDate/normalizeName/normalizeNameTokens
+  // суммарно ~16% self-time одного бёрста).
+  _ensureCrossTreeMergeProposals(db, userId, {limit = 50, normCache = null} = {}) {
     const normalizedUserId = normalizeNullableString(userId);
     if (!normalizedUserId) {
       return false;
@@ -11045,7 +11096,7 @@ class FileStore {
           continue;
         }
 
-        const match = scorePersonPair(fromPerson, candidatePerson);
+        const match = this._scorePersonPairCached(fromPerson, candidatePerson, normCache);
         if (!match) {
           continue;
         }
@@ -11111,11 +11162,34 @@ class FileStore {
           changed = true;
           createdCount += 1;
         } else {
+          // SPEED-10: раньше этот путь безусловно ставил changed=true —
+          // на дереве, где хотя бы одна pending-пара уже существует (что
+          // после первого прохода почти всегда так), КАЖДЫЙ вызов
+          // listPendingMergeProposalsForUser безусловно писал блоб целиком
+          // (полный JSON.stringify + fs.rename на GET-путь), даже когда
+          // recompute дал ТЕ ЖЕ значения. Итоговые поля existing — те же
+          // самые независимо от этой проверки; меняется только то, нужен
+          // ли _write. См. docs/speed_measurement.md SPEED-10.
+          const matchSignalsChanged =
+            Boolean(existing.matchSignals?.name) !== Boolean(matchSignals.name) ||
+            Boolean(existing.matchSignals?.birthYear) !== Boolean(matchSignals.birthYear);
+          const reasonsChanged =
+            !Array.isArray(existing.reasons) ||
+            existing.reasons.length !== match.reasons.length ||
+            existing.reasons.some((reason, index) => reason !== match.reasons[index]);
+          const somethingChanged =
+            existing.matchScore !== match.score ||
+            matchSignalsChanged ||
+            reasonsChanged ||
+            !sameNormalizedIds(existing.reviewerUserIds, reviewerUserIds);
+
           existing.matchScore = match.score;
           existing.matchSignals = matchSignals;
           existing.reasons = match.reasons;
           existing.reviewerUserIds = reviewerUserIds;
-          changed = true;
+          if (somethingChanged) {
+            changed = true;
+          }
         }
 
         if (createdCount >= limit) {
@@ -11220,11 +11294,17 @@ class FileStore {
     };
   }
 
+  // SPEED-10: normCache — одна Map на весь вызов, разделяемая
+  // _ensureCrossTreeMergeProposals/_markStaleMergeProposals/финальным
+  // .filter() ниже — те же persons проверяются во ВСЕХ трёх местах
+  // (кандидаты → staleness-рефреш → staleness-рецепт для reviewer-набора),
+  // без кэша каждый раз заново нормализовался. См. _scorePersonPairCached.
   async listPendingMergeProposalsForUser(userId, {limit = 50} = {}) {
     const normalizedUserId = normalizeNullableString(userId);
     const db = await this._read();
-    let changed = this._ensureCrossTreeMergeProposals(db, normalizedUserId, {limit});
-    changed = this._markStaleMergeProposals(db) || changed;
+    const normCache = new Map();
+    let changed = this._ensureCrossTreeMergeProposals(db, normalizedUserId, {limit, normCache});
+    changed = this._markStaleMergeProposals(db, normCache) || changed;
     if (changed) {
       await this._write(db);
     }
@@ -11236,7 +11316,7 @@ class FileStore {
           normalizeParticipantIds(proposal.reviewerUserIds).includes(
             normalizedUserId,
           ) &&
-          this._mergeProposalStillActionable(db, proposal),
+          this._mergeProposalStillActionable(db, proposal, normCache),
       )
       .sort((left, right) =>
         String(right.createdAt || "").localeCompare(String(left.createdAt || "")),
@@ -14137,17 +14217,32 @@ class FileStore {
   // payload structure. The values, however, come from the graph
   // side — once we drop the legacy collection in 3.4 this helper
   // simply stops touching `db.persons`.
-  _buildPersonViewFromGraph(db, branchId, legacyPersonId) {
-    const legacyPerson = (db.persons || []).find(
+  // SPEED-10: `index` — опциональные карты, построенные ОДИН раз вызывающим
+  // циклом (см. _buildPersonGraphIndex), вместо четырёх .find() по
+  // db.persons/db.graphPersons/db.branchPersonViews/db.users на КАЖДОГО
+  // person. getTreeGraphSnapshot зовёт это для всех person'ов дерева —
+  // было O(persons_в_дереве × (persons+graphPersons+views+users)_всего),
+  // см. docs/speed_measurement.md SPEED-10. `legacyPerson` — сам person,
+  // если он у вызывающего уже под рукой (снимает и первый .find()).
+  // Без `index`/`legacyPerson` — прежнее поведение (findPerson/
+  // findPersonByUserId/getPersonDossier — одиночные вызовы, строить
+  // индекс ради одного person незачем).
+  _buildPersonViewFromGraph(db, branchId, legacyPersonId, {
+    index = null,
+    legacyPerson: prefetchedLegacyPerson = null,
+  } = {}) {
+    const legacyPerson = prefetchedLegacyPerson || (db.persons || []).find(
       (p) => p.id === legacyPersonId && p.treeId === branchId,
     );
     if (!legacyPerson) return null;
 
     const identityId = normalizeNullableString(legacyPerson.identityId);
     const graphPerson = identityId
-      ? (db.graphPersons || []).find(
-          (g) => g.id === identityId && !g.deletedAt,
-        )
+      ? (index
+          ? index.graphPersonsById.get(identityId) || null
+          : (db.graphPersons || []).find(
+              (g) => g.id === identityId && !g.deletedAt,
+            ))
       : null;
 
     if (!graphPerson) {
@@ -14155,12 +14250,16 @@ class FileStore {
       // _syncGraphFromLegacy fires, or for a person whose
       // identityId backfill hasn't completed. Falling back to the
       // legacy record keeps the API working in those edge cases.
-      return buildCanonicalPersonView(db, legacyPerson);
+      return buildCanonicalPersonView(db, legacyPerson, {
+        usersById: index?.usersById,
+      });
     }
 
-    const view = (db.branchPersonViews || []).find(
-      (v) => v.branchId === branchId && v.personId === graphPerson.id,
-    );
+    const view = index
+      ? index.branchPersonViewByKey.get(`${branchId} ${graphPerson.id}`) || null
+      : (db.branchPersonViews || []).find(
+          (v) => v.branchId === branchId && v.personId === graphPerson.id,
+        );
 
     // Compose: legacy record as the base (carries firstName /
     // lastName / middleName / details / lastPropagatedFields and
@@ -14188,9 +14287,34 @@ class FileStore {
     }
 
     if (!personView.userId) return personView;
-    const user = db.users.find((entry) => entry.id === personView.userId);
+    const user = index
+      ? index.usersById.get(String(personView.userId || "").trim()) || null
+      : db.users.find((entry) => entry.id === personView.userId);
     if (!user?.profile) return personView;
     return applyCanonicalProfileToPerson(personView, user.profile);
+  }
+
+  // SPEED-10: строит один раз карты для _buildPersonViewFromGraph,
+  // переиспользуемые на ВСЕХ person'ов одного вызова (сейчас — только
+  // getTreeGraphSnapshot). Те же соглашения, что и в _buildGraphSyncIndex
+  // (SPEED-9 A): id предполагаются уникальными, forEach-порядок = порядок
+  // массива, "последний выигрывает" при дублях — как и обычный .find()
+  // на непротиворечивых данных.
+  _buildPersonGraphIndex(db) {
+    const graphPersonsById = new Map();
+    for (const graphPerson of db.graphPersons || []) {
+      if (graphPerson.deletedAt) continue;
+      graphPersonsById.set(graphPerson.id, graphPerson);
+    }
+    const branchPersonViewByKey = new Map();
+    for (const view of db.branchPersonViews || []) {
+      branchPersonViewByKey.set(`${view.branchId} ${view.personId}`, view);
+    }
+    return {
+      graphPersonsById,
+      branchPersonViewByKey,
+      usersById: buildUsersByIdMap(db),
+    };
   }
 
   // SPEED-9 A: строит все индексы ОДИН раз на весь проход
@@ -15271,9 +15395,20 @@ class FileStore {
     // the graph-first helper. Helper falls back to the legacy
     // record if graph data is absent, so nothing breaks during
     // the boot window or on a snapshot that hasn't been migrated.
+    //
+    // SPEED-10: index построен один раз для ВСЕХ person'ов дерева, а
+    // person передан напрямую (уже под рукой из фильтра ниже) — было
+    // O(persons_в_дереве²) global-scan через четыре .find() внутри
+    // _buildPersonViewFromGraph на каждого. См. docs/speed_measurement.md.
+    const graphIndex = this._buildPersonGraphIndex(db);
     const treePersons = db.persons
       .filter((person) => person.treeId === treeId)
-      .map((person) => this._buildPersonViewFromGraph(db, treeId, person.id))
+      .map((person) =>
+        this._buildPersonViewFromGraph(db, treeId, person.id, {
+          index: graphIndex,
+          legacyPerson: person,
+        }),
+      )
       .filter(Boolean);
     if (treePersons.length === 0 && !db.trees.some((tree) => tree.id === treeId)) {
       return null;
@@ -16729,9 +16864,24 @@ class FileStore {
     );
   }
 
+  // SPEED-10: `cache` — опциональный объект {circles, identities} (см.
+  // _createCircleVisibilityCache), построенный ОДИН раз вызывающим циклом
+  // (listPosts/listStories/listGatherings/listPolls/getBranchDigest/
+  // searchPosts). Без него ensureCirclesForTree(db, treeId) заново
+  // пересобирает ВСЕ авто-круги дерева — BFS-обход persons×relations
+  // (buildAutoCircleSpecsForTree) — на КАЖДЫЙ элемент ленты, хотя treeId
+  // (и db) внутри одного вызова не меняются; аналогично
+  // _userIdentityIdsInTree сканирует db.persons заново на каждый элемент.
+  // db.circles уже содержит нужные записи после первого вызова
+  // (ensureCirclesForTree идемпотентна на неизменном db), так что
+  // повторные вызовы с тем же treeId в рамках одного db-снимка дают ТОТ
+  // ЖЕ результат — см. docs/speed_measurement.md SPEED-10. Без `cache` —
+  // прежнее поведение (одиночные вызовы вроде createPost/createStory, где
+  // строить кэш ради одного circleId незачем).
   _canUserViewCircleContent(
     db,
     {treeId, circleId: rawCircleId = null, authorId = null, viewerUserId = null},
+    cache = null,
   ) {
     const normalizedViewerUserId = normalizeNullableString(viewerUserId);
     if (!normalizedViewerUserId || !treeId) {
@@ -16742,7 +16892,15 @@ class FileStore {
     }
 
     const explicitCircleId = normalizeNullableString(rawCircleId);
-    const {allTreeCircle} = ensureCirclesForTree(db, treeId);
+    let allTreeCircle;
+    if (cache) {
+      if (!cache.circles.has(treeId)) {
+        cache.circles.set(treeId, ensureCirclesForTree(db, treeId));
+      }
+      ({allTreeCircle} = cache.circles.get(treeId));
+    } else {
+      ({allTreeCircle} = ensureCirclesForTree(db, treeId));
+    }
     const circleId = explicitCircleId || allTreeCircle?.id;
     const circle = db.circles.find(
       (entry) => entry.treeId === treeId && entry.id === circleId,
@@ -16754,11 +16912,23 @@ class FileStore {
       return true;
     }
 
-    const viewerIdentityIds = this._userIdentityIdsInTree(
-      db,
-      treeId,
-      normalizedViewerUserId,
-    );
+    let viewerIdentityIds;
+    if (cache) {
+      const identityCacheKey = `${treeId} ${normalizedViewerUserId}`;
+      if (!cache.identities.has(identityCacheKey)) {
+        cache.identities.set(
+          identityCacheKey,
+          this._userIdentityIdsInTree(db, treeId, normalizedViewerUserId),
+        );
+      }
+      viewerIdentityIds = cache.identities.get(identityCacheKey);
+    } else {
+      viewerIdentityIds = this._userIdentityIdsInTree(
+        db,
+        treeId,
+        normalizedViewerUserId,
+      );
+    }
     if (viewerIdentityIds.size === 0) {
       return false;
     }
@@ -16772,7 +16942,13 @@ class FileStore {
     });
   }
 
-  _canUserViewCirclePost(db, post, viewerUserId) {
+  // SPEED-10: см. _canUserViewCircleContent — `cache` опционален и
+  // прокидывается в оба внутренних вызова один-в-один.
+  _createCircleVisibilityCache() {
+    return {circles: new Map(), identities: new Map()};
+  }
+
+  _canUserViewCirclePost(db, post, viewerUserId, cache = null) {
     if (!post) {
       return true;
     }
@@ -16797,7 +16973,7 @@ class FileStore {
         circleId: post.circleId,
         authorId: post.authorId,
         viewerUserId,
-      })
+      }, cache)
     ) {
       return true;
     }
@@ -16810,7 +16986,7 @@ class FileStore {
           circleId: null,
           authorId: post.authorId,
           viewerUserId,
-        })
+        }, cache)
       ) {
         return true;
       }
@@ -16885,6 +17061,7 @@ class FileStore {
     // Recent posts on this branch (back-compat: branchIds OR
     // legacy treeId — same gate as listPosts).
     const recentPostsCutoffMs = now.getTime() - horizonMs;
+    const circleCache = this._createCircleVisibilityCache();
     const recentPosts = db.posts
       .filter((post) => {
         const branchIds = Array.isArray(post.branchIds)
@@ -16892,7 +17069,7 @@ class FileStore {
           : [];
         const inBranch = branchIds.includes(treeId) || post.treeId === treeId;
         if (!inBranch) return false;
-        if (!this._canUserViewCirclePost(db, post, viewerUserId)) return false;
+        if (!this._canUserViewCirclePost(db, post, viewerUserId, circleCache)) return false;
         const created = post.createdAt
           ? new Date(post.createdAt).getTime()
           : 0;
@@ -16961,6 +17138,7 @@ class FileStore {
     viewerUserId = null,
   } = {}) {
     const db = await this._read();
+    const circleCache = this._createCircleVisibilityCache();
     return db.posts
       .filter((entry) => {
         // Phase 3.4 multi-branch visibility. If `treeId` filter is
@@ -16986,7 +17164,7 @@ class FileStore {
         if (scope === "branches" && entry.scopeType !== "branches") {
           return false;
         }
-        if (!this._canUserViewCirclePost(db, entry, viewerUserId)) {
+        if (!this._canUserViewCirclePost(db, entry, viewerUserId, circleCache)) {
           return false;
         }
         return true;
@@ -17035,6 +17213,7 @@ class FileStore {
       await this._write(db);
     }
 
+    const circleCache = this._createCircleVisibilityCache();
     return activeStories
       .filter((entry) => {
         if (treeId && entry.treeId !== treeId) {
@@ -17049,7 +17228,7 @@ class FileStore {
             circleId: entry.circleId,
             authorId: entry.authorId,
             viewerUserId,
-          })
+          }, circleCache)
         ) {
           return false;
         }
@@ -17300,6 +17479,7 @@ class FileStore {
       return [];
     }
 
+    const circleCache = this._createCircleVisibilityCache();
     const candidates = (Array.isArray(db.posts) ? db.posts : [])
       .filter((post) => {
         // Phase 3.4: a post is visible if ANY of its branchIds is
@@ -17317,7 +17497,7 @@ class FileStore {
           const matchesLegacyTreeId = post.treeId === normalizedTreeId;
           if (!matchesBranch && !matchesLegacyTreeId) return false;
         }
-        return this._canUserViewCirclePost(db, post, normalizedUserId);
+        return this._canUserViewCirclePost(db, post, normalizedUserId, circleCache);
       })
       .sort((left, right) =>
         String(right.createdAt || "").localeCompare(
@@ -17583,6 +17763,7 @@ class FileStore {
   // requireTreeAccess). Без него — собственный _read(), как раньше.
   async listGatherings({treeId = null, viewerUserId = null, db: prefetchedDb = null} = {}) {
     const db = prefetchedDb || (await this._read());
+    const circleCache = this._createCircleVisibilityCache();
     return db.gatherings
       .filter((entry) => {
         // Same tree/branch match posts use: if a treeId filter is set,
@@ -17599,7 +17780,7 @@ class FileStore {
           }
         }
         // Circle-on-tree visibility — identical gate to posts.
-        if (!this._canUserViewCirclePost(db, entry, viewerUserId)) {
+        if (!this._canUserViewCirclePost(db, entry, viewerUserId, circleCache)) {
           return false;
         }
         return true;
@@ -17790,6 +17971,7 @@ class FileStore {
   // requireTreeAccess). Без него — собственный _read(), как раньше.
   async listPolls({treeId = null, viewerUserId = null, db: prefetchedDb = null} = {}) {
     const db = prefetchedDb || (await this._read());
+    const circleCache = this._createCircleVisibilityCache();
     return db.polls
       .filter((entry) => {
         if (treeId) {
@@ -17802,7 +17984,7 @@ class FileStore {
             return false;
           }
         }
-        if (!this._canUserViewCirclePost(db, entry, viewerUserId)) {
+        if (!this._canUserViewCirclePost(db, entry, viewerUserId, circleCache)) {
           return false;
         }
         return true;

@@ -336,4 +336,10 @@ module.exports = {
   findCrossTreeIdentitySuggestions,
   normalizedBirthYear,
   scorePersonPair,
+  // SPEED-10: exported so store.js can normalize each person ONCE per
+  // call and reuse the result across many scorePersonPair-equivalent
+  // comparisons (_ensureCrossTreeMergeProposals does S×P comparisons
+  // with a fixed set of persons — see docs/speed_measurement.md).
+  normalizePersonForScoring,
+  scoreNormalizedPersons,
 };
