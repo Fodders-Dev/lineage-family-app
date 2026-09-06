@@ -22,6 +22,7 @@ import 'package:get_it/get_it.dart';
 import '../backend/interfaces/auth_service_interface.dart';
 import '../backend/interfaces/family_tree_service_interface.dart';
 import '../backend/interfaces/identity_service_interface.dart';
+import '../backend/interfaces/tree_graph_capable_family_tree_service.dart';
 import '../backend/models/tree_invitation.dart';
 import '../backend/interfaces/post_service_interface.dart';
 import '../backend/interfaces/gathering_service_interface.dart';
@@ -43,6 +44,7 @@ import '../widgets/post_card_shimmer.dart';
 import '../widgets/glass_panel.dart';
 import '../widgets/coach_mark_tour.dart';
 import '../services/custom_api_notification_service.dart';
+import '../startup/startup_scheduler.dart';
 import '../utils/e2e_state_bridge.dart';
 import '../utils/image_decode.dart';
 import '../utils/perf_log.dart';
@@ -131,6 +133,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _showCoachTour = false;
   Timer? _coachTourTimer;
 
+  // S-fanout (05-06.09.2026): «вторая волна» стартового fan-out — всё,
+  // что не нужно первому кадру ленты (истории/хабы/identity-плашка),
+  // грузится через это после первого кадра + паузы, последовательно.
+  // См. lib/startup/startup_scheduler.dart для полного контракта.
+  final StartupScheduler _startupScheduler = StartupScheduler();
+  // Онбординг-баннер держит собственный `/v1/me/onboarding-state` GET —
+  // этот gate позволяет поставить его последним в очередь второй волны
+  // вместо того, чтобы он стрелял в кадре mount'а вместе с остальными
+  // ~10 запросами исходного fan-out'а (см. OnboardingResumeBanner.deferUntil).
+  final Completer<void> _onboardingBannerGate = Completer<void>();
+
   CustomApiNotificationService? get _customNotificationService =>
       GetIt.I.isRegistered<CustomApiNotificationService>()
           ? GetIt.I<CustomApiNotificationService>()
@@ -140,6 +153,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       GetIt.I.isRegistered<IdentityServiceInterface>()
           ? GetIt.I<IdentityServiceInterface>()
           : null;
+
+  // S-fanout: same capability-check pattern as
+  // TreeViewScreen._graphTreeService — used only by the warm-up task
+  // below, never to render anything on this screen.
+  TreeGraphCapableFamilyTreeService? get _graphTreeService {
+    final service = _familyTreeService;
+    if (service is TreeGraphCapableFamilyTreeService) {
+      return service as TreeGraphCapableFamilyTreeService;
+    }
+    return null;
+  }
 
   /// Phase 6.5+ auto-refresh: callback registered с
   /// PostsRefreshCoordinator. Notification arrives (WebSocket либо
@@ -155,7 +179,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// делает intent явным и survives possible refactors of `_loadPosts`.
   // ignore: prefer_function_declarations_over_variables
   late final Future<void> Function() _feedRefreshCallback =
-      () => _loadPosts(branchId: _selectedFeedBranchId);
+      () => _loadPostsWithSidecars(branchId: _selectedFeedBranchId);
 
   @override
   void initState() {
@@ -180,22 +204,57 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _treeProviderInstance = Provider.of<TreeProvider>(context, listen: false);
       _treeProviderInstance!.addListener(_handleTreeChange);
       _currentTreeId = _treeProviderInstance!.selectedTreeId;
-      _loadIdentityReviewSummary();
+      // S-fanout: первый кадр получает ТОЛЬКО ленту постов — это
+      // единственное, что реально видит пользователь сразу после
+      // входа. Everything else (истории/хабы/identity-плашка/
+      // онбординг-плашка) едет во «вторую волну» ниже: после кадра,
+      // с задержкой, последовательно — а не пачкой из ~10 GET, как
+      // было раньше (замер на проде: wall ~450мс на холодном старте).
+      //
       // Feed always starts in audience mode («Все») — the viewer
       // sees posts from every branch they belong to, no silent
       // drops just because BranchSwitcher landed on a different
       // branch. They can narrow via the chip strip if they want.
       _loadPosts(branchId: null);
-      if (_currentTreeId != null) {
-        _loadFamilyConnectionPrompt(_currentTreeId!);
-        _loadStories(_currentTreeId!);
-        _loadEvents(_currentTreeId!);
+
+      final treeId = _currentTreeId;
+      // Literal `null` (not `_selectedFeedBranchId`) — mirrors the
+      // `_loadPosts(branchId: null)` call above exactly: cold start
+      // always begins in audience mode. If the user taps a branch chip
+      // before this queue gets here, `_selectFeedBranch` already
+      // refreshes gatherings/polls immediately for the new scope (see
+      // below) — reading `_selectedFeedBranchId` here instead would
+      // just re-fetch that same scope a second time.
+      final deferredTasks = <DeferredStartupTask>[
+        _loadIdentityReviewSummary,
+        () => _loadGatherings(branchId: null),
+        () => _loadPolls(branchId: null),
+      ];
+      if (treeId != null) {
+        deferredTasks.addAll(<DeferredStartupTask>[
+          () => _loadFamilyConnectionPrompt(treeId),
+          () => _loadStories(treeId),
+          () => _loadEvents(treeId),
+        ]);
       } else {
         setState(() {
           _isLoadingEvents = false;
           _selectedEventCategoryFilter = null;
         });
       }
+      // Онбординг-баннер (сам решает, показываться ли) грузит свой
+      // /v1/me/onboarding-state сам — этот таск лишь снимает gate,
+      // чтобы этот GET встал последним в очереди, а не в общей пачке.
+      deferredTasks.add(() async {
+        if (!_onboardingBannerGate.isCompleted) {
+          _onboardingBannerGate.complete();
+        }
+      });
+      // Warm-up (persons/graph) — last in line, only after every task
+      // above has run. See _warmUpTreeGraphCache for the full contract.
+      deferredTasks.add(_warmUpTreeGraphCache);
+      _startupScheduler.scheduleAfterFirstFrame(deferredTasks);
+
       _maybeShowCoachTour();
     });
   }
@@ -207,6 +266,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     HardwareKeyboard.instance.removeHandler(_handleHomeKeyEvent);
     _treeProviderInstance?.removeListener(_handleTreeChange);
     _feedScrollController.removeListener(_handleFeedScroll);
+    // S-fanout: stop the deferred queue so it doesn't outlive the screen
+    // (no-op if it already finished or never got scheduled).
+    _startupScheduler.cancel();
     _coachTourTimer?.cancel();
     _feedScrollController.dispose();
     super.dispose();
@@ -478,6 +540,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// S-fanout warm-up: primes [CustomApiFamilyTreeService]'s in-memory
+  /// `_graphSnapshotCache` + the on-disk [TreeGraphCache] for the
+  /// current tree — the same cache `getTreeGraphSnapshot` reads from
+  /// on `/v1/trees/:id/graph`. «Родные»/«Дерево» are separate
+  /// go_router shell branches (`StatefulShellBranch.preload` defaults
+  /// to `false`), so their screens already only fetch persons/graph on
+  /// first visit — this task doesn't change that. It's the LAST item
+  /// in the deferred queue (runs only once everything above — feed,
+  /// stories, gatherings/polls, identity review, onboarding — has had
+  /// its turn) and exists purely so a tab opened shortly after cold
+  /// start hits a warm cache instead of a cold round trip. Silent: this
+  /// screen never renders graph data, so no setState — a failure here
+  /// just means the tab falls back to its own normal load.
+  Future<void> _warmUpTreeGraphCache() async {
+    final treeId = _currentTreeId;
+    final service = _graphTreeService;
+    if (treeId == null || service == null) return;
+    try {
+      await service.getTreeGraphSnapshot(treeId);
+    } catch (_) {
+      // Best-effort — the tab's own _loadData retries on open.
+    }
+  }
+
   List<String> _collectEventCategories(List<AppEvent> events) {
     final categories = <String>[];
     for (final event in events) {
@@ -588,6 +674,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// view and per-branch narrowed views.
   static const String _audienceFeedCacheKey = '__audience__';
 
+  /// Posts + gatherings + polls together — for every REFRESH path that
+  /// isn't the cold-start fan-out: pull-to-refresh, a chip tap, and the
+  /// realtime `post_created` auto-refresh. All three are either an
+  /// explicit user action or an already-authenticated ongoing session
+  /// (not the initial burst this chunk targets), so they keep the old
+  /// "everything together" behaviour — no reason to make a manual
+  /// refresh feel slower. Cold start (initState) calls bare [_loadPosts]
+  /// and schedules gatherings/polls through [_startupScheduler] instead
+  /// (see initState).
+  Future<void> _loadPostsWithSidecars({String? branchId}) async {
+    unawaited(_loadGatherings(branchId: branchId));
+    unawaited(_loadPolls(branchId: branchId));
+    await _loadPosts(branchId: branchId);
+  }
+
   Future<void> _loadPosts({String? branchId}) async {
     if (!mounted) return;
     // S1: холодная загрузка ленты — от первого _loadPosts до кадра с
@@ -601,10 +702,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       // it'll flicker on every refresh. Only flip back if we actually
       // have no posts to show after the call fails.
     });
-    // Phase E2c/E5d: pull gatherings + polls alongside posts (best-effort,
-    // isolated — own try/catch, never block or error the post path below).
-    unawaited(_loadGatherings(branchId: branchId));
-    unawaited(_loadPolls(branchId: branchId));
     final cacheKey = branchId ?? _audienceFeedCacheKey;
     // Cache-first hydrate: serve disk-cached posts immediately so the
     // feed paints content even if we're offline / network is slow.
@@ -835,7 +932,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       // the previous chip linger until the network call lands.
       _posts = const <Post>[];
     });
-    _loadPosts(branchId: branchId);
+    // Explicit user action (tapped a chip) — bypasses the deferred
+    // schedule entirely, same as pull-to-refresh: gatherings/polls
+    // refresh right alongside posts for the newly-selected scope.
+    _loadPostsWithSidecars(branchId: branchId);
   }
 
   @override
@@ -873,10 +973,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onRefresh: () async {
           await _customNotificationService?.refreshUnreadNotificationsCount();
           await _loadIdentityReviewSummary();
-          // Feed always refreshes — it's branch-independent. Stories
-          // and events only refresh when there's an active branch
-          // (those are tied to the BranchSwitcher selection).
-          await _loadPosts(branchId: _selectedFeedBranchId);
+          // Pull-to-refresh is an explicit user action — bypasses the
+          // deferred schedule entirely (S-fanout), same as before:
+          // everything refreshes together, right away. Feed always
+          // refreshes — it's branch-independent. Stories, gatherings/
+          // polls and events only refresh when there's an active
+          // branch (those are tied to the BranchSwitcher selection).
+          await _loadPostsWithSidecars(branchId: _selectedFeedBranchId);
           if (_currentTreeId != null) {
             await Future.wait([
               _loadFamilyConnectionPrompt(_currentTreeId!),
@@ -1158,7 +1261,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           child: CustomScrollView(
             controller: _feedScrollController,
             slivers: [
-              const SliverToBoxAdapter(child: OnboardingResumeBanner()),
+              SliverToBoxAdapter(
+                child: OnboardingResumeBanner(
+                  deferUntil: _onboardingBannerGate.future,
+                ),
+              ),
               const SliverToBoxAdapter(child: BatteryOptimizationCard()),
               if (pendingInvitations.isNotEmpty)
                 SliverToBoxAdapter(
@@ -1205,7 +1312,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           // на wide, где живёт владелец с web-десктопа.
           controller: _feedScrollController,
           slivers: [
-            const SliverToBoxAdapter(child: OnboardingResumeBanner()),
+            SliverToBoxAdapter(
+              child: OnboardingResumeBanner(
+                deferUntil: _onboardingBannerGate.future,
+              ),
+            ),
             const SliverToBoxAdapter(child: BatteryOptimizationCard()),
             if (pendingInvitations.isNotEmpty)
               SliverToBoxAdapter(

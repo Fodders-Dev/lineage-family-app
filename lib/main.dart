@@ -39,6 +39,7 @@ import 'widgets/app_update_ui.dart';
 import 'widgets/call_runtime_host.dart';
 import 'widgets/startup_failure_view.dart';
 import 'utils/e2e_state_bridge.dart';
+import 'utils/startup_trace.dart';
 
 // --- Переменная для хранения SnackBarContext ---
 // Используем GlobalKey, чтобы получить доступ к ScaffoldMessenger
@@ -48,6 +49,11 @@ Object? _e2eSemanticsHandle;
 bool _clientDiagnosticsInstalled = false;
 
 void main() async {
+  // S-fanout (05.09.2026): t=0 для [StartupTrace] — максимально рано,
+  // до любого сетевого вызова, чтобы debug-лог `[startup] +NNNms GET
+  // ...` в adb logcat отражал реальную холодную загрузку, а не время
+  // от первого запроса.
+  StartupTrace.markAppStart();
   WidgetsFlutterBinding.ensureInitialized();
 
   // Cap the Flutter image cache. Default Flutter limits are 1000 images

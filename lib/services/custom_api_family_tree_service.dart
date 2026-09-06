@@ -49,6 +49,7 @@ import '../models/relation_request.dart';
 import '../models/tree_graph_snapshot.dart';
 import '../models/tree_change_record.dart';
 import '../models/user_profile.dart';
+import '../utils/startup_trace.dart';
 import 'custom_api_auth_service.dart';
 import 'local_storage_service.dart';
 import 'tree_graph_cache.dart';
@@ -1512,6 +1513,7 @@ class CustomApiFamilyTreeService
     required String path,
     Map<String, dynamic>? body,
   }) async {
+    StartupTrace.logRequest(method, path);
     final uri = _buildUri(path);
     final normalizedBody = body == null ? null : _normalizePersonPayload(body);
     late http.Response response;

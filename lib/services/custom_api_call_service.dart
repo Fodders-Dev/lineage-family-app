@@ -10,6 +10,7 @@ import '../models/call_event.dart';
 import '../models/call_invite.dart';
 import '../models/call_media_mode.dart';
 import '../utils/client_instance_id.dart';
+import '../utils/startup_trace.dart';
 import 'custom_api_auth_service.dart';
 import 'custom_api_realtime_service.dart';
 
@@ -277,6 +278,12 @@ class CustomApiCallService
 
     final resolvedUri =
         uri ?? Uri.parse('${_runtimeConfig.apiBaseUrl}${path ?? ''}');
+    StartupTrace.logRequest(
+      method,
+      resolvedUri.hasQuery
+          ? '${resolvedUri.path}?${resolvedUri.query}'
+          : resolvedUri.path,
+    );
     final request = http.Request(method, resolvedUri)
       ..headers['authorization'] = 'Bearer $accessToken'
       ..headers['content-type'] = 'application/json'
