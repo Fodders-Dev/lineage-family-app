@@ -251,8 +251,10 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                                 )
                               else ...[
                                 _buildIdentitySection(),
+                                const SizedBox(height: 14),
                                 _buildContactsSection(),
                               ],
+                              const SizedBox(height: 14),
                               _buildPersonalSection(dateFormat),
                               const SizedBox(height: 22),
                               Padding(
@@ -321,284 +323,279 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
   }
 
   Widget _buildIdentitySection() {
-    return ProfileSection(
-      title: 'Кто я',
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+    // Плотность (чанк 21): заголовок секции без своей карточки —
+    // ProfileSection оборачивал каждую секцию в отдельную рамку
+    // (surfaceStrong + border), и поля внутри тоже рисуют свою рамку
+    // (bgTintWarm + border) — получалась рамка-в-рамке. Один плоский
+    // блок «заголовок + поля» на фоне скаффолда.
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const _SectionHeader(title: 'Кто я'),
+          const SizedBox(height: 6),
+          _FieldLabel(label: 'Фамилия и имя'),
+          const SizedBox(height: 4),
+          Row(
             children: [
-              _FieldLabel(label: 'Фамилия и имя'),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: _RegistrationInput(
-                      controller: _lastNameController,
-                      hint: 'Фамилия',
-                      validator: (value) =>
-                          value == null || value.trim().isEmpty
-                              ? 'Введите фамилию'
-                              : null,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _RegistrationInput(
-                      controller: _firstNameController,
-                      hint: 'Имя',
-                      validator: (value) =>
-                          value == null || value.trim().isEmpty
-                              ? 'Введите имя'
-                              : null,
-                    ),
-                  ),
-                ],
+              Expanded(
+                child: _RegistrationInput(
+                  controller: _lastNameController,
+                  hint: 'Фамилия',
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? 'Введите фамилию'
+                      : null,
+                ),
               ),
-              const SizedBox(height: 10),
-              _RegistrationInput(
-                controller: _middleNameController,
-                hint: 'Отчество (необязательно)',
-              ),
-              const SizedBox(height: 14),
-              _FieldLabel(label: 'Username'),
-              const SizedBox(height: 8),
-              _RegistrationInput(
-                controller: _usernameController,
-                hint: 'username',
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Введите username';
-                  }
-                  if (value.contains(' ')) {
-                    return 'Без пробелов';
-                  }
-                  return null;
-                },
+              const SizedBox(width: 8),
+              Expanded(
+                child: _RegistrationInput(
+                  controller: _firstNameController,
+                  hint: 'Имя',
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? 'Введите имя'
+                      : null,
+                ),
               ),
             ],
           ),
-        ),
-      ],
+          const SizedBox(height: 10),
+          _RegistrationInput(
+            controller: _middleNameController,
+            hint: 'Отчество (необязательно)',
+          ),
+          const SizedBox(height: 10),
+          _FieldLabel(label: 'Username'),
+          const SizedBox(height: 4),
+          _RegistrationInput(
+            controller: _usernameController,
+            hint: 'username',
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return 'Введите username';
+              }
+              if (value.contains(' ')) {
+                return 'Без пробелов';
+              }
+              return null;
+            },
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildContactsSection() {
     final tokens = Theme.of(context).extension<RodnyaDesignTokens>() ??
         RodnyaDesignTokens.light;
-    return ProfileSection(
-      title: 'Как с вами связаться',
-      subtitle: 'Канал входа можно подключить позже',
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _FieldLabel(label: 'Страна'),
-              const SizedBox(height: 8),
-              GestureDetector(
-                onTap: _selectCountry,
-                child: Container(
-                  height: 50,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  decoration: BoxDecoration(
-                    color: tokens.bgTintWarm,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: tokens.surfaceLine),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.flag_outlined, size: 18, color: tokens.accent),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          _selectedCountry ?? 'Выберите страну',
-                          style: AppTheme.sans(
-                            color: _selectedCountry == null
-                                ? tokens.inkMuted
-                                : tokens.ink,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0,
-                          ),
-                        ),
-                      ),
-                      Text(
-                        _countryCode ?? '+7',
-                        style: AppTheme.sans(
-                          color: tokens.accent,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Icon(
-                        Icons.chevron_right_rounded,
-                        size: 18,
-                        color: tokens.inkMuted,
-                      ),
-                    ],
-                  ),
-                ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const _SectionHeader(
+            title: 'Как с вами связаться',
+            subtitle: 'Канал входа можно подключить позже',
+          ),
+          const SizedBox(height: 6),
+          _FieldLabel(label: 'Страна'),
+          const SizedBox(height: 4),
+          GestureDetector(
+            onTap: _selectCountry,
+            child: Container(
+              height: 50,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(
+                color: tokens.bgTintWarm,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: tokens.surfaceLine),
               ),
-              const SizedBox(height: 14),
-              _FieldLabel(label: 'Телефон (необязательно)'),
-              const SizedBox(height: 8),
-              Container(
-                height: 50,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  color: tokens.bgTintWarm,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: tokens.surfaceLine),
-                ),
-                child: Row(
-                  children: [
-                    Text(
-                      _countryCode ?? '+7',
-                      // M3 (50+): держим тот же размер, что и у поля
-                      // телефона рядом — иначе «+7» выглядит мельче ввода.
+              child: Row(
+                children: [
+                  Icon(Icons.flag_outlined, size: 18, color: tokens.accent),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _selectedCountry ?? 'Выберите страну',
                       style: AppTheme.sans(
-                        color: tokens.ink,
-                        fontSize: AppTheme.formInputFontSize,
-                        fontWeight: FontWeight.w700,
+                        color: _selectedCountry == null
+                            ? tokens.inkMuted
+                            : tokens.ink,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
                         letterSpacing: 0,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _phoneController,
-                        keyboardType: TextInputType.phone,
-                        // M3 (50+): было 14.5 — ниже общей планки ≥16sp.
-                        style: AppTheme.sans(
-                          color: tokens.ink,
-                          fontSize: AppTheme.formInputFontSize,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: '999 123 45 67',
-                          hintStyle: AppTheme.sans(
-                            color: tokens.inkMuted,
-                            fontSize: AppTheme.formInputFontSize,
-                            fontWeight: FontWeight.w500,
-                            letterSpacing: 0,
-                          ),
-                          border: InputBorder.none,
-                          isDense: true,
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                      ),
+                  ),
+                  Text(
+                    _countryCode ?? '+7',
+                    style: AppTheme.sans(
+                      color: tokens.accent,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0,
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 6),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 18,
+                    color: tokens.inkMuted,
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ],
+          const SizedBox(height: 10),
+          _FieldLabel(label: 'Телефон (необязательно)'),
+          const SizedBox(height: 4),
+          Container(
+            height: 50,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: tokens.bgTintWarm,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: tokens.surfaceLine),
+            ),
+            child: Row(
+              children: [
+                Text(
+                  _countryCode ?? '+7',
+                  // M3 (50+): держим тот же размер, что и у поля
+                  // телефона рядом — иначе «+7» выглядит мельче ввода.
+                  style: AppTheme.sans(
+                    color: tokens.ink,
+                    fontSize: AppTheme.formInputFontSize,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextFormField(
+                    controller: _phoneController,
+                    keyboardType: TextInputType.phone,
+                    // M3 (50+): было 14.5 — ниже общей планки ≥16sp.
+                    style: AppTheme.sans(
+                      color: tokens.ink,
+                      fontSize: AppTheme.formInputFontSize,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: '999 123 45 67',
+                      hintStyle: AppTheme.sans(
+                        color: tokens.inkMuted,
+                        fontSize: AppTheme.formInputFontSize,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: 0,
+                      ),
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildPersonalSection(DateFormat dateFormat) {
     final tokens = Theme.of(context).extension<RodnyaDesignTokens>() ??
         RodnyaDesignTokens.light;
-    return ProfileSection(
-      title: 'Личное',
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const _SectionHeader(title: 'Личное'),
+          const SizedBox(height: 6),
+          _FieldLabel(label: 'Пол'),
+          const SizedBox(height: 4),
+          Row(
             children: [
-              _FieldLabel(label: 'Пол'),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: _RegistrationGenderButton(
-                      label: 'Мужской',
-                      icon: Icons.male_rounded,
-                      isSelected: _selectedGender == Gender.male,
-                      onTap: () =>
-                          setState(() => _selectedGender = Gender.male),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: _RegistrationGenderButton(
-                      label: 'Женский',
-                      icon: Icons.female_rounded,
-                      isSelected: _selectedGender == Gender.female,
-                      onTap: () =>
-                          setState(() => _selectedGender = Gender.female),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: _RegistrationGenderButton(
-                      label: 'Не указан',
-                      icon: Icons.circle_outlined,
-                      isSelected: _selectedGender == Gender.unknown,
-                      onTap: () =>
-                          setState(() => _selectedGender = Gender.unknown),
-                    ),
-                  ),
-                ],
+              Expanded(
+                child: _RegistrationGenderButton(
+                  label: 'Мужской',
+                  icon: Icons.male_rounded,
+                  isSelected: _selectedGender == Gender.male,
+                  onTap: () => setState(() => _selectedGender = Gender.male),
+                ),
               ),
-              const SizedBox(height: 14),
-              _FieldLabel(label: 'Дата рождения'),
-              const SizedBox(height: 8),
-              GestureDetector(
-                onTap: _selectDate,
-                child: Container(
-                  height: 50,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  decoration: BoxDecoration(
-                    color: tokens.bgTintWarm,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: tokens.surfaceLine),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.calendar_today_outlined,
-                        size: 18,
-                        color: tokens.warm,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          _birthDate == null
-                              ? 'Когда родились'
-                              : dateFormat.format(_birthDate!),
-                          style: AppTheme.sans(
-                            color: _birthDate == null
-                                ? tokens.inkMuted
-                                : tokens.ink,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0,
-                          ),
-                        ),
-                      ),
-                      Icon(
-                        Icons.chevron_right_rounded,
-                        size: 18,
-                        color: tokens.inkMuted,
-                      ),
-                    ],
-                  ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: _RegistrationGenderButton(
+                  label: 'Женский',
+                  icon: Icons.female_rounded,
+                  isSelected: _selectedGender == Gender.female,
+                  onTap: () =>
+                      setState(() => _selectedGender = Gender.female),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: _RegistrationGenderButton(
+                  label: 'Не указан',
+                  icon: Icons.circle_outlined,
+                  isSelected: _selectedGender == Gender.unknown,
+                  onTap: () =>
+                      setState(() => _selectedGender = Gender.unknown),
                 ),
               ),
             ],
           ),
-        ),
-      ],
+          const SizedBox(height: 10),
+          _FieldLabel(label: 'Дата рождения'),
+          const SizedBox(height: 4),
+          GestureDetector(
+            onTap: _selectDate,
+            child: Container(
+              height: 50,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(
+                color: tokens.bgTintWarm,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: tokens.surfaceLine),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.calendar_today_outlined,
+                    size: 18,
+                    color: tokens.warm,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _birthDate == null
+                          ? 'Когда родились'
+                          : dateFormat.format(_birthDate!),
+                      style: AppTheme.sans(
+                        color: _birthDate == null
+                            ? tokens.inkMuted
+                            : tokens.ink,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 18,
+                    color: tokens.inkMuted,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -672,6 +669,50 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
   }
 }
 
+// Плотность (чанк 21): заголовок секции («Кто я» / «Как с вами
+// связаться» / «Личное») без собственной карточки — раньше это была
+// ProfileSection с рамкой surfaceStrong вокруг каждой секции, что при
+// полях с собственной рамкой (bgTintWarm) давало рамку-в-рамке.
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.title, this.subtitle});
+  final String title;
+  final String? subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = Theme.of(context).extension<RodnyaDesignTokens>() ??
+        RodnyaDesignTokens.light;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title.toUpperCase(),
+          style: AppTheme.sans(
+            color: tokens.ink,
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.2,
+            height: 1.15,
+          ),
+        ),
+        if (subtitle != null && subtitle!.trim().isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              subtitle!,
+              style: AppTheme.sans(
+                color: tokens.inkMuted,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                height: 1.15,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class _FieldLabel extends StatelessWidget {
   const _FieldLabel({required this.label});
   final String label;
@@ -684,9 +725,10 @@ class _FieldLabel extends StatelessWidget {
       label.toUpperCase(),
       style: AppTheme.sans(
         color: tokens.inkMuted,
-        fontSize: 11,
+        fontSize: 13,
         fontWeight: FontWeight.w700,
-        letterSpacing: 0.9,
+        letterSpacing: 0.4,
+        height: 1.2,
       ),
     );
   }
