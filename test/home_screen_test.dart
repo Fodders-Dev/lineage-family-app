@@ -248,17 +248,19 @@ class _FakeBrowserNotificationBridge implements BrowserNotificationBridge {
 }
 
 // S-fanout (05-06.09.2026): HomeScreen defers stories/gatherings/polls/
-// identity-review/family-connection-prompt/events past the first frame
-// via StartupScheduler (initialDelay 700ms + 150ms between up to 6
-// tasks — see lib/startup/startup_scheduler.dart). A bare
-// `pumpAndSettle()` does NOT advance far enough to fire those (Flutter's
-// test binding only fast-forwards the fake clock while a frame is
-// actively scheduled — a dormant `Future.delayed` sitting in the timer
-// queue doesn't count, same reasoning as the existing coach-mark-tour
-// test below). Any assertion on that content needs an explicit pump
-// past the whole queue first — this helper covers the worst case.
+// identity-review/family-connection-prompt/events/onboarding-gate/graph
+// warm-up past the first frame via StartupScheduler (initialDelay 700ms
+// + 150ms between up to 8 tasks — see lib/startup/startup_scheduler.dart)
+// — worst case ~1.75s of chained timers before the last task starts.
+// A bare `pumpAndSettle()` does NOT advance far enough to fire those
+// (Flutter's test binding only fast-forwards the fake clock while a
+// frame is actively scheduled — a dormant `Future.delayed` sitting in
+// the timer queue doesn't count, same reasoning as the existing
+// coach-mark-tour test below). Any assertion on that content needs an
+// explicit pump past the whole queue first — this helper covers the
+// worst case with margin to spare.
 Future<void> pumpPastStartupFanout(WidgetTester tester) async {
-  await tester.pump(const Duration(seconds: 2));
+  await tester.pump(const Duration(seconds: 3));
   await tester.pumpAndSettle();
 }
 

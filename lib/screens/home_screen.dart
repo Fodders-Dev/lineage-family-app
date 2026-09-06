@@ -22,6 +22,7 @@ import 'package:get_it/get_it.dart';
 import '../backend/interfaces/auth_service_interface.dart';
 import '../backend/interfaces/family_tree_service_interface.dart';
 import '../backend/interfaces/identity_service_interface.dart';
+import '../backend/interfaces/tree_graph_capable_family_tree_service.dart';
 import '../backend/models/tree_invitation.dart';
 import '../backend/interfaces/post_service_interface.dart';
 import '../backend/interfaces/gathering_service_interface.dart';
@@ -153,6 +154,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ? GetIt.I<IdentityServiceInterface>()
           : null;
 
+  // S-fanout: same capability-check pattern as
+  // TreeViewScreen._graphTreeService — used only by the warm-up task
+  // below, never to render anything on this screen.
+  TreeGraphCapableFamilyTreeService? get _graphTreeService {
+    final service = _familyTreeService;
+    if (service is TreeGraphCapableFamilyTreeService) {
+      return service as TreeGraphCapableFamilyTreeService;
+    }
+    return null;
+  }
+
   /// Phase 6.5+ auto-refresh: callback registered с
   /// PostsRefreshCoordinator. Notification arrives (WebSocket либо
   /// push) → coordinator debounces 500ms → calls this method →
@@ -238,6 +250,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _onboardingBannerGate.complete();
         }
       });
+      // Warm-up (persons/graph) — last in line, only after every task
+      // above has run. See _warmUpTreeGraphCache for the full contract.
+      deferredTasks.add(_warmUpTreeGraphCache);
       _startupScheduler.scheduleAfterFirstFrame(deferredTasks);
 
       _maybeShowCoachTour();
@@ -522,6 +537,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _familyConnectionPrompt = null;
         });
       }
+    }
+  }
+
+  /// S-fanout warm-up: primes [CustomApiFamilyTreeService]'s in-memory
+  /// `_graphSnapshotCache` + the on-disk [TreeGraphCache] for the
+  /// current tree — the same cache `getTreeGraphSnapshot` reads from
+  /// on `/v1/trees/:id/graph`. «Родные»/«Дерево» are separate
+  /// go_router shell branches (`StatefulShellBranch.preload` defaults
+  /// to `false`), so their screens already only fetch persons/graph on
+  /// first visit — this task doesn't change that. It's the LAST item
+  /// in the deferred queue (runs only once everything above — feed,
+  /// stories, gatherings/polls, identity review, onboarding — has had
+  /// its turn) and exists purely so a tab opened shortly after cold
+  /// start hits a warm cache instead of a cold round trip. Silent: this
+  /// screen never renders graph data, so no setState — a failure here
+  /// just means the tab falls back to its own normal load.
+  Future<void> _warmUpTreeGraphCache() async {
+    final treeId = _currentTreeId;
+    final service = _graphTreeService;
+    if (treeId == null || service == null) return;
+    try {
+      await service.getTreeGraphSnapshot(treeId);
+    } catch (_) {
+      // Best-effort — the tab's own _loadData retries on open.
     }
   }
 
