@@ -952,7 +952,7 @@ class _NotificationCard extends StatelessWidget {
               ),
             ),
           ),
-          padding: const EdgeInsets.fromLTRB(14, 9, 14, 9),
+          padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -976,11 +976,19 @@ class _NotificationCard extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Text(
-                          _notificationLabelForType(item.type),
-                          style: theme.textTheme.labelMedium?.copyWith(
-                            color: theme.colorScheme.primary,
-                            fontWeight: FontWeight.w700,
+                        // Плотность (чанк 23): Flexible вместо голого Text —
+                        // длинные подписи типа («Приглашение в дерево») +
+                        // время в одной строке иначе переполняют Row
+                        // (обнаружено зондом плотности на длинных типах).
+                        Flexible(
+                          child: Text(
+                            _notificationLabelForType(item.type),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              color: theme.colorScheme.primary,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
                         if (groupedCount > 1) ...[
@@ -1026,19 +1034,23 @@ class _NotificationCard extends StatelessWidget {
                         ],
                       ],
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 1),
                     Text(
                       groupedCount > 1
                           ? '${item.title} · ещё ${groupedCount - 1}'
                           : item.title,
-                      maxLines: 2,
+                      // Плотность (чанк 23): 1 строка вместо 2 — заголовок
+                      // строки уведомления, не абзац; длинные заголовки
+                      // (редкость) обрезаются многоточием, а не растягивают
+                      // строку до ~2× высоты.
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyLarge?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     if (item.body.isNotEmpty) ...[
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 1),
                       Text(
                         _formatBody(item.body),
                         maxLines: 1,
