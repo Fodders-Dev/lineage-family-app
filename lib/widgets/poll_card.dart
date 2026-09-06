@@ -12,6 +12,7 @@ import 'package:intl/intl.dart';
 import '../backend/interfaces/auth_service_interface.dart';
 import '../backend/interfaces/poll_service_interface.dart';
 import '../models/poll.dart';
+import '../models/post.dart' show TreeContentScopeType;
 import '../theme/app_theme.dart';
 import '../utils/date_parser.dart';
 import 'feed_media_gallery.dart';
@@ -106,6 +107,9 @@ class _PollCardState extends State<PollCard> {
     }
   }
 
+  // Плотность (чанк 24): было padding: EdgeInsets.all(16) на весь
+  // контейнер (16dp сверху и снизу впустую) — теперь локальный паддинг
+  // на секцию (12 по бокам), как у GatheringCard/PostCard (чанки 24/20).
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -116,8 +120,7 @@ class _PollCardState extends State<PollCard> {
 
     return Container(
       key: Key('poll-card-${_poll.id}'),
-      margin: EdgeInsets.only(bottom: tokens.space12),
-      padding: EdgeInsets.all(tokens.space16),
+      margin: EdgeInsets.only(bottom: tokens.space8),
       decoration: BoxDecoration(
         color: tokens.surfaceStrong,
         borderRadius: BorderRadius.circular(tokens.radiusLg),
@@ -126,28 +129,42 @@ class _PollCardState extends State<PollCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildHeader(theme, tokens),
-          SizedBox(height: tokens.space12),
-          Text(
-            _poll.question,
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontFamily: 'Lora',
-              fontWeight: FontWeight.w700,
-              color: tokens.ink,
-              height: 1.2,
+          // Плотность (чанк 24): вертикаль шапки 4/4 (было бы 8/8, как у
+          // GatheringCard) — карточка опроса несёт 3 варианта под собой
+          // и должна уложиться в ≤260dp целиком, бюджет плотнее.
+          Padding(
+            padding: EdgeInsets.fromLTRB(tokens.space12, 4, tokens.space8, 4),
+            child: _buildHeader(theme, tokens),
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+                tokens.space12, 0, tokens.space12, tokens.space4),
+            child: Text(
+              _poll.question,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: AppTheme.serif(
+                color: tokens.ink,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                height: 1.2,
+              ),
             ),
           ),
-          if (_poll.renderableImageUrls.isNotEmpty) ...[
-            SizedBox(height: tokens.space12),
-            _buildPhotos(),
-          ],
-          SizedBox(height: tokens.space12),
-          _buildOptions(theme, tokens),
+          if (_poll.renderableImageUrls.isNotEmpty) _buildPhotos(),
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+                tokens.space12, 0, tokens.space12, tokens.space8),
+            child: _buildOptions(theme, tokens),
+          ),
         ],
       ),
     );
   }
 
+  // Плотность (чанк 24): шапка ≤56dp — тот же приём, что у GatheringCard:
+  // дата публикации и аудитория объединены в одну строку метаданных
+  // вместо отдельной строки-даты.
   Widget _buildHeader(ThemeData theme, RodnyaDesignTokens tokens) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -157,22 +174,50 @@ class _PollCardState extends State<PollCard> {
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 _poll.authorName,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
+                style: AppTheme.sans(
                   color: tokens.ink,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  height: 1.15,
                 ),
               ),
               const SizedBox(height: 2),
-              Text(
-                DateFormat('d MMMM', 'ru')
-                    .format(toLocalForDisplay(_poll.createdAt)),
-                style: theme.textTheme.bodySmall?.copyWith(
+              DefaultTextStyle.merge(
+                style: AppTheme.sans(
                   color: tokens.inkMuted,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  height: 1.2,
+                ),
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        DateFormat('d MMMM', 'ru')
+                            .format(toLocalForDisplay(_poll.createdAt)),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Text('·'),
+                    const SizedBox(width: 6),
+                    Icon(_audienceIcon, size: 13, color: tokens.inkMuted),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        _audienceLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -183,6 +228,13 @@ class _PollCardState extends State<PollCard> {
       ],
     );
   }
+
+  String get _audienceLabel =>
+      _poll.scopeType == TreeContentScopeType.branches ? 'Ветки' : 'Семья';
+
+  IconData get _audienceIcon => _poll.scopeType == TreeContentScopeType.branches
+      ? Icons.alt_route
+      : Icons.eco_outlined;
 
   Widget _buildAvatar(ThemeData theme, RodnyaDesignTokens tokens) {
     final photo = _poll.renderableAuthorPhotoUrl;
@@ -249,7 +301,8 @@ class _PollCardState extends State<PollCard> {
       imageUrls: images,
       caption: _poll.question,
       captionPrefix: 'Фото опроса',
-      padding: EdgeInsets.zero,
+      // Плотность (чанк 24): контейнер больше не паддит всё целиком —
+      // дефолтный инсет галереи (space12 бока+низ) не задваивается.
       onTap: (index) {
         MediaLightbox.show(
           context,
@@ -262,20 +315,38 @@ class _PollCardState extends State<PollCard> {
     );
   }
 
+  // Плотность (чанк 24): «N голосов · до …» одной строкой 13sp — было
+  // bodySmall (без явного размера) и без даты закрытия вовсе (closesAt
+  // нигде не отображался, хотя модель его несёт).
   Widget _buildOptions(ThemeData theme, RodnyaDesignTokens tokens) {
     final total = _poll.totalVoters;
     final myVotes = _poll.myVotedOptionIds(_currentUserId).toSet();
+    final closesAt = _poll.closesAt;
+    final options = _poll.options;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final option in _poll.options)
-          _buildOptionBar(theme, tokens, option, myVotes, total),
+        // Плотность (чанк 24): зазор МЕЖДУ строками (4dp), а не паддинг
+        // «снизу у каждой» (было tokens.space8 на КАЖДЫЙ вариант,
+        // включая последний, — лишние 8dp перед строкой голосов). Три
+        // варианта по 44dp держат бюджет ≤260dp карточки.
+        for (var i = 0; i < options.length; i++) ...[
+          if (i > 0) SizedBox(height: tokens.space4),
+          _buildOptionBar(theme, tokens, options[i], myVotes, total),
+        ],
         SizedBox(height: tokens.space4),
         Text(
           key: const Key('poll-vote-count'),
           '$total ${_votesWord(total)}'
-          '${_poll.allowMultiple ? ' · можно несколько' : ''}',
-          style: theme.textTheme.bodySmall?.copyWith(color: tokens.inkMuted),
+          '${_poll.allowMultiple ? ' · можно несколько' : ''}'
+          '${closesAt != null ? ' · до ${DateFormat('d MMMM', 'ru').format(closesAt)}' : ''}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: AppTheme.sans(
+            color: tokens.inkMuted,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
         ),
       ],
     );
@@ -294,16 +365,17 @@ class _PollCardState extends State<PollCard> {
     final selected = myVotes.contains(option.id);
     final radius = BorderRadius.circular(tokens.radiusSm);
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: tokens.space8),
-      child: InkWell(
-        key: Key('poll-option-${option.id}'),
-        borderRadius: radius,
-        onTap: _submitting ? null : () => _vote(option.id),
-        child: SizedBox(
-          height: 44,
-          child: Stack(
-            children: [
+    // Плотность (чанк 24): зазор между строками теперь ставит вызывающий
+    // _buildOptions (SizedBox между элементами) — эта функция больше не
+    // несёт собственный нижний отступ (см. комментарий там).
+    return InkWell(
+      key: Key('poll-option-${option.id}'),
+      borderRadius: radius,
+      onTap: _submitting ? null : () => _vote(option.id),
+      child: SizedBox(
+        height: 44,
+        child: Stack(
+          children: [
               // Track.
               Container(
                 decoration: BoxDecoration(
@@ -353,8 +425,11 @@ class _PollCardState extends State<PollCard> {
                           option.text,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium?.copyWith(
+                          // Плотность (чанк 24): 16sp явно (было bodyMedium
+                          // без гарантии ≥16sp) — вариант ответа это контент.
+                          style: AppTheme.sans(
                             color: tokens.ink,
+                            fontSize: 16,
                             fontWeight:
                                 selected ? FontWeight.w700 : FontWeight.w600,
                           ),
@@ -363,8 +438,11 @@ class _PollCardState extends State<PollCard> {
                       const SizedBox(width: 8),
                       Text(
                         '$percent%',
-                        style: theme.textTheme.labelMedium?.copyWith(
+                        // Плотность (чанк 24): 14sp явно (было labelMedium
+                        // ≈12sp).
+                        style: AppTheme.sans(
                           color: tokens.inkMuted,
+                          fontSize: 14,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -375,8 +453,7 @@ class _PollCardState extends State<PollCard> {
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 
   String _votesWord(int count) {
