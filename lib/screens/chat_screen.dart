@@ -9750,8 +9750,8 @@ class _ChatBubble extends StatelessWidget {
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 360),
                   curve: Curves.easeOutCubic,
-                  // Плотность (чанк 22): паддинг 8/12 (было 6/11) — спека
-                  // держит пузырь на «8 верт / 12 гориз» (Telegram `.msg`),
+                  // Плотность (чанк 22): паддинг 6/12 (было 6/11; ревью вернуло 6 верт —
+                  // однострочное сообщение 52dp вместо 55) — Telegram `.msg`,
                   // радиус 16 + 6 на «хвостовом» углу без изменений.
                   //
                   // Special case: a "naked" кружочек skips the bubble
