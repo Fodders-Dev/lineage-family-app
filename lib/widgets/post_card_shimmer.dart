@@ -5,12 +5,17 @@ import '../theme/app_theme.dart';
 import 'glass_panel.dart';
 
 /// Loading placeholder that mirrors [PostCard]'s real geometry — same
-/// GlassPanel shell, 40dp author avatar, two header lines, a few body
-/// lines, a 16:9 media block, then the divider + 3-button action bar.
-/// Because the skeleton matches where content will land, the swap to
-/// real posts reads as a settle rather than a reflow. Shimmer tones are
-/// pulled from the warm palette (surface containers) so it stays
-/// on-brand instead of the old neutral grey card.
+/// GlassPanel shell, 40dp author avatar, header line, a couple of body
+/// lines, a full-bleed 4:5-capped media block, then a 3-button 44dp
+/// action row (no divider). Because the skeleton matches where content
+/// will land, the swap to real posts reads as a settle rather than a
+/// reflow. Shimmer tones are pulled from the warm palette (surface
+/// containers) so it stays on-brand instead of a neutral grey card.
+///
+/// Плотность (чанк 20): numbers below track post_card.dart's
+/// _buildPostHeader / content Text / _buildPostImages / _buildPostActions
+/// after the density pass — see that file's inline comments for the
+/// before/after rationale.
 class PostCardShimmer extends StatelessWidget {
   const PostCardShimmer({super.key});
 
@@ -32,7 +37,7 @@ class PostCardShimmer extends StatelessWidget {
 
     return GlassPanel(
       padding: EdgeInsets.zero,
-      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
+      margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
       borderRadius: BorderRadius.circular(tokens.radiusMd + 2),
       plain: true,
       child: Shimmer.fromColors(
@@ -42,63 +47,80 @@ class PostCardShimmer extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Header — avatar + name/meta lines (mirrors _buildPostHeader).
+            // Row height pinned to 48 — that's not the 40dp avatar, it's
+            // the Material minimum tap-target the overflow menu's
+            // IconButton holds regardless of our own constraints; +4/4
+            // padding = 56dp header, matching the real card.
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 10, 10),
-              child: Row(
-                children: [
-                  _block(width: 40, height: 40, shape: BoxShape.circle),
-                  const SizedBox(width: 10),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
-                      _ShimmerBar(width: 120, height: 13),
-                      SizedBox(height: 6),
-                      _ShimmerBar(width: 80, height: 10),
-                    ],
-                  ),
-                ],
+              padding: const EdgeInsets.fromLTRB(12, 4, 8, 4),
+              child: SizedBox(
+                height: 48,
+                child: Row(
+                  children: [
+                    _block(width: 40, height: 40, shape: BoxShape.circle),
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: const [
+                        _ShimmerBar(width: 120, height: 14),
+                        SizedBox(height: 6),
+                        _ShimmerBar(width: 80, height: 11),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-            // Body text lines (mirrors content padding).
+            // Body text lines (mirrors content padding: 12 sides, 4 bottom).
             const Padding(
-              padding: EdgeInsets.fromLTRB(16, 0, 16, 14),
+              padding: EdgeInsets.fromLTRB(12, 0, 12, 4),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _ShimmerBar(width: double.infinity, height: 12),
-                  SizedBox(height: 8),
-                  _ShimmerBar(width: double.infinity, height: 12),
-                  SizedBox(height: 8),
-                  _ShimmerBar(width: 160, height: 12),
+                  _ShimmerBar(width: double.infinity, height: 14),
+                  SizedBox(height: 6),
+                  _ShimmerBar(width: 160, height: 14),
                 ],
               ),
             ),
-            // 16:9 media block (mirrors single-image padding + radius18).
+            // Media block (mirrors FeedMediaGallery single-tile: full
+            // width, 4:5 cap, radius 12, no side inset).
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              padding: const EdgeInsets.only(bottom: 8),
               child: AspectRatio(
-                aspectRatio: 16 / 9,
+                aspectRatio: 4 / 5,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(18),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
               ),
             ),
-            // Divider + 3-button action bar (mirrors _buildPostActions).
-            Container(
-              height: 0.7,
-              margin: const EdgeInsets.symmetric(horizontal: 14),
-              color: Colors.white,
-            ),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(6, 10, 6, 12),
+            // 3-button action row (mirrors _buildPostActions: 44dp tap
+            // targets, no divider).
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
               child: Row(
-                children: [
-                  Expanded(child: Center(child: _ShimmerBar(width: 56, height: 14))),
-                  Expanded(child: Center(child: _ShimmerBar(width: 56, height: 14))),
-                  Expanded(child: Center(child: _ShimmerBar(width: 56, height: 14))),
+                children: const [
+                  Expanded(
+                    child: SizedBox(
+                      height: 44,
+                      child: Center(child: _ShimmerBar(width: 56, height: 14)),
+                    ),
+                  ),
+                  Expanded(
+                    child: SizedBox(
+                      height: 44,
+                      child: Center(child: _ShimmerBar(width: 56, height: 14)),
+                    ),
+                  ),
+                  Expanded(
+                    child: SizedBox(
+                      height: 44,
+                      child: Center(child: _ShimmerBar(width: 56, height: 14)),
+                    ),
+                  ),
                 ],
               ),
             ),
