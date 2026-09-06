@@ -71,10 +71,13 @@ class FeedMediaGallery extends StatelessWidget {
     if (imageUrls.length == 1) {
       return Padding(
         padding: pad,
-        child: AspectRatio(
-          // Плотность (чанк 20): не выше 4:5 (портретный кап) — было
-          // жёсткое 16:9, которое сильно обрезало вертикальные фото.
-          aspectRatio: 4 / 5,
+        // Натуральная пропорция снимка в границах 16:9 … 4:5 (как в
+        // Telegram): жёсткое 16:9 резало вертикальные фото, жёсткое 4:5
+        // (первая версия чанка 20) резало горизонтальные и раздувало
+        // карточку до 480dp. Пока размер не известен — 16:9 (короче).
+        child: _NaturalAspectRatio(
+          url: imageUrls.first,
+          cacheWidth: decodeCacheWidthForScreen(context),
           child: ClipRRect(
             borderRadius: borderRadius,
             // MouseRegion gives a "click" cursor on web/desktop; we keep
@@ -343,6 +346,109 @@ class _MediaImageCarouselState extends State<_MediaImageCarousel> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Пропорция одиночного фото по его реальным размерам, зажатая в
+/// [kFeedMediaMinAspect] … [kFeedMediaMaxAspect]. Размер берётся из того же
+/// ImageProvider (с тем же cacheWidth), что рисует плитку — второго декода
+/// нет, попадание в кэш даёт размер синхронно и без прыжка вёрстки.
+const double kFeedMediaMaxAspect = 16 / 9; // горизонтальный кап
+const double kFeedMediaMinAspect = 4 / 5; // вертикальный кап
+
+class _NaturalAspectRatio extends StatefulWidget {
+  const _NaturalAspectRatio({
+    required this.url,
+    required this.cacheWidth,
+    required this.child,
+  });
+
+  final String url;
+  final int? cacheWidth;
+  final Widget child;
+
+  @override
+  State<_NaturalAspectRatio> createState() => _NaturalAspectRatioState();
+}
+
+class _NaturalAspectRatioState extends State<_NaturalAspectRatio> {
+  double? _ratio;
+  ImageStream? _stream;
+  ImageStreamListener? _listener;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _resolve();
+  }
+
+  @override
+  void didUpdateWidget(covariant _NaturalAspectRatio oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url ||
+        oldWidget.cacheWidth != widget.cacheWidth) {
+      _ratio = null;
+      _resolve();
+    }
+  }
+
+  void _resolve() {
+    _detach();
+    if (isFeedVideoUrl(widget.url)) return;
+    ImageProvider provider = CachedNetworkImageProvider(widget.url);
+    final cacheWidth = widget.cacheWidth;
+    if (cacheWidth != null && cacheWidth > 0) {
+      provider = ResizeImage(provider, width: cacheWidth);
+    }
+    // Слушатель может сработать синхронно (кэш) — тогда без setState:
+    // мы ещё до build этого кадра.
+    var synchronous = true;
+    final listener = ImageStreamListener(
+      (ImageInfo info, bool _) {
+        final w = info.image.width;
+        final h = info.image.height;
+        info.dispose();
+        if (w <= 0 || h <= 0) return;
+        final ratio =
+            (w / h).clamp(kFeedMediaMinAspect, kFeedMediaMaxAspect).toDouble();
+        if (ratio == _ratio) return;
+        if (synchronous) {
+          _ratio = ratio;
+        } else if (mounted) {
+          setState(() => _ratio = ratio);
+        }
+      },
+      onError: (Object _, StackTrace? __) {},
+    );
+    final stream = provider.resolve(createLocalImageConfiguration(context));
+    stream.addListener(listener);
+    synchronous = false;
+    _stream = stream;
+    _listener = listener;
+  }
+
+  void _detach() {
+    final stream = _stream;
+    final listener = _listener;
+    if (stream != null && listener != null) {
+      stream.removeListener(listener);
+    }
+    _stream = null;
+    _listener = null;
+  }
+
+  @override
+  void dispose() {
+    _detach();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AspectRatio(
+      aspectRatio: _ratio ?? kFeedMediaMaxAspect,
+      child: widget.child,
     );
   }
 }

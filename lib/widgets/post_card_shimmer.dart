@@ -88,7 +88,9 @@ class PostCardShimmer extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: AspectRatio(
-                aspectRatio: 4 / 5,
+                // Как стартовое состояние настоящей плитки (16:9, пока
+                // размер снимка не известен) — переход без прыжка.
+                aspectRatio: 16 / 9,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     color: Colors.white,
