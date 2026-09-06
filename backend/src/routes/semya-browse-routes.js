@@ -215,7 +215,9 @@ function registerSemyaBrowseRoutes(
     // Read-only payload. Photos + sensitive attributes filtered per
     // privacy boundary (SHARED-TREE-PROPOSAL §3.5). Person basic
     // shape sufficient для tree visualization.
-    const db = await store._read();
+    // SPEED-12: readSharedSnapshot() — публичный no-auth маршрут, ничего
+    // не мутирует ниже (только filter/map на persons/relations).
+    const db = await store.readSharedSnapshot();
     const persons = (db.persons || [])
       .filter((p) => p.treeId === tree.id)
       .map((p) => ({

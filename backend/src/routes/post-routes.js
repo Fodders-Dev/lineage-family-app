@@ -60,13 +60,19 @@ function registerPostRoutes(
       }
     }
 
-    const accessibleTrees = await store.listUserTrees(req.auth.user.id);
+    // SPEED-12: один readSharedSnapshot() на весь запрос — переиспользует
+    // req.storeSnapshot, если requireTreeAccess его уже положил (федеративный
+    // путь), иначе читает один раз здесь. Тот же db идёт в listUserTrees/
+    // listPosts/listPostCommentsForPosts ниже вместо трёх независимых чтений.
+    const db = req.storeSnapshot || (await store.readSharedSnapshot());
+    const accessibleTrees = await store.listUserTrees(req.auth.user.id, db);
     const accessibleTreeIds = new Set(accessibleTrees.map((tree) => tree.id));
     const posts = await store.listPosts({
       treeId,
       authorId,
       scope,
       viewerUserId: req.auth.user.id,
+      db,
     });
     // Audience model: a post is accessible if its primary tree OR
     // any of its multi-branch fan-out targets is accessible to the
@@ -95,9 +101,11 @@ function registerPostRoutes(
     if (limit === null) {
       // SPEED-9 D: один _read() на всю страницу вместо одного на
       // каждый пост (Promise.all(...listPostComments...) ниже делал
-      // K независимых _read() для K видимых постов).
+      // K независимых _read() для K видимых постов). SPEED-12: тот же
+      // db, что и listPosts/listUserTrees выше — четвёртое чтение не нужно.
       const commentsByPost = await store.listPostCommentsForPosts(
         visiblePosts.map((post) => post.id),
+        {db},
       );
       const payload = visiblePosts.map((post) =>
         mapPost(post, (commentsByPost.get(post.id) || []).length),
@@ -134,9 +142,11 @@ function registerPostRoutes(
         : null;
 
     // SPEED-9 D: тот же батч, что и в ветке без limit — один _read()
-    // на страницу вместо одного на каждый пост страницы.
+    // на страницу вместо одного на каждый пост страницы. SPEED-12: тот
+    // же db, что и выше.
     const commentsByPost = await store.listPostCommentsForPosts(
       page.map((post) => post.id),
+      {db},
     );
     const pagePayload = page.map((post) =>
       mapPost(post, (commentsByPost.get(post.id) || []).length),

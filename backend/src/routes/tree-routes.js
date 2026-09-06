@@ -319,12 +319,17 @@ function registerTreeRoutes(
       ? Math.min(limitRaw, 50)
       : 20;
 
+    // SPEED-12: один readSharedSnapshot() вместо двух независимых
+    // _read() (searchPersonsForUser + filterLegacyPersonsByGraphVisibility
+    // раньше каждый читали блоб сами).
+    const db = await store.readSharedSnapshot();
     const persons = await store.searchPersonsForUser({
       userId: req.auth.user.id,
       query,
       excludeTreeId:
         typeof excludeTreeId === "string" ? excludeTreeId : null,
       limit,
+      db,
     });
 
     // Phase 3.2: bulk visibility filter. Узлы с
@@ -335,6 +340,7 @@ function registerTreeRoutes(
     const visiblePersons = await store.filterLegacyPersonsByGraphVisibility(
       persons,
       req.auth.user.id,
+      db,
     );
 
     res.json({
@@ -443,7 +449,10 @@ function registerTreeRoutes(
       // дважды на один HTTP-вызов). Клиент батчит этот эндпоинт по
       // разу на каждую видимую карточку канваса — экономия множится
       // на число открытых карточек.
-      const db = await store._read();
+      // SPEED-12: req.storeSnapshot — тот же снимок, что уже положил
+      // requireTreeAccess (федеративный путь) — вместо ЕЩЁ одного
+      // чтения; readSharedSnapshot() — фолбэк для легаси-деревьев.
+      const db = req.storeSnapshot || (await store.readSharedSnapshot());
       const suggestions = await store.findCrossTreeSuggestionsForPerson({
         userId: req.auth.user.id,
         treeId: tree.id,

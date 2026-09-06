@@ -24,10 +24,19 @@ function registerIdentityRoutes(
       // (phone/email/currentAddress) — owner-only ВСЕГДА, даже на
       // public-узлах. Не-owner viewer не видит row'и с такими
       // ключами; non-sensitive проходят.
+      // SPEED-12: req.storeSnapshot (положен requireTreeAccess на
+      // федеративном пути) переиспользуется и для findGraphPersonByLegacy,
+      // и для гейта ниже — вместо двух отдельных чтений блоба. Сам
+      // listPersonAttributes выше НЕ переведён на снимок: он лениво
+      // материализует personAttributes для legacy-person'ов
+      // (upsertPersonAttributesForPerson пишет в db.personAttributes) —
+      // на заморожённом снимке .push() бросил бы TypeError именно в
+      // том случае, ради которого метод существует.
+      const db = req.storeSnapshot || (await store.readSharedSnapshot());
       const graphPerson = await store.findGraphPersonByLegacy(
         req.params.personId,
+        db,
       );
-      const db = await store._read();
       const visibleAttributes = store.filterSensitiveAttributesForViewer({
         db,
         graphPerson,

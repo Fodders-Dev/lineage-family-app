@@ -7973,8 +7973,11 @@ class FileStore {
     await this._write(db);
   }
 
+  // SPEED-12: readSharedSnapshot() — единственный вызывающий
+  // (GET /v1/profile/me/account-linking-status) read-only, identity
+  // клонируется на возврат.
   async listUserAuthIdentities(userId) {
-    const db = await this._read();
+    const db = await this.readSharedSnapshot();
     const user = db.users.find((entry) => entry.id === userId);
     if (!user) {
       return null;
@@ -8656,8 +8659,15 @@ class FileStore {
     return structuredClone(tree);
   }
 
-  async listUserTrees(userId) {
-    const db = await this._read();
+  // SPEED-12: readSharedSnapshot() вместо _read() — чистое чтение
+  // (.filter/.sort/.map с structuredClone на возврат каждого дерева),
+  // db нигде не мутируется. Каждый вызывающий (posts/gatherings/polls/
+  // stories/трасы, PostgresStore.listUserTrees делегирует сюда через
+  // super) получает эффект без изменения сигнатуры. prefetchedDb —
+  // опционален (см. listPersons/findPerson) — GET /v1/posts передаёт
+  // уже прочитанный снимок, чтобы не делать три SELECT version подряд.
+  async listUserTrees(userId, prefetchedDb = null) {
+    const db = prefetchedDb || (await this.readSharedSnapshot());
     return db.trees
       .filter((tree) => {
         return (
@@ -10426,13 +10436,18 @@ class FileStore {
   // Privacy: scoped to the caller's accessible trees only. We never
   // leak other users' graphs through this endpoint — that's a
   // future Phase 4 feature with explicit consent.
+  // SPEED-12: db — опциональный уже прочитанный снимок (GET
+  // /v1/persons/search читает один раз и передаёт тот же db в
+  // filterLegacyPersonsByGraphVisibility ниже по цепочке). Read-only:
+  // buildCanonicalPersonView клонирует person на возврат, db не трогает.
   async searchPersonsForUser({
     userId,
     query = "",
     excludeTreeId = null,
     limit = 20,
+    db: prefetchedDb = null,
   } = {}) {
-    const db = await this._read();
+    const db = prefetchedDb || (await this.readSharedSnapshot());
     const normalizedUserId = normalizeNullableString(userId);
     if (!normalizedUserId) {
       return [];
@@ -13142,8 +13157,17 @@ class FileStore {
     return adjacency;
   }
 
-  async findBloodRelation({fromGraphPersonId, toGraphPersonId, maxDepth = 10}) {
-    const db = await this._read();
+  // SPEED-12: db — опциональный уже прочитанный снимок (GET
+  // /v1/graph/relation передаёт один и тот же readSharedSnapshot()
+  // сюда и в findGraphPersonById/previewGraphPersonsByIds — раньше
+  // маршрут делал 5 независимых _read() на один HTTP-запрос).
+  async findBloodRelation({
+    fromGraphPersonId,
+    toGraphPersonId,
+    maxDepth = 10,
+    db: prefetchedDb = null,
+  }) {
+    const db = prefetchedDb || (await this.readSharedSnapshot());
     return this._findBloodRelationBetween(
       db,
       fromGraphPersonId,
@@ -13156,8 +13180,13 @@ class FileStore {
   // Only the bare minimum — name + photo + dates — so the client
   // can render a relationship-path strip without leaking editorial
   // fields from non-accessible branches.
-  async previewGraphPersonsByIds(graphPersonIds, {viewerUserId = null} = {}) {
-    const db = await this._read();
+  // SPEED-12: db — опциональный уже прочитанный снимок, см.
+  // findBloodRelation выше. _userCanSeeGraphPerson read-only.
+  async previewGraphPersonsByIds(
+    graphPersonIds,
+    {viewerUserId = null, db: prefetchedDb = null} = {},
+  ) {
+    const db = prefetchedDb || (await this.readSharedSnapshot());
     const ids = Array.isArray(graphPersonIds) ? graphPersonIds : [];
     const normalizedViewer = normalizeNullableString(viewerUserId);
     return ids.map((id) => {
@@ -13217,10 +13246,13 @@ class FileStore {
   // graphPerson has been soft-deleted. Used by route gates that
   // need to call _userCanEditGraphPerson on a (treeId, personId)
   // pair from the URL.
-  async findGraphPersonByLegacy(legacyPersonId) {
+  // SPEED-12: prefetchedDb — опциональный уже прочитанный снимок
+  // (requireGraphPersonEdit/identity-routes GET передают req.storeSnapshot
+  // или readSharedSnapshot(), чтобы не читать блоб ещё раз). Read-only.
+  async findGraphPersonByLegacy(legacyPersonId, prefetchedDb = null) {
     const normalizedId = normalizeNullableString(legacyPersonId);
     if (!normalizedId) return null;
-    const db = await this._read();
+    const db = prefetchedDb || (await this.readSharedSnapshot());
     const legacyPerson = (db.persons || []).find(
       (entry) => entry.id === normalizedId,
     );
@@ -13246,10 +13278,13 @@ class FileStore {
     return graphPerson ? structuredClone(graphPerson) : null;
   }
 
-  async findGraphPersonById(graphPersonId) {
+  // SPEED-12: prefetchedDb — см. findGraphPersonByLegacy выше;
+  // GET /v1/graph/relation резолвит два graphPerson подряд и хочет
+  // один и тот же снимок на оба вызова вместо двух readSharedSnapshot().
+  async findGraphPersonById(graphPersonId, prefetchedDb = null) {
     const normalizedId = normalizeNullableString(graphPersonId);
     if (!normalizedId) return null;
-    const db = await this._read();
+    const db = prefetchedDb || (await this.readSharedSnapshot());
     const graphPerson = (db.graphPersons || []).find(
       (entry) => entry.id === normalizedId,
     );
@@ -16986,6 +17021,16 @@ class FileStore {
       if (key === "sessions") continue;
       overlay[key] = db[key];
     }
+    Object.defineProperty(overlay, "sessions", {
+      enumerable: true,
+      configurable: false,
+      get() {
+        throw new Error(
+          "_writableCirclesViewForTree(): overlay has no sessions — use " +
+            "findSession/findUserBySessionToken/store session methods instead of db.sessions (SPEED-11/12)",
+        );
+      },
+    });
     overlay.circles = (Array.isArray(db.circles) ? db.circles : []).map(
       (entry) => (entry && entry.treeId === treeId ? {...entry} : entry),
     );
@@ -17292,13 +17337,20 @@ class FileStore {
   // всех деревьев на каждое чтение — лишний CPU и запись блоба из читающего
   // пути в обход _mutate (lost-update). Хранимое состояние кругов чинят
   // мутации графа и listCircles/findCircle.
+  // SPEED-12: db — опциональный уже прочитанный снимок (обычно
+  // readSharedSnapshot() из GET /v1/posts, где accessibleTrees и
+  // listPostCommentsForPosts читают тот же db). Read-only путь —
+  // _canUserViewCirclePost уже безопасен на заморожённом db через
+  // _writableCirclesViewForTree (SPEED-11), так что снимок сюда
+  // передавать можно без нового overlay'я.
   async listPosts({
     treeId = null,
     authorId = null,
     scope = null,
     viewerUserId = null,
+    db: prefetchedDb = null,
   } = {}) {
-    const db = await this._read();
+    const db = prefetchedDb || (await this.readSharedSnapshot());
     const circleCache = this._createCircleVisibilityCache();
     return db.posts
       .filter((entry) => {
@@ -21039,13 +21091,18 @@ class FileStore {
     return structuredClone(contribution);
   }
 
+  // SPEED-12: readSharedSnapshot() — read-only список, entry клонируется
+  // на возврат. Локальная const вместо `db.profileContributions =`
+  // (старый идиом переприсваивал поле на db) — на заморожённом снимке
+  // присваивание в sloppy-mode тихо no-op'ается; локальная переменная
+  // не зависит от того, заморожен db или нет.
   async listProfileContributions(targetUserId, {status = null} = {}) {
-    const db = await this._read();
-    db.profileContributions = Array.isArray(db.profileContributions)
+    const db = await this.readSharedSnapshot();
+    const profileContributions = Array.isArray(db.profileContributions)
       ? db.profileContributions
       : [];
 
-    return db.profileContributions
+    return profileContributions
       .filter((entry) => {
         if (entry.targetUserId !== targetUserId) {
           return false;
@@ -21426,10 +21483,11 @@ class FileStore {
     }
   }
 
+  // SPEED-12: readSharedSnapshot() — чистый lookup, ничего не пишет.
   async getOnboardingState({userId}) {
     const normalizedUser = normalizeNullableString(userId);
     if (!normalizedUser) return null;
-    const db = await this._read();
+    const db = await this.readSharedSnapshot();
     const state = (db.onboardingStates || []).find(
       (s) => s.userId === normalizedUser,
     );

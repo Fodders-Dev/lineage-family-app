@@ -2059,7 +2059,13 @@ function createApp({
       return null;
     }
 
-    const graphPerson = await store.findGraphPersonByLegacy(personId);
+    // SPEED-12: requireTreeAccess выше уже мог положить снимок на
+    // req.storeSnapshot (федеративный путь) — переиспользуем его вместо
+    // нового readSharedSnapshot()/_read(). Read-only ниже по цепочке.
+    const graphPerson = await store.findGraphPersonByLegacy(
+      personId,
+      req.storeSnapshot,
+    );
     if (!graphPerson) {
       // Edge case — graph mirror ещё не догнал legacy write.
       // Tree-access уже пройден; на anonymous этого достаточно по
@@ -2077,8 +2083,10 @@ function createApp({
       return {tree, legacyPerson, graphPerson};
     }
 
-    // Claimed: только active grant per scope.
-    const dbForGrants = await store._read();
+    // Claimed: только active grant per scope. SPEED-12: тот же снимок
+    // (req.storeSnapshot, если requireTreeAccess его уже положил) —
+    // read-only проверка гранта, не мутирует.
+    const dbForGrants = req.storeSnapshot || (await store.readSharedSnapshot());
     const grants = Array.isArray(dbForGrants.graphPersonEditGrants)
       ? dbForGrants.graphPersonEditGrants
       : [];
@@ -2112,12 +2120,16 @@ function createApp({
   // person тихо выпал из результата, а не вернул 403 (последнее
   // leak'ает существование).
   async function requireGraphPersonRead(req, res, graphPersonId) {
-    const graphPerson = await store.findGraphPersonById(graphPersonId);
+    // SPEED-12: один readSharedSnapshot() вместо findGraphPersonById
+    // (свой _read()) + отдельного _read() для visibility-гейта ниже —
+    // нет treeId-контекста (cross-tree), поэтому req.storeSnapshot
+    // здесь взять неоткуда, но снимок один на оба вызова.
+    const db = await store.readSharedSnapshot();
+    const graphPerson = await store.findGraphPersonById(graphPersonId, db);
     if (!graphPerson || graphPerson.deletedAt) {
       res.status(404).json({message: "Карточка не найдена"});
       return null;
     }
-    const db = await store._read();
     if (!store._userCanSeeGraphPerson(db, graphPerson, req.auth.user.id)) {
       res.status(403).json({message: "Карточка скрыта приватностью"});
       return null;
