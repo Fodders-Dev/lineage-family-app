@@ -976,11 +976,13 @@ class _NotificationCard extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        // Плотность (чанк 23): Flexible вместо голого Text —
-                        // длинные подписи типа («Приглашение в дерево») +
-                        // время в одной строке иначе переполняют Row
-                        // (обнаружено зондом плотности на длинных типах).
-                        Flexible(
+                        // Плотность (чанк 23): длинные подписи типа
+                        // («Приглашение в дерево») + время в одной строке
+                        // переполняли Row. Expanded, а не Flexible+Spacer:
+                        // два flex-ребёнка делили свободное место пополам, и
+                        // «Новое сообщение» резалось до «Новое сообщен…» даже
+                        // при свободной половине строки.
+                        Expanded(
                           child: Text(
                             _notificationLabelForType(item.type),
                             maxLines: 1,
@@ -1013,7 +1015,7 @@ class _NotificationCard extends StatelessWidget {
                             ),
                           ),
                         ],
-                        const Spacer(),
+                        const SizedBox(width: 8),
                         if (timeLabel != null)
                           Text(
                             timeLabel,
