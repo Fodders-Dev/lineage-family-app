@@ -1571,3 +1571,235 @@ posts=2, persons-search=2, graph/relation=5, onboarding-state=1 — без
   ответственностью код-ревью, тест ловит только уже известные пути.
 - **Не проверено на реальном Postgres** — как и весь корпус SPEED-9…11.
 
+## SPEED-13 — merge-proposals без материализации на чтении и без двойного хэширования (06.09.2026)
+
+SPEED-12 явно НЕ перевёл `GET /v1/merge-proposals/pending` на
+`readSharedSnapshot()`: `listPendingMergeProposalsForUser` →
+`_ensureCrossTreeMergeProposals`/`_markStaleMergeProposals` безусловно
+мутируют `db` (`.push()` новых предложений, присвоение полей
+существующим, плюс `_reconcilePersonIdentities`→`backfillPersonIdentities`
+внутри) — на замороженном снимке `.push()` бросил бы `TypeError`
+безусловно, а присвоение поля молча no-op'алось бы (store.js без
+`"use strict"`) — оба исхода хуже текущего поведения. По CPU-профилю
+SPEED-10/12 (`node --cpu-prof`, копия прод-блоба) ~47% self-time этого
+маршрута — ДВОЙНОЙ `hashSnapshot` (`stableSerialize`+sha256 ВСЕХ
+persons+personIdentities базы, before/after) внутри
+`backfillPersonIdentities`, вызываемого БЕЗУСЛОВНО на каждый вызов, хотя
+на проде (steady state) у всех persons уже есть `identityId` и хэш
+ничего не находит; ещё ~21% — сам `_read()` (клон блоба).
+
+### Механизм
+
+1. **`dbHasPersonsWithoutIdentity(db)`** (store.js, рядом с
+   `treeHasPersonsWithoutIdentity` из SPEED-8c) — тот же приём, но БЕЗ
+   фильтра по дереву: merge-proposals кросс-древесные
+   (`_ensureCrossTreeMergeProposals` сверяет `stewardPersons` ПРОТИВ
+   `db.persons` ВСЕЙ базы, не одного дерева), поэтому гейту нужна
+   глобальная, а не потреева проверка.
+2. **`_ensureCrossTreeMergeProposals`/`_markStaleMergeProposals` получили
+   `dryRun`** — тот же контрольный поток (обход пар, early-return по
+   `limit`, что считается «changed»), просто без побочных эффектов:
+   `.push()`/присвоения полей и вызов `_reconcilePersonIdentities`
+   пропускаются. Одна реализация на оба режима — разойтись нечему
+   (в отличие от «второй параллельной копии»). `_reconcilePersonIdentities`
+   (а значит и `backfillPersonIdentities`) теперь вызывается ТОЛЬКО когда
+   `dbHasPersonsWithoutIdentity(db)` истинно, и ТОЛЬКО не в `dryRun`-режиме
+   — то есть только внутри `_mutate` (реальная запись), никогда — на
+   замороженном снимке.
+3. **`listPendingMergeProposalsForUser`** теперь: читает
+   `prefetchedDb || readSharedSnapshot()` (0 `structuredClone` на
+   попадании кэша PostgresStore, SPEED-11); если в базе ЕСТЬ person без
+   `identityId` — снимок нельзя безопасно использовать (backfill
+   обязателен) — сразу материализует; иначе — `dryRun`-прогон ПРЯМО по
+   замороженному снимку (0 доп. чтений блоба, 0 записей) и материализует
+   (`_mutate`) ТОЛЬКО если `dryRun` нашёл реальные изменения (новое
+   предложение / выросший score / протухшая пара). Ответ строится из
+   результата материализации, если она случилась, иначе — прямо из
+   снимка; `normCache` (SPEED-10) построенный во время `dryRun`
+   переиспользуется для финального `.filter()`, чтобы не renormализовать
+   персон повторно.
+4. **`_materializeMergeProposals`** — новый приватный helper: единственное
+   место, где merge-proposals реально ПИШУТСЯ, через `_mutate` (свежий
+   собственный `_read()` внутри `applyFn`, `_ensureCrossTreeMergeProposals`/
+   `_markStaleMergeProposals` без `dryRun` — те же функции, что и раньше,
+   просто не поверх «голого» `_read()`+условный `_write()`, а через
+   store-wide `_mutateQueue`, как того требует задача). Backfill внутри
+   гейтится НА ЭТОМ свежем `db` — если решение `dryRun`'а по устаревшему
+   снимку разошлось с реальностью к моменту `_mutate` (гонка с другой
+   записью), итог всегда считается по самым свежим данным.
+5. **`merge-routes.js`** — маршрут сам читает `req.storeSnapshot ||
+   store.readSharedSnapshot()` (не проходит через `requireTreeAccess` —
+   не tree-scoped — поэтому `req.storeSnapshot` обычно не выставлен) и
+   передаёт снимок третьим параметром.
+
+### Двойной `hashSnapshot`: НЕ убран из `backfillPersonIdentities`
+
+Задача разрешала убрать двойное хэширование ВНУТРИ самой функции только
+с тестом-доказательством идентичности `changed` на 4 категориях
+состояний. Это НЕ сделано — и не потребовалось: гейт (`dbHasPersonsWithoutIdentity`)
+устраняет САМ ВЫЗОВ `backfillPersonIdentities` целиком в steady state
+(все persons с `identityId` — обычный случай на проде), что даёт ТОТ ЖЕ
+CPU-выигрыш (весь ~47% self-time), не трогая 19-caller'ный shared helper
+и не требуя доказывать эквивалентность hash-based/counter-based diff
+внутри него. Переписывать `backfillPersonIdentities` имело бы смысл
+только если бы нужно было ускорить путь, где backfill РЕАЛЬНО нужен
+(person без identity) — таких вызовов на проде практически нет (SPEED-8c),
+так что цена/риск этой правки не оправданы отдельно от того, что уже
+сделано здесь.
+
+### Идентичность и тесты
+
+`backend/test/speed13-merge-proposals.test.js` (6 тестов, `createApp` +
+`FileStore`, метод как в `speed9-b-single-read.test.js`/
+`speed12-shared-snapshot-more.test.js` для HTTP-сценариев и как в
+`speed10-identity.test.js` «SPEED-10 D» для идентичности на уровне
+стора):
+
+- **A** — нет кандидатов: пустой ответ, блоб не пишется вовсе (спай на
+  `_write`, 0 вызовов).
+- **B** — новые кандидаты: материализация РОВНО одной записью; повторный
+  GET без изменений — байт-в-байт тот же JSON-ответ, 0 доп. записей.
+- **C** — устаревшая пара (одна из карточек удалена после создания
+  предложения): переход `pending → stale` РОВНО одной записью,
+  предложение пропадает из `pending`; повторный GET снова 0 записей.
+- **D** — заморозка не мутируется: `readSharedSnapshot()` передаётся в
+  `listPendingMergeProposalsForUser` напрямую (без HTTP) и в сценарии, где
+  `dryRun` находит изменения (материализация уходит в свой независимый
+  `_mutate()`-`_read()`), и в steady state (`dryRun` без изменений) —
+  оба раза `Object.isFrozen(snapshot)` остаётся true и глубокое
+  сравнение (`structuredClone`, вручную исключая throw-геттер `sessions`
+  — иначе сам `structuredClone` упал бы на нём) до/после совпадает
+  побайтово.
+- **E** — идентичность: оптимизированный путь (снимок + `dryRun` +
+  условная материализация) на независимой копии даёт ТОТ ЖЕ ответ
+  (без учёта `id`/`createdAt`), что «по-старому» — свежий `_read()`,
+  безусловный (`dryRun` по умолчанию `false`) прогон
+  `_ensureCrossTreeMergeProposals`/`_markStaleMergeProposals`,
+  безусловный `_write()` — те же функции, вызванные в их прежнем,
+  неоптимизированном режиме; плюс пустое состояние (нет persons) → `[]`.
+
+`npm --prefix backend test` — **748/748** (было 742, +6 новых), ~24 с;
+`api.test.js` перегнан отдельно — **126/126**, флейка не было.
+
+### Замер: одиночный вызов, копия прод-блоба (FileStore)
+
+Харнесс — `backend/.scratch/speed13_bench.js` + `profile_run.js` (не
+коммитятся, как speed11/speed12 харнессы): копия прод-блоба (155
+persons/144 relations/25 деревьев/89 users/24 mergeProposals), топ-5
+пользователей по числу persons, стюардом которых они являются
+(`_isPersonSteward`, подобраны ПРОГРАММНО, не руками). Методология —
+**один `new FileStore()` + `initialize()` на пользователя, дальше
+`listPendingMergeProposalsForUser` вызывается в цикле на ЭТОМ ЖЕ
+прогретом инстансе** (median из 100 вызовов) — это принципиально:
+`_initializeFileStore()` безусловно гоняет `backfillPersonIdentities`/
+`ensureCirclesForAllTrees` на КАЖДОЕ создание `FileStore`
+(это одноразовая цена загрузки процесса на реальном сервере, а не часть
+пути одного запроса) — если пересоздавать стор на каждый вызов, эта
+цена перекрывает именно ту дельту, которую чинит SPEED-13. «До» — ветка
+`fed4b3a0` (родитель WIP-коммита) в отдельном `git worktree`, «после» —
+эта ветка, тот же процесс/машина, оба прогона проверены `_write`/`_read`
+спаями (0 записей, 1 чтение блоба на вызов — как и было в steady state,
+SPEED-10):
+
+| userId (по числу stewardPersons) | до, мс (median×100) | после, мс | Δ |
+|---|---|---|---|
+| 70 persons | 17.61 | 11.35 | −36% |
+| 41 person | 17.05 | 10.45 | −39% |
+| 10 persons | 19.12 | 9.97 | −48% |
+| 7 persons | 16.81 | 11.98 | −29% |
+| 4 persons | 17.25 | 11.65 | −33% |
+
+CPU-профиль (`node --cpu-prof`, 400 повторов на прогретом сторе, самый
+крупный из пяти пользователей) подтверждает механизм — `stableSerialize`
++ его колбэк + `update`/hash (migration-utils.js, sha256) —
+**полностью ИСЧЕЗЛИ из топ-15** после фикса; на их месте —
+`deepFreezeState` (НОВЫЙ на FileStore: `readSharedSnapshot()` там не
+кэширует заморозку между вызовами, в отличие от PostgresStore — см.
+«Оговорка» ниже) и та же матчинг-логика
+(`_ensureCrossTreeMergeProposals`/`listPendingMergeProposalsForUser`/
+`tokenSimilarity`/`scoreNormalizedPersons`/`_scorePersonPairCached`, не
+менялась):
+
+| self%, до | функция | self%, после | функция |
+|---|---|---|---|
+| 21.0 | `_read` | 32.1 | `_read` |
+| 13.3+12.4+5.4=31.1 | `stableSerialize`+callback (migration-utils.js) | — | (исчезло из топ-15) |
+| 10.0 | `write`/string_decoder (JSON.parse) | 14.3 | `write`/string_decoder |
+| 6.3 | `update`/hash (sha256) | — | (исчезло из топ-15) |
+| — | — | 11.5 | `deepFreezeState` (новое — см. ниже) |
+| 2.2+2.0+1.9+1.6+1.1=8.8 | матчинг (`_ensureCrossTreeMergeProposals`+`listPendingMergeProposalsForUser`+`tokenSimilarity`+`scoreNormalizedPersons`+`_scorePersonPairCached`) | 3.1+3.5+3.1+2.7+1.5=14.0 | тот же матчинг (не менялся, доля выросла из-за меньшего знаменателя) |
+
+(Оба профиля перегнаны заново в этой сессии тем же харнессом на том же
+блобе — числа выше отличаются от первого черновика этого раздела на
+единицы процентов, это нормальный шум между независимыми прогонами;
+механизм и порядок величины — те же.)
+
+### Оговорка — FileStore, не PostgresStore (как весь корпус SPEED-9…12)
+
+Эти цифры и профиль сняты на `FileStore` (метод SPEED-8c/8d/9/10/12) —
+абсолютные мс и профиль НЕ прод-цифры. Два эффекта расходятся в РАЗНЫЕ
+стороны:
+
+- **Недооценка выигрыша.** На PostgresStore попадание в кэш SPEED-8a/11
+  устраняет клон+SQL-сессии полностью (`readSharedSnapshot()` на попадании
+  версии отдаёт `this._cachedState` БЕЗ `structuredClone`, 0 доп. SQL) —
+  доля, которую съедал `_read()`/клон в замере выше (21→32% self-time),
+  на проде УЖЕ почти исчезла благодаря SPEED-11, так что относительный
+  вклад устраняемого этой задачей хэширования в ОБЩЕЕ время запроса на
+  проде БОЛЬШЕ, чем показывают проценты FileStore-профиля.
+- **Переоценка `deepFreezeState` как накладных расходов.** Новые ~11-12%
+  self-time на `deepFreezeState` в профиле — специфика FileStore:
+  `readSharedSnapshot()` там не кэширует замороженное состояние между
+  вызовами (`_read()` — честный `JSON.parse` каждый раз, заморозка
+  строится заново). На PostgresStore заморозка платится РОВНО один раз
+  на попадание в кэш (`_commitCachedState`, SPEED-11) — на бёрсте/
+  повторных вызовах между записями эта цена размазывается на ноль. Both
+  effects point the same way: реальный прод-выигрыш этой задачи —
+  БОЛЬШЕ наблюдаемых здесь −29…−48%, а не меньше.
+
+### Таблица: сценарий | чтений блоба | записей | мс до/после (FileStore, копия прод-блоба)
+
+| сценарий | чтений блоба до | записей до | чтений блоба после | записей после | мс до | мс после |
+|---|---|---|---|---|---|---|
+| Нет кандидатов | 1 (`_read`) | 0 | 1 (`readSharedSnapshot`, dry-run) | 0 | ~16 | ~9-10 |
+| Steady state (предложение уже создано, ничего не изменилось) | 1 (`_read`) | 0 (SPEED-10) | 1 (`readSharedSnapshot`, dry-run) | 0 | ~16-19 | ~9-12 |
+| Новая пара (первое обнаружение) | 1 (`_read`) | 1 | 1 (`readSharedSnapshot`) + 1 (`_mutate`→`_read`) = 2 | 1 (внутри `_mutate`) | ~17-20 | ~выше steady-state (доп. чтение), но записей столько же |
+| Протухшая пара (кандидат удалён) | 1 (`_read`) | 1 | 1 (`readSharedSnapshot`) + 1 (`_mutate`→`_read`) = 2 | 1 (внутри `_mutate`) | ~17-20 | аналогично |
+| Дирти identity (person без identityId — редкость на проде) | 1 (`_read`) | 0 или 1 | 1 (`readSharedSnapshot`, отброшен) + 1 (`_mutate`→`_read`) = 2 | 0 или 1 | ~20+ (двойной хэш) | без двойного хэша |
+
+Строки «новая пара»/«протухшая пара» на FileStore честно делают ОДНИМ
+доп. чтением блоба больше, чем «до» (снимок для `dryRun` + отдельный
+`_read()` внутри `_mutate`) — на PostgresStore это два обращения к
+ОДНОЙ и той же version-кэшированной строке (SPEED-8a/11), в сумме
+дешевле одного `_read()`-клона «до». Строка «дирти identity» — редкий
+путь (обычно после легаси-импорта/гонки), где выигрыша от `dryRun` нет
+(сразу материализация), но и регресса нет — 1:1 старое поведение.
+
+### Что не сделано и почему
+
+- **Двойной `hashSnapshot` внутри `backfillPersonIdentities`** — не
+  трогался (см. раздел выше): гейт устраняет сам вызов в общем случае,
+  переписывать хэш-алгоритм ради редкого «дирти» пути не оправдано
+  отдельно.
+- **`_reconcilePersonIdentities`'s более широкие побочные эффекты**
+  (пересинхронизация `user.identityId`, бэкфилл аватара из person'а —
+  см. `_backfillUserAvatarsFromPersons`) в steady-state (гейт чист) на
+  этом маршруте больше НЕ выполняются вовсе (ни при `dryRun`, ни при
+  реальной материализации — гейт общий на обе ветки). Это НЕ новый риск:
+  в СТАРОМ коде эти побочные эффекты и раньше персистились ТОЛЬКО «за
+  компанию» с реальным изменением merge-proposals (`_write` вызывался
+  только если `changed` от самих предложений, а не от реконсиляции) —
+  то есть уже были ненадёжны сами по себе. Другие 18 caller'ов
+  `_reconcilePersonIdentities` (create/link/merge-пути) не затронуты —
+  они вызывают его безусловно, как и раньше.
+- **Риск гейта (тот же, что и SPEED-8c/12 уже приняли).**
+  `dbHasPersonsWithoutIdentity` смотрит ТОЛЬКО на присутствие
+  `person.identityId`, не на согласованность `personIdentities[].personIds`
+  с ним — рассинхрон этого массива (без потери самого `identityId`) не
+  триггерит backfill. Тот же принятый риск, что и `treeHasPersonsWithoutIdentity`
+  (SPEED-8c) и явно описанный в SPEED-12 «Что НЕ переведено» для этого
+  же маршрута.
+- **Не проверено на реальном Postgres** — как и весь корпус SPEED-9…12
+  (см. «Оговорка» выше); ветка не мержится в main до явного «го» (см.
+  `.claude/rules/backend-store.md`).
+

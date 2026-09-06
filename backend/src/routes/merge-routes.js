@@ -1,11 +1,18 @@
 function registerMergeRoutes(app, {store, requireAuth}) {
   app.get("/v1/merge-proposals/pending", requireAuth, async (req, res) => {
     const requestedLimit = Number(req.query.limit || 50);
+    // SPEED-13: этот маршрут не проходит через requireTreeAccess (не
+    // tree-scoped), поэтому req.storeSnapshot обычно не выставлен —
+    // читаем общий замороженный снимок сами (0 клона на попадании кэша
+    // на PostgresStore, см. readSharedSnapshot). listPendingMergeProposalsForUser
+    // сам решает, нужна ли материализация (_mutate) поверх снимка.
+    const prefetchedDb = req.storeSnapshot || (await store.readSharedSnapshot());
     const proposals = await store.listPendingMergeProposalsForUser(
       req.auth.user.id,
       {
         limit: Number.isFinite(requestedLimit) ? requestedLimit : 50,
       },
+      prefetchedDb,
     );
     res.json({proposals});
   });

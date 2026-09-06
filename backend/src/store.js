@@ -1041,6 +1041,24 @@ function treeHasPersonsWithoutIdentity(db, treeId) {
   );
 }
 
+// SPEED-13: тот же приём, что treeHasPersonsWithoutIdentity (SPEED-8c), но
+// БЕЗ фильтра по дереву — merge-proposals кросс-древесные
+// (_ensureCrossTreeMergeProposals сверяет stewardPersons ПРОТИВ db.persons
+// ВСЕЙ базы, не одного дерева), поэтому гейту нужна глобальная проверка.
+// backfillPersonIdentities (внутри _reconcilePersonIdentities) хэширует ВСЕ
+// persons+personIdentities базы дважды (before/after stableSerialize+sha256)
+// — на проде, где все persons уже с identityId, это ~47% self-time
+// GET /v1/merge-proposals/pending на КАЖДЫЙ вызов при неизменных данных
+// (docs/speed_measurement.md SPEED-10/SPEED-12 профиль). Как и у
+// treeHasPersonsWithoutIdentity, гейт смотрит ТОЛЬКО на присутствие
+// identityId — не на согласованность personIdentities[].personIds с ним
+// (тот же принятый риск, см. SPEED-12 «Что НЕ переведено»).
+function dbHasPersonsWithoutIdentity(db) {
+  return (Array.isArray(db.persons) ? db.persons : []).some(
+    (person) => !normalizeNullableString(person.identityId),
+  );
+}
+
 function identityIdsForPersonIds(db, treeId, personIds) {
   const personsById = new Map(
     (Array.isArray(db.persons) ? db.persons : [])
@@ -10990,18 +11008,30 @@ class FileStore {
     return Boolean(this._scorePersonPairCached(fromPerson, candidatePerson, normCache));
   }
 
-  _markStaleMergeProposals(db, normCache = null) {
+  // SPEED-13: dryRun — вычислить БЫ ли этот вызов что-то поменял, НЕ
+  // мутируя `db` (нужно для listPendingMergeProposalsForUser над
+  // замороженным readSharedSnapshot() — присвоение поля на frozen-объекте
+  // в store.js молча no-op'ается, sloppy-mode, но мы не хотим полагаться
+  // на это, см. _ensureCrossTreeMergeProposals). Контрольный поток и
+  // порядок обхода — те же, что и в обычном режиме, только запись статуса
+  // пропускается.
+  _markStaleMergeProposals(db, normCache = null, {dryRun = false} = {}) {
     let changed = false;
-    db.mergeProposals = Array.isArray(db.mergeProposals)
+    const mergeProposals = Array.isArray(db.mergeProposals)
       ? db.mergeProposals
       : [];
-    for (const proposal of db.mergeProposals) {
+    if (!dryRun) {
+      db.mergeProposals = mergeProposals;
+    }
+    for (const proposal of mergeProposals) {
       if (
         proposal.status === "pending" &&
         !this._mergeProposalStillActionable(db, proposal, normCache)
       ) {
-        proposal.status = "stale";
-        proposal.resolvedAt = nowIso();
+        if (!dryRun) {
+          proposal.status = "stale";
+          proposal.resolvedAt = nowIso();
+        }
         changed = true;
       }
     }
@@ -11154,15 +11184,48 @@ class FileStore {
   // повторно перебирается для каждого fromPerson) — см. docs/speed_measurement.md
   // SPEED-10 (profile: normalizeIsoDate/normalizeName/normalizeNameTokens
   // суммарно ~16% self-time одного бёрста).
-  _ensureCrossTreeMergeProposals(db, userId, {limit = 50, normCache = null} = {}) {
+  //
+  // SPEED-13: dryRun — вычислить, изменился бы ли результат, НЕ мутируя
+  // `db` (ни `db.mergeProposals`, ни персон, ни personIdentities) — нужно
+  // для listPendingMergeProposalsForUser, чтобы решить, надо ли вообще
+  // материализовывать (_mutate), не трогая замороженный readSharedSnapshot().
+  // На фростженном `db` .push() на массиве бросил бы TypeError безусловно,
+  // а присвоение поля объекта — sloppy-mode no-op (см. SPEED-12
+  // «_writableCirclesViewForTree»); dryRun просто не делает эти вызовы, а не
+  // полагается на no-op. Контрольный поток (обход пар, early-return по
+  // limit, что считается «changed») — БУКВАЛЬНО тот же, только без
+  // побочных эффектов — двух независимых реализаций нет, разойтись нечему.
+  //
+  // dryRun ТАКЖЕ гейтит _reconcilePersonIdentities: она вызывается только
+  // если dbHasPersonsWithoutIdentity(db) — на проде(steady state) persons
+  // уже с identityId, backfillPersonIdentities внутри неё дважды хэширует
+  // ВСЮ базу (stableSerialize+sha256) без единого реального изменения —
+  // см. docs/speed_measurement.md SPEED-10/12 профиль и dbHasPersonsWithoutIdentity
+  // выше. Гейт действует и вне dryRun (реальная материализация внутри
+  // _mutate тоже не должна дважды хэшировать уже согласованную базу) —
+  // ВНЕ dryRun вызывающий обязан передавать МУТИРУЕМЫЙ db (см. _mutate);
+  // dryRun-пути гарантированно видят dbHasPersonsWithoutIdentity(db) ===
+  // false, потому что listPendingMergeProposalsForUser проверяет тот же
+  // гейт ДО того, как решить, пробовать ли dryRun вообще (иначе backfill
+  // был бы нужен, а мутировать замороженный db нельзя).
+  _ensureCrossTreeMergeProposals(
+    db,
+    userId,
+    {limit = 50, normCache = null, dryRun = false} = {},
+  ) {
     const normalizedUserId = normalizeNullableString(userId);
     if (!normalizedUserId) {
       return false;
     }
-    db.mergeProposals = Array.isArray(db.mergeProposals)
+    const mergeProposals = Array.isArray(db.mergeProposals)
       ? db.mergeProposals
       : [];
-    this._reconcilePersonIdentities(db);
+    if (!dryRun) {
+      db.mergeProposals = mergeProposals;
+      if (dbHasPersonsWithoutIdentity(db)) {
+        this._reconcilePersonIdentities(db);
+      }
+    }
 
     const accessibleTreeIds = new Set(
       db.trees
@@ -11202,7 +11265,7 @@ class FileStore {
           (left, right) => left.localeCompare(right),
         );
         const proposalId = `merge:${proposalPersonIds[0]}:${proposalPersonIds[1]}`;
-        const existing = db.mergeProposals.find(
+        const existing = mergeProposals.find(
           (proposal) => proposal.id === proposalId,
         );
         if (existing && existing.status !== "pending") {
@@ -11233,29 +11296,31 @@ class FileStore {
               normalizedBirthYear(candidatePerson.birthDate),
         };
         if (!existing) {
-          db.mergeProposals.push({
-            id: proposalId,
-            fromPersonId: fromPerson.id,
-            toIdentityId: normalizeNullableString(fromPerson.identityId),
-            candidatePersonId: candidatePerson.id,
-            candidateIdentityId: normalizeNullableString(candidatePerson.identityId),
-            matchScore: match.score,
-            matchSignals,
-            reasons: match.reasons,
-            status: "pending",
-            proposedByUserId: null,
-            reviewerUserIds,
-            reviews: [],
-            createdAt: nowIso(),
-            resolvedAt: null,
-          });
-          this._notifyReviewers(db, {
-            type: "merge_proposal",
-            title: "Возможное совпадение",
-            body: "Проверьте, не описывают ли две карточки одного человека.",
-            reviewerUserIds,
-            data: {proposalId, kind: "cross_tree_merge"},
-          });
+          if (!dryRun) {
+            mergeProposals.push({
+              id: proposalId,
+              fromPersonId: fromPerson.id,
+              toIdentityId: normalizeNullableString(fromPerson.identityId),
+              candidatePersonId: candidatePerson.id,
+              candidateIdentityId: normalizeNullableString(candidatePerson.identityId),
+              matchScore: match.score,
+              matchSignals,
+              reasons: match.reasons,
+              status: "pending",
+              proposedByUserId: null,
+              reviewerUserIds,
+              reviews: [],
+              createdAt: nowIso(),
+              resolvedAt: null,
+            });
+            this._notifyReviewers(db, {
+              type: "merge_proposal",
+              title: "Возможное совпадение",
+              body: "Проверьте, не описывают ли две карточки одного человека.",
+              reviewerUserIds,
+              data: {proposalId, kind: "cross_tree_merge"},
+            });
+          }
           changed = true;
           createdCount += 1;
         } else {
@@ -11280,10 +11345,12 @@ class FileStore {
             reasonsChanged ||
             !sameNormalizedIds(existing.reviewerUserIds, reviewerUserIds);
 
-          existing.matchScore = match.score;
-          existing.matchSignals = matchSignals;
-          existing.reasons = match.reasons;
-          existing.reviewerUserIds = reviewerUserIds;
+          if (!dryRun) {
+            existing.matchScore = match.score;
+            existing.matchSignals = matchSignals;
+            existing.reasons = match.reasons;
+            existing.reviewerUserIds = reviewerUserIds;
+          }
           if (somethingChanged) {
             changed = true;
           }
@@ -11391,19 +11458,86 @@ class FileStore {
     };
   }
 
+  // SPEED-13: единственное место, где merge-proposals реально ПИШУТСЯ —
+  // атомарный RMW через _mutate (свежий _read() внутри applyFn,
+  // _ensureCrossTreeMergeProposals/_markStaleMergeProposals без dryRun —
+  // те же функции, что и раньше, просто вызванные не напрямую на «голом»
+  // _read()+условный _write(), а через store-wide _mutateQueue). Backfill
+  // внутри _ensureCrossTreeMergeProposals сам гейтится
+  // dbHasPersonsWithoutIdentity НА ЭТОМ свежем db — если снимок в
+  // listPendingMergeProposalsForUser ниже был дирти, а к моменту _mutate
+  // кто-то её уже почистил (или наоборот), решение всегда принимается по
+  // самым свежим данным, не по устаревшему dry-run.
+  // Возвращает {db, normCache}: db — для ответа (даже если _write не
+  // случился — свежепрочитанный db точнее устаревшего снимка), normCache —
+  // чтобы финальный .filter() в listPendingMergeProposalsForUser не
+  // renormализовал персон этого db заново (SPEED-10 инвариант).
+  async _materializeMergeProposals(normalizedUserId, limit) {
+    const normCache = new Map();
+    const db = await this._mutate((data, skip) => {
+      let changed = this._ensureCrossTreeMergeProposals(data, normalizedUserId, {
+        limit,
+        normCache,
+      });
+      changed = this._markStaleMergeProposals(data, normCache) || changed;
+      return changed ? data : skip(data);
+    });
+    return {db, normCache};
+  }
+
   // SPEED-10: normCache — одна Map на весь вызов, разделяемая
   // _ensureCrossTreeMergeProposals/_markStaleMergeProposals/финальным
   // .filter() ниже — те же persons проверяются во ВСЕХ трёх местах
   // (кандидаты → staleness-рефреш → staleness-рецепт для reviewer-набора),
   // без кэша каждый раз заново нормализовался. См. _scorePersonPairCached.
-  async listPendingMergeProposalsForUser(userId, {limit = 50} = {}) {
+  //
+  // SPEED-13: раньше КАЖДЫЙ вызов честно читал блоб (_read(), клон на
+  // Postgres) и безусловно гонял _reconcilePersonIdentities (двойной
+  // hashSnapshot всей базы — см. dbHasPersonsWithoutIdentity выше), даже
+  // когда пересчёт не находил ни одного изменения (обычный случай в
+  // steady state). Теперь: 1) читаем ОБЩИЙ замороженный снимок
+  // (prefetchedDb, если маршрут его уже прочитал — SPEED-9B/11 — иначе
+  // readSharedSnapshot(), без клона на попадании кэша); 2) если в базе
+  // ЕСТЬ person без identityId — снимок нельзя безопасно использовать для
+  // подсчёта (backfill обязателен, а мутировать заморозку нельзя) —
+  // сразу материализуем; 3) иначе — dryRun-прогон ПРЯМО по замороженному
+  // снимку (0 доп. чтений блоба, 0 записей), и материализуем через
+  // _mutate ТОЛЬКО если dryRun говорит, что что-то реально изменилось
+  // (новое предложение / выросший score / протухшая пара). Ответ клиенту
+  // строится либо из результата материализации (если она случилась),
+  // либо прямо из снимка — форма и порядок те же самые (см.
+  // speed13-merge-proposals.test.js).
+  async listPendingMergeProposalsForUser(
+    userId,
+    {limit = 50} = {},
+    prefetchedDb = null,
+  ) {
     const normalizedUserId = normalizeNullableString(userId);
-    const db = await this._read();
-    const normCache = new Map();
-    let changed = this._ensureCrossTreeMergeProposals(db, normalizedUserId, {limit, normCache});
-    changed = this._markStaleMergeProposals(db, normCache) || changed;
-    if (changed) {
-      await this._write(db);
+    const snapshot = prefetchedDb || (await this.readSharedSnapshot());
+
+    let db = snapshot;
+    let normCache = new Map();
+
+    if (dbHasPersonsWithoutIdentity(snapshot)) {
+      ({db, normCache} = await this._materializeMergeProposals(
+        normalizedUserId,
+        limit,
+      ));
+    } else {
+      let wouldChange = this._ensureCrossTreeMergeProposals(
+        snapshot,
+        normalizedUserId,
+        {limit, normCache, dryRun: true},
+      );
+      wouldChange =
+        this._markStaleMergeProposals(snapshot, normCache, {dryRun: true}) ||
+        wouldChange;
+      if (wouldChange) {
+        ({db, normCache} = await this._materializeMergeProposals(
+          normalizedUserId,
+          limit,
+        ));
+      }
     }
 
     return db.mergeProposals
