@@ -3172,6 +3172,170 @@ void main() {
     expect(find.text('Список блокировок'), findsOneWidget);
     expect(find.text('Сообщение...'), findsNothing);
   });
+
+  // Density invariant (чанк 22 — лента сообщений в чате): на экране
+  // телефона (412×915dp) должно быть видно ≥10 однострочных пузырей —
+  // тот же ориентир «полезных строк на первый экран», что чанки 20/21
+  // применили к карточке поста и форме регистрации. Промоутнут из
+  // одноразового зонда «до/после», которым сверялись числа при
+  // перетяжке паддинга _ChatBubble (было 11/6 verт/гориз, стало 12/8),
+  // зазора между пузырями (было ~2/~3dp независимо от смены автора,
+  // стало ровно 2dp/8dp) и цитаты/реакции/шапки дня в
+  // lib/screens/chat_screen.dart.
+  testWidgets(
+    'ChatScreen (чанк 22): ≥10 однострочных сообщений на первом экране '
+    '412×915',
+    (tester) async {
+      tester.view.physicalSize = const Size(412 * 3, 915 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final chatService = _FakeChatService()
+        ..details = const ChatDetails(
+          chatId: 'chat-density-1',
+          type: 'direct',
+          title: 'Собеседник',
+          participantIds: ['user-1', 'other-user'],
+          participants: [
+            ChatParticipantSummary(
+                userId: 'other-user', displayName: 'Собеседник'),
+          ],
+          branchRoots: [],
+        );
+      getIt.registerSingleton<ChatServiceInterface>(chatService);
+
+      await tester.pumpWidget(
+        buildChatApp(
+          ChatScreen(
+            chatId: 'chat-density-1',
+            otherUserId: 'other-user',
+            title: 'Собеседник',
+            chatType: 'direct',
+            draftStore: _MemoryChatDraftStore(),
+          ),
+        ),
+      );
+
+      // 12 однострочных сообщений — в основном с попеременными авторами
+      // (index 0 — самое новое) + сообщение с реакцией + сообщение с
+      // цитатой (оно же самое старое — на нём авто-появляется плашка
+      // дня). Индексы 5-6 намеренно от одного автора подряд (в пределах
+      // 60с) — вторая пара соседей для замера «зазор внутри одного
+      // автора» рядом со «сменой автора» у остальных пар. Время —
+      // относительно DateTime.now(), чтобы разделитель дня всегда
+      // резолвился в «Сегодня» независимо от даты прогона теста.
+      final now = DateTime.now();
+      const plainCount = 12;
+      final plainTexts =
+          List<String>.generate(plainCount, (i) => 'Текст ${i + 1}');
+      final plainSenderIds = List<String>.generate(
+        plainCount,
+        (i) => i.isEven ? 'user-1' : 'other-user',
+      )..[6] = 'other-user'; // совпадает с senderId[5] — grouped-пара.
+      final messages = <ChatMessage>[
+        for (var i = 0; i < plainCount; i++)
+          ChatMessage(
+            id: 'm-density-$i',
+            chatId: 'chat-density-1',
+            senderId: plainSenderIds[i],
+            senderName: plainSenderIds[i] == 'user-1' ? 'Я' : 'Собеседник',
+            text: plainTexts[i],
+            timestamp: now.subtract(Duration(seconds: i * 20)),
+            isRead: true,
+            participants: const ['user-1', 'other-user'],
+          ),
+        ChatMessage(
+          id: 'm-density-reaction',
+          chatId: 'chat-density-1',
+          senderId: 'other-user',
+          senderName: 'Собеседник',
+          text: 'Сообщение с реакцией',
+          timestamp: now.subtract(Duration(seconds: plainCount * 20 + 20)),
+          isRead: true,
+          participants: const ['user-1', 'other-user'],
+          reactions: const [
+            ChatMessageReactionSummary(
+              emoji: '👍',
+              userIds: ['user-1'],
+              count: 1,
+            ),
+          ],
+        ),
+        ChatMessage(
+          id: 'm-density-quote',
+          chatId: 'chat-density-1',
+          senderId: 'user-1',
+          senderName: 'Я',
+          text: 'Ответ с цитатой',
+          timestamp: now.subtract(Duration(seconds: plainCount * 20 + 40)),
+          isRead: true,
+          participants: const ['user-1', 'other-user'],
+          replyTo: const ChatReplyReference(
+            messageId: 'm-density-0',
+            senderId: 'other-user',
+            senderName: 'Собеседник',
+            text: 'Текст 1',
+          ),
+        ),
+      ];
+
+      chatService.emitMessages(messages);
+      await tester.pumpAndSettle();
+
+      // Видимость меряем относительно реального viewport-а списка
+      // (ListView), а не всего экрана — так в бюджет естественно не
+      // попадают AppBar и композер снизу.
+      final listRect = tester.getRect(find.byType(ListView).first);
+
+      var visibleCount = 0;
+      for (final text in plainTexts) {
+        final finder = find.text(text);
+        if (finder.evaluate().isEmpty) continue;
+        final rect = tester.getRect(finder.first);
+        if (rect.top >= listRect.top - 0.5 &&
+            rect.bottom <= listRect.bottom + 0.5) {
+          visibleCount++;
+        }
+      }
+
+      // Доп. замеры для таблицы «было/стало» чанка 22 — высота пузыря и
+      // зазоры между соседними пузырями (смена автора у «Текст 1»/
+      // «Текст 2», один автор подряд у «Текст 6»/«Текст 7» — см.
+      // plainSenderIds выше).
+      Rect bubbleRectFor(String text) => tester.getRect(
+            find
+                .ancestor(
+                  of: find.text(text),
+                  matching: find.byType(AnimatedContainer),
+                )
+                .first,
+          );
+      final bubbleRectNewer = bubbleRectFor('Текст 1');
+      final switchAuthorGap =
+          bubbleRectNewer.top - bubbleRectFor('Текст 2').bottom;
+      final sameAuthorGap =
+          bubbleRectFor('Текст 6').top - bubbleRectFor('Текст 7').bottom;
+
+      debugPrint(
+        '[density-probe/chunk22] visible=$visibleCount '
+        'bubbleHeight=${bubbleRectNewer.height} '
+        'switchAuthorGap=$switchAuthorGap sameAuthorGap=$sameAuthorGap',
+      );
+
+      expect(
+        visibleCount,
+        greaterThanOrEqualTo(10),
+        reason: 'На экране 412×915 должно быть видно ≥10 однострочных '
+            'сообщений (чанк 22, DoD). Видно: $visibleCount из '
+            '$plainCount. Высота пузыря: ${bubbleRectNewer.height}, '
+            'зазор при смене автора: $switchAuthorGap, зазор у одного '
+            'автора подряд: $sameAuthorGap.',
+      );
+    },
+  );
 }
 
 /// C2: фейковый рекордер для виджет-теста живой волны recording-бара.
