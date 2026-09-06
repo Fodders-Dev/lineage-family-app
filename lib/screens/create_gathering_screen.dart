@@ -28,6 +28,7 @@ import '../providers/tree_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/audience_picker.dart';
 import '../widgets/person_multi_picker_sheet.dart';
+import '../widgets/profile_redesign.dart' show PillButton;
 
 class CreateGatheringScreen extends StatefulWidget {
   const CreateGatheringScreen({
@@ -179,7 +180,12 @@ class _CreateGatheringScreenState extends State<CreateGatheringScreen> {
     }
   }
 
-  Future<void> _pickStartAt() async {
+  // Плотность (чанк 24): «дата/время события — одна строка из двух
+  // полей» — было два последовательных пикера за один тап (сперва
+  // дата, потом время) на ОДНОМ ListTile. Разделены на независимые
+  // дата-поле и время-поле бок о бок, как того требует спека; каждое
+  // трогает только свою часть DateTime, вторая сохраняется.
+  Future<void> _pickStartDate() async {
     final base = _startAt ?? DateTime.now();
     final date = await showDatePicker(
       context: context,
@@ -188,27 +194,25 @@ class _CreateGatheringScreenState extends State<CreateGatheringScreen> {
       lastDate: DateTime(2100),
     );
     if (date == null || !mounted) return;
-    if (_isAllDay) {
-      setState(() => _startAt = DateTime(date.year, date.month, date.day));
-      return;
-    }
+    setState(() {
+      _startAt = DateTime(date.year, date.month, date.day, base.hour, base.minute);
+    });
+  }
+
+  Future<void> _pickStartTime() async {
+    final base = _startAt ?? DateTime.now();
     final time = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.fromDateTime(base),
     );
-    if (!mounted) return;
+    if (time == null || !mounted) return;
     setState(() {
-      _startAt = DateTime(
-        date.year,
-        date.month,
-        date.day,
-        time?.hour ?? base.hour,
-        time?.minute ?? base.minute,
-      );
+      _startAt =
+          DateTime(base.year, base.month, base.day, time.hour, time.minute);
     });
   }
 
-  Future<void> _pickEndAt() async {
+  Future<void> _pickEndDate() async {
     final base = _endAt ?? _startAt ?? DateTime.now();
     final date = await showDatePicker(
       context: context,
@@ -217,31 +221,26 @@ class _CreateGatheringScreenState extends State<CreateGatheringScreen> {
       lastDate: DateTime(2100),
     );
     if (date == null || !mounted) return;
-    if (_isAllDay) {
-      setState(() => _endAt = DateTime(date.year, date.month, date.day));
-      return;
-    }
+    setState(() {
+      _endAt = DateTime(date.year, date.month, date.day, base.hour, base.minute);
+    });
+  }
+
+  Future<void> _pickEndTime() async {
+    final base = _endAt ?? _startAt ?? DateTime.now();
     final time = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.fromDateTime(base),
     );
-    if (!mounted) return;
+    if (time == null || !mounted) return;
     setState(() {
-      _endAt = DateTime(
-        date.year,
-        date.month,
-        date.day,
-        time?.hour ?? base.hour,
-        time?.minute ?? base.minute,
-      );
+      _endAt =
+          DateTime(base.year, base.month, base.day, time.hour, time.minute);
     });
   }
 
-  String _formatDateTime(DateTime value) {
-    return _isAllDay
-        ? DateFormat('d MMMM y', 'ru').format(value)
-        : DateFormat('d MMMM y, HH:mm', 'ru').format(value);
-  }
+  String _formatDate(DateTime value) => DateFormat('d MMMM y', 'ru').format(value);
+  String _formatTime(DateTime value) => DateFormat('HH:mm', 'ru').format(value);
 
   Future<void> _pickImages() async {
     try {
@@ -334,114 +333,216 @@ class _CreateGatheringScreenState extends State<CreateGatheringScreen> {
             ? RodnyaDesignTokens.dark
             : RodnyaDesignTokens.light);
 
+    // Плотность (чанк 24): заголовок только в AppBar, без hero и без
+    // action-кнопки «Создать» там (было: TextButton в actions — единственный
+    // способ отправить форму, экран без явного CTA). Главное действие —
+    // CTA 52dp внизу формы, как в CompleteProfileScreen (чанк 21) /
+    // AuthScreen (чанк 18).
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Новая встреча'),
-        actions: [
-          TextButton(
-            key: const Key('gathering-submit'),
-            onPressed: _isLoading ? null : _create,
-            child: _isLoading
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('Создать'),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Новая встреча')),
       body: SafeArea(
         child: ListView(
           padding: EdgeInsets.fromLTRB(
-            tokens.space16,
-            tokens.space16,
-            tokens.space16,
-            tokens.space16 + MediaQuery.of(context).viewPadding.bottom,
+            tokens.space12,
+            4,
+            tokens.space12,
+            12 + MediaQuery.of(context).viewPadding.bottom,
           ),
           children: [
-            TextField(
+            _FieldLabel(label: 'Название встречи'),
+            const SizedBox(height: 4),
+            _FormField(
               key: const Key('gathering-title-field'),
               controller: _titleController,
+              hint: 'Например, шашлыки на даче',
               textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(
-                labelText: 'Название встречи',
-                hintText: 'Например, шашлыки на даче',
-              ),
             ),
-            SizedBox(height: tokens.space16),
+            // Плотность (чанк 24): межсекционные зазоры 10 (не 14) —
+            // «Кого зовём?» тянет AudiencePicker (виджет вне области этого
+            // чанка), который сам по себе держит ~106dp даже без кругов;
+            // 10 вместо 14 на каждом стыке — необходимый компромисс ради
+            // «CTA формы ≤800dp на пустой форме» (жёсткий DoD чанка 24).
+            const SizedBox(height: 10),
             _buildDateTimeSection(theme, tokens),
-            SizedBox(height: tokens.space16),
-            TextField(
+            const SizedBox(height: 10),
+            _FieldLabel(label: 'Место (необязательно)'),
+            const SizedBox(height: 4),
+            _FormField(
               key: const Key('gathering-place-field'),
               controller: _placeController,
-              decoration: const InputDecoration(
-                labelText: 'Место (необязательно)',
-                prefixIcon: Icon(Icons.place_outlined),
-              ),
+              hint: 'Где встречаемся',
+              icon: Icons.place_outlined,
             ),
-            SizedBox(height: tokens.space16),
-            TextField(
+            const SizedBox(height: 10),
+            _FieldLabel(label: 'Описание (необязательно)'),
+            const SizedBox(height: 4),
+            _FormField(
               key: const Key('gathering-description-field'),
               controller: _descriptionController,
+              // Короткая подсказка — длинная («…что взять с собой»)
+              // переносилась на несколько строк под fallback-шрифтом
+              // тестового harness'а шире Manrope и раздувала пустое поле
+              // до высоты как у maxLines, «съедая» эффект minLines.
+              hint: 'Детали для гостей',
               textCapitalization: TextCapitalization.sentences,
-              minLines: 3,
+              minLines: 2,
               maxLines: 8,
-              decoration: const InputDecoration(
-                labelText: 'Описание (необязательно)',
-                alignLabelWithHint: true,
-              ),
             ),
-            SizedBox(height: tokens.space16),
+            const SizedBox(height: 10),
             _buildMediaSection(theme, tokens),
-            SizedBox(height: tokens.space16),
+            const SizedBox(height: 8),
             _buildAudienceSection(theme, tokens),
+            const SizedBox(height: 8),
+            PillButton(
+              key: const Key('gathering-submit'),
+              label: _isLoading ? 'Создаём…' : 'Создать встречу',
+              icon: Icons.event_available_outlined,
+              expanded: true,
+              height: 52,
+              onPressed: _isLoading ? null : _create,
+            ),
           ],
         ),
       ),
     );
   }
 
+  // Плотность (чанк 24): «дата/время события — одна строка из двух
+  // полей» — было два ListTile (Material-стандарт ~56–72dp каждый, с
+  // leading-иконкой + title + subtitle) на дату и на время внутри
+  // одного тапа. Теперь дата и время — соседние поля 50dp в одной
+  // строке (независимые пикеры), «Конец» — компактная affordance-строка
+  // 44dp, пока не задан, и такая же строка из двух полей + крестик,
+  // когда задан.
   Widget _buildDateTimeSection(ThemeData theme, RodnyaDesignTokens tokens) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SwitchListTile.adaptive(
-          key: const Key('gathering-allday-switch'),
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Весь день'),
-          value: _isAllDay,
-          onChanged: (value) => setState(() => _isAllDay = value),
-        ),
-        ListTile(
-          key: const Key('gathering-start-tile'),
-          contentPadding: EdgeInsets.zero,
-          leading: const Icon(Icons.event_outlined),
-          title: const Text('Начало'),
-          subtitle: Text(
-            _startAt == null
-                ? 'Выбрать дату и время'
-                : _formatDateTime(_startAt!),
-          ),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: _pickStartAt,
-        ),
-        ListTile(
-          key: const Key('gathering-end-tile'),
-          contentPadding: EdgeInsets.zero,
-          leading: const Icon(Icons.event_available_outlined),
-          title: const Text('Конец (необязательно)'),
-          subtitle: Text(
-            _endAt == null ? 'Не задан' : _formatDateTime(_endAt!),
-          ),
-          trailing: _endAt == null
-              ? const Icon(Icons.chevron_right)
-              : IconButton(
-                  tooltip: 'Убрать',
-                  icon: const Icon(Icons.close),
-                  onPressed: () => setState(() => _endAt = null),
+        const _SectionHeader(title: 'Когда'),
+        const SizedBox(height: 6),
+        // Плотность (чанк 24): SwitchListTile держит ~56dp даже с
+        // contentPadding:zero (Material ListTile добавляет свой
+        // вертикальный inset независимо) — голый Row с адаптивным
+        // Switch укладывается в тач-цель Switch (≥44dp) без лишнего.
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Весь день',
+                style: AppTheme.sans(
+                  color: tokens.ink,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
                 ),
-          onTap: _pickEndAt,
+              ),
+            ),
+            Switch.adaptive(
+              key: const Key('gathering-allday-switch'),
+              value: _isAllDay,
+              onChanged: (value) => setState(() => _isAllDay = value),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        _FieldLabel(label: 'Начало'),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Expanded(
+              flex: _isAllDay ? 1 : 3,
+              child: _DateTimeChip(
+                key: const Key('gathering-start-date'),
+                icon: Icons.event_outlined,
+                label: _startAt == null ? 'Дата' : _formatDate(_startAt!),
+                onTap: _pickStartDate,
+              ),
+            ),
+            if (!_isAllDay) ...[
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 2,
+                child: _DateTimeChip(
+                  key: const Key('gathering-start-time'),
+                  icon: Icons.schedule_outlined,
+                  label: _startAt == null ? 'Время' : _formatTime(_startAt!),
+                  onTap: _pickStartTime,
+                ),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 10),
+        _buildEndRow(tokens),
+      ],
+    );
+  }
+
+  Widget _buildEndRow(RodnyaDesignTokens tokens) {
+    if (_endAt == null) {
+      return InkWell(
+        key: const Key('gathering-end-add'),
+        borderRadius: BorderRadius.circular(14),
+        onTap: _pickEndDate,
+        child: Container(
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          alignment: Alignment.centerLeft,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.add, size: 18, color: tokens.accent),
+              const SizedBox(width: 6),
+              Text(
+                'Указать окончание',
+                style: AppTheme.sans(
+                  color: tokens.accent,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _FieldLabel(label: 'Конец'),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Expanded(
+              flex: _isAllDay ? 1 : 3,
+              child: _DateTimeChip(
+                key: const Key('gathering-end-date'),
+                icon: Icons.event_available_outlined,
+                label: _formatDate(_endAt!),
+                onTap: _pickEndDate,
+              ),
+            ),
+            if (!_isAllDay) ...[
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 2,
+                child: _DateTimeChip(
+                  key: const Key('gathering-end-time'),
+                  icon: Icons.schedule_outlined,
+                  label: _formatTime(_endAt!),
+                  onTap: _pickEndTime,
+                ),
+              ),
+            ],
+            const SizedBox(width: 4),
+            IconButton(
+              key: const Key('gathering-end-clear'),
+              tooltip: 'Убрать окончание',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+              onPressed: () => setState(() => _endAt = null),
+              icon: const Icon(Icons.close, size: 18),
+            ),
+          ],
         ),
       ],
     );
@@ -453,19 +554,11 @@ class _CreateGatheringScreenState extends State<CreateGatheringScreen> {
       children: [
         Row(
           children: [
-            Expanded(
-              child: Text(
-                'Фото (необязательно)',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: tokens.ink,
-                ),
-              ),
-            ),
+            const Expanded(child: _SectionHeader(title: 'Фото (необязательно)')),
             TextButton.icon(
               key: const Key('gathering-add-photo'),
               onPressed: _images.length >= _maxImages ? null : _pickImages,
-              icon: const Icon(Icons.add_photo_alternate_outlined),
+              icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
               label: Text(
                 _images.isEmpty ? 'Добавить' : '${_images.length}/$_maxImages',
               ),
@@ -537,13 +630,7 @@ class _CreateGatheringScreenState extends State<CreateGatheringScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Кого зовём?',
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w800,
-            color: tokens.ink,
-          ),
-        ),
+        const _SectionHeader(title: 'Кого зовём?'),
         SizedBox(height: tokens.space8),
         AudiencePicker(
           circles: _audienceCircles,
@@ -605,13 +692,7 @@ class _CreateGatheringScreenState extends State<CreateGatheringScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Позвать также в:',
-          style: theme.textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.w800,
-            color: tokens.ink,
-          ),
-        ),
+        _FieldLabel(label: 'Позвать также в'),
         SizedBox(height: tokens.space8),
         Wrap(
           spacing: tokens.space8,
@@ -634,6 +715,172 @@ class _CreateGatheringScreenState extends State<CreateGatheringScreen> {
           }).toList(),
         ),
       ],
+    );
+  }
+}
+
+// Плотность (чанк 24): те же приёмы, что у AuthScreen (чанк 18) /
+// CompleteProfileScreen (чанк 21) — подпись 13sp uppercase над полем
+// 50dp вместо плавающего Material-лейбла (который тянет поле к
+// ~58–64dp), заголовок секции 15sp uppercase без собственной карточки.
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.title});
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = Theme.of(context).extension<RodnyaDesignTokens>() ??
+        RodnyaDesignTokens.light;
+    return Text(
+      title.toUpperCase(),
+      style: AppTheme.sans(
+        color: tokens.ink,
+        fontSize: 15,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.2,
+        height: 1.15,
+      ),
+    );
+  }
+}
+
+class _FieldLabel extends StatelessWidget {
+  const _FieldLabel({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = Theme.of(context).extension<RodnyaDesignTokens>() ??
+        RodnyaDesignTokens.light;
+    return Text(
+      label.toUpperCase(),
+      style: AppTheme.sans(
+        color: tokens.inkMuted,
+        fontSize: 13,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.4,
+        height: 1.2,
+      ),
+    );
+  }
+}
+
+/// 50dp text field — hint-only (no floating Material label, that lives
+/// above as [_FieldLabel]) so the field height stays fixed regardless of
+/// focus/fill state, matching the reference forms (чанки 18/21).
+class _FormField extends StatelessWidget {
+  const _FormField({
+    super.key,
+    required this.controller,
+    this.hint,
+    this.icon,
+    this.textCapitalization = TextCapitalization.none,
+    this.minLines = 1,
+    this.maxLines = 1,
+  });
+
+  final TextEditingController controller;
+  final String? hint;
+  final IconData? icon;
+  final TextCapitalization textCapitalization;
+  final int minLines;
+  final int maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = Theme.of(context).extension<RodnyaDesignTokens>() ??
+        RodnyaDesignTokens.light;
+    return TextField(
+      controller: controller,
+      textCapitalization: textCapitalization,
+      minLines: minLines,
+      maxLines: maxLines,
+      style: AppTheme.sans(
+        color: tokens.ink,
+        fontSize: AppTheme.formInputFontSize,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0,
+      ),
+      decoration: InputDecoration(
+        hintText: hint,
+        prefixIcon: icon == null ? null : Icon(icon, size: 18, color: tokens.accent),
+        hintStyle: AppTheme.sans(
+          color: tokens.inkMuted,
+          fontSize: AppTheme.formInputFontSize,
+          fontWeight: FontWeight.w500,
+          letterSpacing: 0,
+        ),
+        filled: true,
+        fillColor: tokens.bgTintWarm,
+        isDense: true,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: tokens.surfaceLine),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: tokens.surfaceLine),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: tokens.accent, width: 2),
+        ),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      ),
+    );
+  }
+}
+
+/// One 50dp tappable date/time chip — used side by side (date+time) in
+/// a single row, per the density spec («дата/время события — одна
+/// строка из двух полей»).
+class _DateTimeChip extends StatelessWidget {
+  const _DateTimeChip({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = Theme.of(context).extension<RodnyaDesignTokens>() ??
+        RodnyaDesignTokens.light;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 50,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: tokens.bgTintWarm,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: tokens.surfaceLine),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: tokens.accent),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTheme.sans(
+                  color: tokens.ink,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

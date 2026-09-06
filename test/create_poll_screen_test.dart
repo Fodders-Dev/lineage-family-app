@@ -82,6 +82,19 @@ Widget _routerHost(_FakePollService svc) {
   return MaterialApp.router(theme: AppTheme.lightTheme, routerConfig: router);
 }
 
+// Плотность (чанк 24): «Создать» переехало из AppBar-action в CTA внизу
+// прокручиваемой формы (см. CreateGatheringScreen'а аналогичный
+// комментарий). flutter_test даёт по умолчанию крошечный canvas
+// (800×600лп) — меньше формы с аудиторией/медиа — и ListView строит
+// offscreen-детей лениво, так что find.byKey('poll-submit') не находит
+// ничего без прокрутки. Высокий тестовый canvas решает это без
+// scroll-хореографии в самих тестах.
+void _useTallViewport(WidgetTester tester) {
+  tester.view.physicalSize = const Size(800 * 2, 3000 * 2);
+  tester.view.devicePixelRatio = 2;
+  addTearDown(tester.view.reset);
+}
+
 void main() {
   setUpAll(() async {
     await initializeDateFormatting('ru');
@@ -89,6 +102,7 @@ void main() {
 
   testWidgets('create calls the service with question + options',
       (tester) async {
+    _useTallViewport(tester);
     final svc = _FakePollService();
     await tester.pumpWidget(_routerHost(svc));
     await tester.pumpAndSettle();
@@ -119,6 +133,7 @@ void main() {
   });
 
   testWidgets('validation: missing question blocks create', (tester) async {
+    _useTallViewport(tester);
     final svc = _FakePollService();
     await tester.pumpWidget(_plainHost(svc));
     await tester.pumpAndSettle();
@@ -134,6 +149,7 @@ void main() {
 
   testWidgets('validation: fewer than two options blocks create',
       (tester) async {
+    _useTallViewport(tester);
     final svc = _FakePollService();
     await tester.pumpWidget(_plainHost(svc));
     await tester.pumpAndSettle();
