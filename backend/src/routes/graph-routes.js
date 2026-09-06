@@ -30,19 +30,24 @@ function registerGraphRoutes(app, {store, requireAuth}) {
         ? Math.min(Math.floor(maxDepthRaw), 16)
         : 10;
 
+    // SPEED-12: один readSharedSnapshot() на весь запрос вместо пяти
+    // независимых _read() (findGraphPersonById x2, гейт-_read,
+    // findBloodRelation, previewGraphPersonsByIds — все read-only,
+    // db передаётся дальше явно).
+    const db = await store.readSharedSnapshot();
+
     // Phase 3.2: endpoints chain — viewer должен иметь visibility
     // на оба конца. Если хотя бы один blocked — 403, чтобы не
     // leak'ить «существует ли узел X» через chain-discovery.
-    const fromGraph = await store.findGraphPersonById(fromId);
-    const toGraph = await store.findGraphPersonById(toId);
+    const fromGraph = await store.findGraphPersonById(fromId, db);
+    const toGraph = await store.findGraphPersonById(toId, db);
     if (!fromGraph || !toGraph) {
       res.json({found: false});
       return;
     }
-    const dbForGate = await store._read();
     if (
-      !store._userCanSeeGraphPerson(dbForGate, fromGraph, req.auth.user.id) ||
-      !store._userCanSeeGraphPerson(dbForGate, toGraph, req.auth.user.id)
+      !store._userCanSeeGraphPerson(db, fromGraph, req.auth.user.id) ||
+      !store._userCanSeeGraphPerson(db, toGraph, req.auth.user.id)
     ) {
       res.status(403).json({message: "Карточка скрыта приватностью"});
       return;
@@ -52,6 +57,7 @@ function registerGraphRoutes(app, {store, requireAuth}) {
       fromGraphPersonId: fromId,
       toGraphPersonId: toId,
       maxDepth,
+      db,
     });
     if (!result) {
       res.json({found: false});
@@ -65,6 +71,7 @@ function registerGraphRoutes(app, {store, requireAuth}) {
     // chain length и edge sequence сохраняются.
     const chainPreviews = await store.previewGraphPersonsByIds(result.chain, {
       viewerUserId: req.auth.user.id,
+      db,
     });
 
     res.json({
