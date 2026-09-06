@@ -649,6 +649,53 @@ void main() {
     expect(find.text('Пригласить 1'), findsOneWidget);
   });
 
+  testWidgets(
+    'Чанк 26: боковая панель активна на 1280×900 и 1440×900 (типовые '
+    'десктопные окна), статистика — одной строкой',
+    (tester) async {
+      // Порог был 1500 — выше типичного десктопного окна, так что панель
+      // тихо не показывалась ни на 1280, ни на 1440 внутри «десктопного»
+      // окна приложения. Теперь порог 1100 (как у чатов).
+      for (final width in [1280.0, 1440.0]) {
+        tester.view.physicalSize = Size(width, 900);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+
+        await pumpRelativesScreen(tester);
+
+        final sidebarBox = find.byWidgetPredicate(
+          (w) => w is SizedBox && w.width == 320,
+        );
+        expect(sidebarBox, findsOneWidget, reason: 'sidebar at ${width}dp');
+
+        // Статистика: пилюля с именем дерева и пилюля с числом родных
+        // лежат в одну строку (одна и та же verticalOffset) внутри самой
+        // боковой панели, а не переносятся друг под друга, как раньше
+        // делал Wrap на узкой (320dp) панели. Ищем строго среди потомков
+        // sidebarBox — то же имя дерева отдельно печатает баннер сверху.
+        final treeChipTop = tester
+            .getTopLeft(
+              find.descendant(
+                of: sidebarBox,
+                matching: find.text('Семья Кузнецовых'),
+              ),
+            )
+            .dy;
+        final countChip = find.descendant(
+          of: sidebarBox,
+          matching: find.textContaining('в дереве'),
+        );
+        expect(countChip, findsOneWidget, reason: 'count chip at ${width}dp');
+        final countChipTop = tester.getTopLeft(countChip).dy;
+        expect(
+          countChipTop,
+          treeChipTop,
+          reason: 'chips share one row at ${width}dp',
+        );
+      }
+    },
+  );
+
   testWidgets('на узком лэйауте действия не перекрывают список',
       (tester) async {
     tester.view.physicalSize = const Size(412, 892);

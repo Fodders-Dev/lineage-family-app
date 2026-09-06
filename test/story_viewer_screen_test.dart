@@ -143,4 +143,90 @@ void main() {
     expect(service.markedStoryIds, isEmpty);
     expect(find.text('Просмотров: 1'), findsOneWidget);
   });
+
+  testWidgets(
+    'Чанк 26: на телефоне (412×915) шапка ≤44dp, нижняя строка ≤56dp, '
+    'прогресс-полоски 2dp',
+    (tester) async {
+      tester.view.physicalSize = const Size(412, 915);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final story = buildStory(
+        id: 'story-1',
+        authorId: 'user-2',
+        authorName: 'Анна',
+      );
+      final service = _FakeStoryService({'story-1': story});
+      getIt.registerSingleton<StoryServiceInterface>(service);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StoryViewerScreen(
+            stories: [story],
+            currentUserId: 'user-1',
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Раньше шапка была ~64dp (44dp аватар + вертикальные паддинги
+      // 10+10 внутри своей чёрной плашки) — теперь аватар 32dp и без
+      // паддингов-рамки, строка укладывается в целевые ≤44dp.
+      final headerSize =
+          tester.getSize(find.byKey(const Key('story-viewer-header')));
+      expect(headerSize.height, lessThanOrEqualTo(44.0));
+
+      // Строка реакций/статуса — фиксированные 48dp (в рамках ≤56dp).
+      final actionRowSize =
+          tester.getSize(find.byKey(const Key('story-viewer-action-row')));
+      expect(actionRowSize.height, lessThanOrEqualTo(56.0));
+
+      final progressBars = tester
+          .widgetList<LinearProgressIndicator>(
+            find.byType(LinearProgressIndicator),
+          )
+          .toList();
+      expect(progressBars, isNotEmpty);
+      for (final bar in progressBars) {
+        expect(bar.minHeight, 2.0);
+      }
+    },
+  );
+
+  testWidgets(
+    'Чанк 26: на десктопе (1280×900) сторис — кадр 9:16 по центру на всю '
+    'высоту, без карточки',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final story = buildStory(
+        id: 'story-1',
+        authorId: 'user-2',
+        authorName: 'Анна',
+      );
+      final service = _FakeStoryService({'story-1': story});
+      getIt.registerSingleton<StoryServiceInterface>(service);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StoryViewerScreen(
+            stories: [story],
+            currentUserId: 'user-1',
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final frameSize = tester.getSize(find.byType(AspectRatio));
+      // Кадр занимает всю доступную высоту (не растягивается на всё
+      // окно шириной, как раньше на широких вьюпортах).
+      expect(frameSize.height, closeTo(900.0, 1.0));
+      expect(frameSize.width / frameSize.height, closeTo(9 / 16, 0.01));
+    },
+  );
 }

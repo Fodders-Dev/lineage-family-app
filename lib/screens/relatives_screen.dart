@@ -502,8 +502,12 @@ class _RelativesScreenState extends State<RelativesScreen> {
     debugPrint('RelativesScreen: Подписки на данные отменены');
   }
 
+  // Чанк 26: было 1500 — выше типичного десктопного окна (1280/1440), так
+  // что боковая панель на деле никогда не показывалась на этих ширинах и
+  // экран тихо падал на мобильную раскладку внутри «десктопного» окна.
+  // 1100 согласован с порогом чатов (тот же паттерн список+панель).
   bool _isWideLayout(BuildContext context) =>
-      MediaQuery.of(context).size.width >= 1500;
+      MediaQuery.of(context).size.width >= 1100;
 
   bool _isFriendsTree(TreeProvider provider) =>
       provider.selectedTreeKind == TreeKind.friends;
@@ -893,41 +897,54 @@ class _RelativesScreenState extends State<RelativesScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _buildSideStatChip(
-                icon: isFriendsTree
-                    ? Icons.diversity_3_outlined
-                    : Icons.account_tree_outlined,
-                label: treeName,
-              ),
-              _buildSideStatChip(
-                icon: Icons.people_outline,
-                label: '$relativesCount $peopleLabel',
-              ),
-              if (chatReadyCount > 0)
+          // Чанк 26: было Wrap — на 320–340dp панели 3-5 чипов почти всегда
+          // переносились на вторую строку («статистика ... одной строкой»
+          // в требованиях). Горизонтальный скролл гарантирует одну строку
+          // (высота чипа ~32dp, естественно ≤40dp) вместо непредсказуемого
+          // переноса.
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
                 _buildSideStatChip(
-                  icon: Icons.chat_bubble_outline,
-                  label: _countLabel(
-                    chatReadyCount,
-                    one: 'чат',
-                    few: 'чата',
-                    many: 'чатов',
+                  icon: isFriendsTree
+                      ? Icons.diversity_3_outlined
+                      : Icons.account_tree_outlined,
+                  label: treeName,
+                ),
+                const SizedBox(width: 8),
+                _buildSideStatChip(
+                  icon: Icons.people_outline,
+                  label: '$relativesCount $peopleLabel',
+                ),
+                if (chatReadyCount > 0) ...[
+                  const SizedBox(width: 8),
+                  _buildSideStatChip(
+                    icon: Icons.chat_bubble_outline,
+                    label: _countLabel(
+                      chatReadyCount,
+                      one: 'чат',
+                      few: 'чата',
+                      many: 'чатов',
+                    ),
                   ),
-                ),
-              if (inviteReadyCount > 0)
-                _buildSideStatChip(
-                  icon: Icons.person_add_alt_1_outlined,
-                  label: 'Пригласить $inviteReadyCount',
-                ),
-              if (_pendingRequestsCount > 0)
-                _buildSideStatChip(
-                  icon: Icons.notifications_none,
-                  label: 'Запросы $_pendingRequestsCount',
-                ),
-            ],
+                ],
+                if (inviteReadyCount > 0) ...[
+                  const SizedBox(width: 8),
+                  _buildSideStatChip(
+                    icon: Icons.person_add_alt_1_outlined,
+                    label: 'Пригласить $inviteReadyCount',
+                  ),
+                ],
+                if (_pendingRequestsCount > 0) ...[
+                  const SizedBox(width: 8),
+                  _buildSideStatChip(
+                    icon: Icons.notifications_none,
+                    label: 'Запросы $_pendingRequestsCount',
+                  ),
+                ],
+              ],
+            ),
           ),
           const SizedBox(height: 16),
           Wrap(

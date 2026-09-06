@@ -130,101 +130,53 @@ extension _ChatsListScreenSections on _ChatsListScreenState {
     );
   }
 
-  /// «Связь» quick-actions placeholder, shown in the right pane when no chat
-  /// is open. (Previously a permanent 320px side rail.)
+  /// «Связь» placeholder, shown in the right pane when no chat is open.
+  ///
+  /// Чанк 26: было полноразмерной карточкой (заголовок + контекст-пилюля +
+  /// три кнопки + три строки подсказок) — на пустой панели это читалось
+  /// как отдельный мини-дашборд рядом с уже насыщенным списком слева.
+  /// Все действия отсюда дублировались в другом месте («Новый чат» — в
+  /// топбаре списка, «Родные»/«Дерево» — в нав-рейле шелла), так что
+  /// карточка добавляла шум без нового функционала. Теперь это просто
+  /// центрированные иконка + строка — как «Select a chat» в Telegram
+  /// Desktop — без своей рамки/фона.
   Widget _buildConnectPane(
     ThemeData theme, {
     required bool isFriendsTree,
     required String? selectedTreeName,
   }) {
+    final tokens = theme.extension<RodnyaDesignTokens>() ??
+        (theme.brightness == Brightness.dark
+            ? RodnyaDesignTokens.dark
+            : RodnyaDesignTokens.light);
     return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 360),
-        child: GlassPanel(
-          padding: const EdgeInsets.all(18),
-          borderRadius: BorderRadius.circular(30),
-          color: theme.colorScheme.surface.withValues(alpha: 0.76),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Связь',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.forum_outlined,
+              size: 40,
+              color: tokens.inkMuted,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Связь',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: tokens.ink,
               ),
-              const SizedBox(height: 12),
-              _buildContextPill(
-                theme,
-                isFriendsTree: isFriendsTree,
-                label: selectedTreeName ??
-                    (isFriendsTree ? 'Круг друзей' : 'Семейное дерево'),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Выберите чат слева, чтобы начать переписку',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: tokens.inkMuted,
               ),
-              const SizedBox(height: 16),
-              // Quick actions. Live deploy showed the previous
-              // FilledButton.icon + FilledButton.tonalIcon mix
-              // rendering as three indistinguishable green
-              // rectangles — the warm sage palette fuses primary
-              // and secondaryContainer at low contrast against
-              // the panel's tinted glass backdrop. One filled
-              // accent CTA + two outlined buttons gives a clear
-              // visual hierarchy and readable labels on both
-              // light and dark themes.
-              FilledButton.icon(
-                onPressed: _openChatComposer,
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(40),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                ),
-                icon: const Icon(Icons.add_comment_outlined, size: 18),
-                label: const Text('Создать чат'),
-              ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: () => context.go('/relatives'),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(40),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                ),
-                icon: const Icon(Icons.people_outline, size: 18),
-                label: Text(
-                  isFriendsTree ? 'Открыть связи' : 'Открыть родных',
-                ),
-              ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: () => context.go('/tree'),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(40),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                ),
-                icon: const Icon(Icons.account_tree_outlined, size: 18),
-                label: const Text('Открыть дерево'),
-              ),
-              const SizedBox(height: 18),
-              _buildDesktopHint(
-                theme,
-                icon: Icons.search,
-                title: 'Поиск',
-                subtitle: isFriendsTree ? 'Чаты и люди круга' : 'Чаты и родные',
-              ),
-              const SizedBox(height: 12),
-              _buildDesktopHint(
-                theme,
-                icon: Icons.group_add_outlined,
-                title: 'Новый чат',
-                subtitle: 'Личный, групповой или чат ветки',
-              ),
-              const SizedBox(height: 12),
-              _buildDesktopHint(
-                theme,
-                icon: Icons.mark_chat_read_outlined,
-                title: 'Поток',
-                subtitle: 'Новые, архив и быстрые действия',
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -258,49 +210,6 @@ extension _ChatsListScreenSections on _ChatsListScreenState {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildDesktopHint(
-    ThemeData theme, {
-    required IconData icon,
-    required String title,
-    required String subtitle,
-  }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: theme.colorScheme.primary.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Icon(icon, color: theme.colorScheme.primary, size: 20),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 
