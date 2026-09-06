@@ -4947,66 +4947,82 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  // Плотность (чанк 22): было 3 строки (заголовок «Закреплённое
+  // сообщение» + имя + превью, ~76dp) — спека держит закреп одной
+  // строкой 44-48dp (как в Telegram: заголовок избыточен, иконка-
+  // булавка сама говорит «закреплено»). Имя и текст сообщения — два
+  // отдельных Text подряд в одной строке (не TextSpan/RichText — чтобы
+  // find.text в тестах продолжал находить имя и превью по отдельности).
+  // Высоту держит IconButton «Открепить» (constraints 44×44 — тач-цель
+  // по правилам плотности без VisualDensity), паддинг панели — 2dp
+  // сверху-снизу, итог ≈48dp.
   Widget _buildPinnedMessageBanner() {
     final pinned = _pinnedMessage!;
     final theme = Theme.of(context);
     return Padding(
+      key: const ValueKey<String>('pinned-message-banner'),
       padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
       child: InkWell(
         onTap: _focusPinnedMessage,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(16),
         child: GlassPanel(
-          padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
-          borderRadius: BorderRadius.circular(24),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+          borderRadius: BorderRadius.circular(16),
           child: Row(
             children: [
               Container(
-                width: 4,
-                height: 40,
+                width: 3,
+                height: 24,
                 decoration: BoxDecoration(
                   color: theme.colorScheme.primary,
                   borderRadius: BorderRadius.circular(999),
                 ),
               ),
-              const SizedBox(width: 10),
-              const Icon(Icons.push_pin_outlined, size: 18),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.push_pin_outlined,
+                size: 16,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 110),
+                child: Text(
+                  pinned.senderName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Закрепленное сообщение',
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: theme.colorScheme.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      pinned.senderName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _pinnedPreviewLabel(pinned),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  _pinnedPreviewLabel(pinned),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
               IconButton(
                 onPressed: () => unawaited(_clearPinnedMessage()),
                 tooltip: 'Открепить',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                // tapTargetSize: shrinkWrap — M3 по умолчанию (padded)
+                // добавляет НЕВИДИМЫЙ, но занимающий layout паддинг до
+                // 48dp тач-цели ПОВЕРХ minimumSize из constraints; без
+                // этого однострочный закреп раздувается за целевые
+                // 44-48dp. 44×44 из constraints уже держит правило
+                // «тач-цели ≥44dp» сам по себе.
+                style: IconButton.styleFrom(
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                iconSize: 18,
                 icon: const Icon(Icons.close),
               ),
             ],
@@ -5911,11 +5927,15 @@ class _ChatScreenState extends State<ChatScreen> {
         (theme.brightness == Brightness.dark
             ? RodnyaDesignTokens.dark
             : RodnyaDesignTokens.light);
+    // Плотность (чанк 22): отступы 8/8 сверху-снизу (было 10/10) и
+    // компактный чип ~22-24dp (текст явно 12sp, было labelSmall=11 с
+    // паддингом 12/5) — спека держит разделитель дня на «22-24dp,
+    // текст 12sp, отступы 8/8».
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Center(
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(
             color: tokens.surfaceStrong.withValues(alpha: 0.78),
             borderRadius: BorderRadius.circular(999),
@@ -5928,6 +5948,7 @@ class _ChatScreenState extends State<ChatScreen> {
             _formatDateDividerLabel(timestamp),
             style: theme.textTheme.labelSmall?.copyWith(
               color: tokens.inkSecondary,
+              fontSize: 12,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.1,
             ),
@@ -6003,78 +6024,56 @@ class _ChatScreenState extends State<ChatScreen> {
     final tapMode =
         callMetadata.isVideo ? CallMediaMode.video : CallMediaMode.audio;
 
+    // Плотность (чанк 22): было двухстрочной карточкой (34×34 иконка +
+    // Column из заголовка и «длительность · время», паддинг 14/10 —
+    // суммарно за 60dp высотой). Спека: «одна строка ≤44dp». Заголовок
+    // и «длительность · время» склеены в одну строку через " · " —
+    // ровно как их и озвучивают («Звонок · 12 мин»), иконка направления
+    // (входящий/исходящий) остаётся справа.
+    final summaryText = secondaryLabel != null
+        ? '$summaryLabel · $secondaryLabel · $timeLabel'
+        : '$summaryLabel · $timeLabel';
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
+      padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 16),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 320),
           child: Material(
             color: Colors.transparent,
             child: InkWell(
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(14),
               onTap: () => unawaited(_startCall(tapMode)),
               child: Ink(
                 decoration: BoxDecoration(
                   color: palette.background,
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(14),
                   border: Border.all(
                     color: palette.border,
                     width: 0.6,
                   ),
                 ),
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Container(
-                      width: 34,
-                      height: 34,
-                      decoration: BoxDecoration(
-                        color: palette.iconBackground,
-                        shape: BoxShape.circle,
-                      ),
-                      alignment: Alignment.center,
-                      child: Icon(
-                        mediaIcon,
-                        size: 18,
-                        color: palette.iconColor,
-                      ),
+                    Icon(
+                      mediaIcon,
+                      size: 18,
+                      color: palette.iconColor,
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 8),
                     Flexible(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            summaryLabel,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: palette.titleColor,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          if (secondaryLabel != null) ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              '$secondaryLabel · $timeLabel',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: palette.subtitleColor,
-                              ),
-                            ),
-                          ] else ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              timeLabel,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: palette.subtitleColor,
-                              ),
-                            ),
-                          ],
-                        ],
+                      child: Text(
+                        summaryText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: palette.titleColor,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 6),
@@ -9622,8 +9621,10 @@ class _ChatBubble extends StatelessWidget {
           timeLabel,
           style: theme.textTheme.labelSmall?.copyWith(
             color: metaColor,
-            // M3 (50+): labelSmall (11) мелковат для времени — 12.5 читаемо.
-            fontSize: 12.5,
+            // Плотность (чанк 22): было 12.5 — спека держит время ровно
+            // на 12sp (labelSmall/11 мелковат, но 12.5 уже не давало
+            // экономии против явного значения из тикета).
+            fontSize: 12,
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -9660,11 +9661,22 @@ class _ChatBubble extends StatelessWidget {
         : null;
 
     return Padding(
-      padding: EdgeInsets.symmetric(
-        // Telegram-style grouping: consecutive same-sender messages tuck
-        // tighter (1px) than the gap between runs (2px).
-        vertical: groupedWithPrev ? 1 : 2,
-        horizontal: 10,
+      // Плотность (чанк 22): зазор между пузырями — спека держит его на
+      // 2dp внутри одного автора / 8dp при смене автора. Раньше верх и
+      // низ были симметричны и оба зависели ТОЛЬКО от [groupedWithPrev]
+      // этого же сообщения — а зазор между двумя пузырями фактически
+      // равен bottom(верхнего) + top(нижнего), где bottom верхнего
+      // сообщения отражает его СОБСТВЕННУЮ группировку (с сообщением
+      // ЕЩЁ выше), а не то, продолжает ли его текущее. На стыке рана
+      // (последнее сообщение серии само было «grouped» сверху) это
+      // тихо давало короткий зазор вместо разделительного. Фикс: низ —
+      // константа (1dp), весь зазор кодирует top ТЕКУЩЕГО сообщения,
+      // которое как раз знает, продолжает ли оно автора над собой.
+      padding: EdgeInsets.fromLTRB(
+        10,
+        groupedWithPrev ? 1 : 7,
+        10,
+        1,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
@@ -9738,10 +9750,9 @@ class _ChatBubble extends StatelessWidget {
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 360),
                   curve: Curves.easeOutCubic,
-                  // Reference `.msg` (Telegram-tight density pass): padding
-                  // 6px 11px, radius 16 + 6 on the tail corner. Was 9/13/8 +
-                  // 18/6 — recovers vertical space without shrinking the 16px
-                  // body font (kept readable for 50+).
+                  // Плотность (чанк 22): паддинг 8/12 (было 6/11) — спека
+                  // держит пузырь на «8 верт / 12 гориз» (Telegram `.msg`),
+                  // радиус 16 + 6 на «хвостовом» углу без изменений.
                   //
                   // Special case: a "naked" кружочек skips the bubble
                   // entirely (no padding, no background, no border) and
@@ -9752,7 +9763,7 @@ class _ChatBubble extends StatelessWidget {
                   // video notes do — TG / WA convention.
                   padding: (_isVideoNoteOnly || _isNakedMediaOnly)
                       ? EdgeInsets.zero
-                      : const EdgeInsets.fromLTRB(11, 6, 11, 6),
+                      : const EdgeInsets.fromLTRB(12, 8, 12, 8),
                   decoration: (_isVideoNoteOnly || _isNakedMediaOnly)
                       ? null
                       : BoxDecoration(
@@ -9852,9 +9863,12 @@ class _ChatBubble extends StatelessWidget {
                         ),
                       if (reactionGroups.isNotEmpty) ...[
                         const SizedBox(height: 8),
+                        // Плотность (чанк 22): зазор чипов 4dp (было 6) —
+                        // спека: «ряд чипов 24dp под пузырём с зазором
+                        // 4dp».
                         Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
+                          spacing: 4,
+                          runSpacing: 4,
                           children: reactionGroups
                               .map(
                                 (reaction) => _ReactionPill(
@@ -10120,16 +10134,16 @@ class _ReplyQuoteCard extends StatelessWidget {
     );
     final maxTextWidth = math.max(140.0, maxPreviewWidth - 34);
 
+    // Плотность (чанк 22): убрана собственная фон-плашка цитаты (была
+    // read Container с цветной заливкой + скруглением поверх пузыря —
+    // ровно та «рамка-в-рамке», которую спека запрещает). Полоса-
+    // акцент 3dp остаётся единственным визуальным маркером цитаты,
+    // цитата рисуется прямо на поверхности пузыря. borderRadius
+    // сохранён только для формы ripple у InkWell ниже.
     final content = Container(
       key: const ValueKey<String>('chat-reply-quote-card'),
       constraints: BoxConstraints(maxWidth: maxPreviewWidth),
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-      decoration: BoxDecoration(
-        color: isMe
-            ? Colors.white.withValues(alpha: 0.16)
-            : scheme.primary.withValues(alpha: 0.08),
-        borderRadius: borderRadius,
-      ),
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -10165,8 +10179,11 @@ class _ReplyQuoteCard extends StatelessWidget {
                       : 'Сообщение без текста',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
+                  // Плотность (чанк 22): 14sp (было bodySmall=12) —
+                  // спека держит цитату на 2 строках 14sp.
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: bodyColor,
+                    fontSize: 14,
                     height: 1.25,
                   ),
                 ),
