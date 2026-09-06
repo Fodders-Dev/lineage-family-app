@@ -88,7 +88,7 @@ void main() {
         (i) => AppNotificationItem(
           id: 'n-$i',
           type: 'chat_message',
-          title: 'Уведомление номер $i',
+          title: 'Уведомление $i',
           body: 'Текст уведомления $i с деталями события',
           createdAt: DateTime(2026, 9, 5, 10, i),
           data: {'chatId': 'chat-$i'},
