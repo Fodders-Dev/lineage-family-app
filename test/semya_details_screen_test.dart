@@ -287,4 +287,54 @@ void main() {
 
     expect(find.text('Зритель'), findsOneWidget);
   });
+
+  testWidgets(
+    'density chunk 25: member row ~56dp, section header ~28dp',
+    (tester) async {
+      // Regression guard for chunk 25 (семья card). Before: _MemberRow
+      // was a ListTile (title+subtitle+leading+trailing default padding)
+      // measured at 88dp; _SectionHeader container measured at ~44dp
+      // (16/8 padding around titleSmall). After: custom 56dp row with a
+      // 40dp avatar, and a 28dp section header (same pattern as the
+      // invitations list groups).
+      final fake = _FakeFamilyTreeService(
+        details: _details(),
+        memberships: [
+          SemyaMembership(
+            id: 'm-2',
+            semyaId: 'semya-1',
+            userId: 'editor-a',
+            role: SemyaRole.editor,
+            joinedAt: '2026-05-22T00:00:00.000Z',
+          ),
+        ],
+      );
+      getIt.registerSingleton<FamilyTreeServiceInterface>(fake);
+
+      await tester.pumpWidget(
+        const MaterialApp(home: SemyaDetailsScreen(semyaId: 'semya-1')),
+      );
+      await tester.pumpAndSettle();
+
+      final rowRect = tester.getRect(
+        find.byKey(const ValueKey('semya-member-row-editor-a')),
+      );
+      expect(
+        rowRect.height,
+        inInclusiveRange(52, 64),
+        reason: 'Строка участника должна быть ~56dp (до чанка 25 — 88dp '
+            'у ListTile).',
+      );
+
+      final headerRect = tester.getRect(find.text('Участники'));
+      // Заголовок секции — текстовая строка внутри контейнера с
+      // паддингом 8/4; сам текст ~16dp, контейнер — 28dp.
+      expect(
+        headerRect.height,
+        lessThanOrEqualTo(20),
+        reason: 'Текст заголовка секции компактный (до чанка 25 контейнер '
+            'заголовка был ~44dp, стал ~28dp).',
+      );
+    },
+  );
 }
