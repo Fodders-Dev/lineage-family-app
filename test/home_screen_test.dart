@@ -517,6 +517,68 @@ void main() {
     },
   );
 
+  testWidgets(
+    'Чанк 26: широкая раскладка держит колонку ленты 640–720dp рядом с '
+    'сайдбаром 300–340dp на 1280×900 и 1440×900',
+    (tester) async {
+      // Раньше `Expanded(child: ConstrainedBox(maxWidth: 720))` тихо
+      // игнорировал объявленный максимум — Expanded даёт child тайтовую
+      // ширину, а BoxConstraints.enforce() отдаёт приоритет тайтовому
+      // родительскому ограничению над меньшим максимумом внутреннего
+      // ConstrainedBox. Колонка ленты реально рендерилась на 800dp на
+      // обеих проверяемых ширинах (не 720) — этот тест ловит регресс.
+      for (final width in [1280.0, 1440.0]) {
+        tester.view.physicalSize = Size(width, 900);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        final treeProvider = TreeProvider();
+        await treeProvider.selectTree('tree-1', 'Тестовое дерево');
+
+        await tester.pumpWidget(
+          ChangeNotifierProvider<TreeProvider>.value(
+            value: treeProvider,
+            child: const MaterialApp(home: HomeScreen()),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final feedBox = find.byWidgetPredicate(
+          (w) => w is ConstrainedBox && w.constraints.maxWidth == 720,
+        );
+        final sidebarBox = find.byWidgetPredicate(
+          (w) => w is SizedBox && w.width == 340,
+        );
+        final feedSize = tester.getSize(feedBox.first);
+        final sidebarSize = tester.getSize(sidebarBox.first);
+        final feedLeft = tester.getTopLeft(feedBox.first).dx;
+        final sidebarLeft = tester.getTopLeft(sidebarBox.first).dx;
+
+        expect(
+          feedSize.width,
+          inInclusiveRange(640.0, 720.0),
+          reason: 'feed column width at ${width}dp',
+        );
+        expect(
+          sidebarSize.width,
+          inInclusiveRange(300.0, 340.0),
+          reason: 'sidebar width at ${width}dp',
+        );
+        // Gap between the columns stays in the 16–24dp band — they sit
+        // right next to each other, not stranded across a stretch of
+        // leftover space.
+        expect(
+          sidebarLeft - (feedLeft + feedSize.width),
+          inInclusiveRange(16.0, 24.0),
+          reason: 'gap between feed and sidebar at ${width}dp',
+        );
+      }
+    },
+  );
+
   // Earlier this asserted on the «Семья / Близкие / Архив /
   // Истории» content-type chip strip. Step 1's audience-mode
   // rework collapsed the home feed onto a single axis — branch

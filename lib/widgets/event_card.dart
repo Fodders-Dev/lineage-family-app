@@ -10,6 +10,13 @@ class EventCard extends StatelessWidget {
   final double? width;
   final bool compact;
 
+  /// Чанк 26: сайдбар «Родня» на десктоп-раскладке хочет плоские строки
+  /// (без карточки-в-карточке внутри своей GlassPanel-обёртки) — тот же
+  /// контент, без Material-заливки и обводки. Дефолт `false` сохраняет
+  /// прежний вид везде, где EventCard уже используется как отдельная
+  /// карточка (горизонтальный рельс, календарь).
+  final bool plain;
+
   /// Tap handler used only for events NOT linked to a person (e.g. a
   /// holiday → show its info). Person-linked events always open the
   /// profile and ignore this.
@@ -19,6 +26,7 @@ class EventCard extends StatelessWidget {
     required this.event,
     this.width,
     this.compact = false,
+    this.plain = false,
     this.onTap,
     super.key,
   });
@@ -30,37 +38,48 @@ class EventCard extends StatelessWidget {
     final canOpenProfile = event.isLinkedToPerson;
     final personName = canOpenProfile ? event.personName.trim() : '';
     final radius = BorderRadius.circular(compact ? 14 : 20);
+    final onTapHandler = canOpenProfile
+        // P0: событие знает своё дерево — карточка открывается сразу
+        // в нём, а не в выбранном.
+        ? () => context.push(
+              relativeDetailsRoute(
+                event.personId,
+                treeId: event.treeId,
+              ),
+            )
+        : onTap;
+    final content = Padding(
+      padding: compact
+          ? const EdgeInsets.fromLTRB(8, 8, 14, 8)
+          : const EdgeInsets.fromLTRB(12, 11, 12, 12),
+      child: compact
+          ? _buildCompactBody(context, personName, canOpenProfile)
+          : _buildFullBody(context, personName, canOpenProfile),
+    );
 
     return SizedBox(
       width: width ?? (compact ? 220 : 220),
-      child: Material(
-        color: tokens.surfaceStrong,
-        shape: RoundedRectangleBorder(
-          side: BorderSide(color: tokens.surfaceLine),
-          borderRadius: radius,
-        ),
-        child: InkWell(
-          borderRadius: radius,
-          onTap: canOpenProfile
-              // P0: событие знает своё дерево — карточка открывается сразу
-              // в нём, а не в выбранном.
-              ? () => context.push(
-                    relativeDetailsRoute(
-                      event.personId,
-                      treeId: event.treeId,
-                    ),
-                  )
-              : onTap,
-          child: Padding(
-            padding: compact
-                ? const EdgeInsets.fromLTRB(8, 8, 14, 8)
-                : const EdgeInsets.fromLTRB(12, 11, 12, 12),
-            child: compact
-                ? _buildCompactBody(context, personName, canOpenProfile)
-                : _buildFullBody(context, personName, canOpenProfile),
-          ),
-        ),
-      ),
+      child: plain
+          ? Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: radius,
+                onTap: onTapHandler,
+                child: content,
+              ),
+            )
+          : Material(
+              color: tokens.surfaceStrong,
+              shape: RoundedRectangleBorder(
+                side: BorderSide(color: tokens.surfaceLine),
+                borderRadius: radius,
+              ),
+              child: InkWell(
+                borderRadius: radius,
+                onTap: onTapHandler,
+                child: content,
+              ),
+            ),
     );
   }
 

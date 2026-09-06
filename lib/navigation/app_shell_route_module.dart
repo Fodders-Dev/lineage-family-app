@@ -143,7 +143,9 @@ class AppShellRouteModule {
                         ),
                         Expanded(
                           child: Padding(
-                            padding: const EdgeInsets.fromLTRB(10, 16, 18, 16),
+                            // Чанк 26: правое поле 18 → 16 — держим боковые
+                            // поля шелла в заявленных ≤16dp с обеих сторон.
+                            padding: const EdgeInsets.fromLTRB(10, 16, 16, 16),
                             child: bodyContent,
                           ),
                         ),
