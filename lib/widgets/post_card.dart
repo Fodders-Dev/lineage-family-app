@@ -384,8 +384,8 @@ class _PostCardState extends State<PostCard>
               _buildInvalidPostImageFallback(),
             if (_reactions.isNotEmpty)
               Padding(
-                padding: EdgeInsets.fromLTRB(tokens.space16, tokens.space4,
-                    tokens.space16, tokens.space4),
+                padding: EdgeInsets.fromLTRB(tokens.space12, tokens.space4,
+                    tokens.space12, tokens.space4),
                 child: ReactionChipStrip(
                   reactions: _reactions,
                   currentUserId: _currentUserId,
@@ -658,13 +658,13 @@ class _PostCardState extends State<PostCard>
                         // Unified «тепло» vocabulary: the same warm
                         // Material heart the action button uses, not a
                         // stray white-heart emoji.
-                        Icon(Icons.favorite, size: 11, color: tokens.warm),
+                        Icon(Icons.favorite, size: 12, color: tokens.warm),
                         const SizedBox(width: 4),
                         Text(
                           _likeCount.toString(),
                           style: AppTheme.sans(
                             color: tokens.inkSecondary,
-                            fontSize: 12,
+                            fontSize: 14,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -676,7 +676,7 @@ class _PostCardState extends State<PostCard>
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 9,
-                      vertical: 4,
+                      vertical: 5,
                     ),
                     decoration: BoxDecoration(
                       color: tokens.surface.withValues(alpha: 0.7),
@@ -688,7 +688,7 @@ class _PostCardState extends State<PostCard>
                       children: [
                         Icon(
                           Icons.mode_comment_outlined,
-                          size: 12,
+                          size: 13,
                           color: tokens.accent,
                         ),
                         const SizedBox(width: 4),
@@ -696,7 +696,7 @@ class _PostCardState extends State<PostCard>
                           _commentCount.toString(),
                           style: AppTheme.sans(
                             color: tokens.inkSecondary,
-                            fontSize: 12,
+                            fontSize: 14,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -706,13 +706,14 @@ class _PostCardState extends State<PostCard>
               ],
             ),
           ),
-        Container(
-          height: 0.7,
-          margin: EdgeInsets.symmetric(horizontal: tokens.space16),
-          color: tokens.surfaceLine,
-        ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
+          // Плотность (чанк 20): разделитель убран (был Container 0.7dp
+          // с ~12dp паддинга вокруг) — строка действий сама держит ровно
+          // 44dp (см. _PostActionButton), «одна строка 44dp» из спеки.
+          // Низ убран (0dp) — освобождает бюджет ≤150dp, который шапка
+          // забирает Material-минимумом тач-цели меню (см. _buildPostHeader);
+          // строка всё равно внутри скруглённого угла карточки (ClipRRect).
+          padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
           child: Row(
             children: [
               Expanded(
@@ -798,7 +799,9 @@ class _PostActionButton extends StatelessWidget {
       onTap: onPressed,
       borderRadius: BorderRadius.circular(14),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+        // Плотность (чанк 20): 10 → 13 вертикали — с иконкой 18dp и
+        // лейблом 14sp это даёт ровно 44dp тап-цель на всю строку действий.
+        padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 4),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
@@ -814,7 +817,7 @@ class _PostActionButton extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: AppTheme.sans(
                   color: active ? tokens.warm : tokens.inkSecondary,
-                  fontSize: 13,
+                  fontSize: 14,
                   fontWeight: FontWeight.w600,
                 ),
               ),
