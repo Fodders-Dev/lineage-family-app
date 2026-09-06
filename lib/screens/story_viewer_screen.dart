@@ -480,14 +480,13 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
   @override
   Widget build(BuildContext context) {
     final story = _currentStory;
+    // Чанк 26: на десктоп-ширине (тот же порог 900, что и у шелла) сторис
+    // не растягивается на всё окно — держим вертикальный 9:16 кадр по
+    // центру на тёмном фоне, как Telegram Desktop. На телефоне —
+    // полноэкранно, без изменений.
+    final isDesktop = MediaQuery.of(context).size.width >= 900;
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      // extendBodyBehindAppBar + no SafeArea = true full-bleed immersive viewer
-      // matching Instagram / Telegram Stories behaviour.
-      extendBodyBehindAppBar: true,
-      extendBody: true,
-      body: Semantics(
+    final viewerBody = Semantics(
         label: 'story-viewer',
         child: GestureDetector(
           onLongPressStart: (_) => _pausePlayback(),
@@ -553,8 +552,9 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
                               _stories.length,
                               (index) => Expanded(
                                 child: Padding(
+                                  // Чанк 26: зазор 4 → 3dp между полосками.
                                   padding: EdgeInsets.only(
-                                    right: index == _stories.length - 1 ? 0 : 4,
+                                    right: index == _stories.length - 1 ? 0 : 3,
                                   ),
                                   child: _StoryProgressSegment(
                                     isCurrent: index == _currentIndex,
@@ -591,104 +591,129 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
             ],
           ),
         ),
-      ),
+      );
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      // extendBodyBehindAppBar + no SafeArea = true full-bleed immersive viewer
+      // matching Instagram / Telegram Stories behaviour.
+      extendBodyBehindAppBar: true,
+      extendBody: true,
+      body: isDesktop
+          // Десктоп: вертикальный 9:16 кадр по центру на 100% высоты,
+          // без карточки — Center отдаёт AspectRatio свободные
+          // (loose) constraints, так что рамка реально считается по
+          // соотношению сторон, а не растягивается на всё окно.
+          ? Center(
+              child: AspectRatio(
+                aspectRatio: 9 / 16,
+                child: viewerBody,
+              ),
+            )
+          : viewerBody,
     );
   }
 
+  /// Чанк 26: было — шапка в непрозрачной плашке (чёрная заливка + белая
+  /// обводка), ~64dp аватар+паддинги. Спека хочет шапку «поверх медиа» —
+  /// как в Telegram, без своей рамки (верхний градиент в build() уже даёт
+  /// достаточный контраст). Аватар 44 → 32dp, имя 15sp/время 13sp явно —
+  /// естественная высота строки укладывается в целевые ~40dp.
   Widget _buildHeader(Story story) {
     final theme = Theme.of(context);
     final authorAvatarImage = buildAvatarImageProvider(story.authorPhotoUrl);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 22,
-            backgroundColor: Colors.white12,
-            backgroundImage: authorAvatarImage,
-            child: authorAvatarImage == null
-                ? Text(
-                    storyInitialsFor(story.authorName),
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  )
-                : null,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _isOwnStory ? 'Ваша история' : story.authorName,
-                  style: theme.textTheme.titleSmall?.copyWith(
+    return Row(
+      key: const Key('story-viewer-header'),
+      children: [
+        CircleAvatar(
+          radius: 16,
+          backgroundColor: Colors.white12,
+          backgroundImage: authorAvatarImage,
+          child: authorAvatarImage == null
+              ? Text(
+                  storyInitialsFor(story.authorName),
+                  style: theme.textTheme.labelLarge?.copyWith(
                     color: Colors.white,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
                   ),
+                )
+              : null,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _isOwnStory ? 'Ваша история' : story.authorName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                  height: 1.15,
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  _formatTimestamp(story.createdAt),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: Colors.white70,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          StoryMediaBadge(
-            icon: story.type == StoryType.video
-                ? Icons.videocam_rounded
-                : story.type == StoryType.image
-                    ? Icons.image_rounded
-                    : Icons.text_fields_rounded,
-            label: story.type == StoryType.video
-                ? 'Видео'
-                : story.type == StoryType.image
-                    ? 'Фото'
-                    : 'Текст',
-          ),
-          const SizedBox(width: 8),
-          if (_isOwnStory)
-            Semantics(
-              button: true,
-              label: 'story-viewer-delete',
-              child: _buildIconAction(
-                onTap: _isDeleting ? null : _deleteCurrentStory,
-                child: _isDeleting
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(
-                        Icons.delete_outline,
-                        color: Colors.white,
-                      ),
               ),
-            ),
-          const SizedBox(width: 8),
+              const SizedBox(height: 1),
+              Text(
+                _formatTimestamp(story.createdAt),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  height: 1.1,
+                ),
+              ),
+            ],
+          ),
+        ),
+        StoryMediaBadge(
+          icon: story.type == StoryType.video
+              ? Icons.videocam_rounded
+              : story.type == StoryType.image
+                  ? Icons.image_rounded
+                  : Icons.text_fields_rounded,
+          label: story.type == StoryType.video
+              ? 'Видео'
+              : story.type == StoryType.image
+                  ? 'Фото'
+                  : 'Текст',
+        ),
+        const SizedBox(width: 8),
+        if (_isOwnStory)
           Semantics(
             button: true,
-            label: 'story-viewer-close',
+            label: 'story-viewer-delete',
             child: _buildIconAction(
-              onTap: () => Navigator.of(context).pop(),
-              child: const Icon(Icons.close, color: Colors.white),
+              onTap: _isDeleting ? null : _deleteCurrentStory,
+              child: _isDeleting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(
+                      Icons.delete_outline,
+                      color: Colors.white,
+                    ),
             ),
           ),
-        ],
-      ),
+        const SizedBox(width: 8),
+        Semantics(
+          button: true,
+          label: 'story-viewer-close',
+          child: _buildIconAction(
+            onTap: () => Navigator.of(context).pop(),
+            child: const Icon(Icons.close, color: Colors.white),
+          ),
+        ),
+      ],
     );
   }
 
@@ -712,6 +737,11 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
     );
   }
 
+  /// Чанк 26: было — весь низ (подпись + реакции + статус) в одной
+  /// непрозрачной плашке с обводкой, реакции ещё и отдельной строкой НАД
+  /// ней. Спека хочет подпись прямо на градиенте (без карточки, ≤3
+  /// строки 16sp) и реакции+статус одной строкой 48dp — верхний/нижний
+  /// градиент из build() уже даёт контраст, отдельная заливка не нужна.
   Widget _buildBottomTray(Story story) {
     final theme = Theme.of(context);
     final hasCaption = story.type != StoryType.text && story.hasText;
@@ -719,51 +749,46 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
 
     return Column(
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (hasReactions) ...[
-          // Reaction chips above the tray, left-aligned. Tap toggles
-          // the user's pick; optimistic state covers the server
-          // round-trip.
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8, left: 4, right: 4),
-            child: ReactionChipStrip(
-              reactions: story.reactions,
-              currentUserId: widget.currentUserId,
-              onToggle: _toggleStoryReaction,
+        if (hasCaption) ...[
+          Text(
+            story.text!.trim(),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+              fontSize: 16,
+              height: 1.25,
             ),
           ),
+          const SizedBox(height: 10),
         ],
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.22),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-          ),
+        SizedBox(
+          key: const Key('story-viewer-action-row'),
+          height: 48,
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Expanded(
-                child: hasCaption
-                    ? Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            story.text!.trim(),
-                            maxLines: 4,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodyLarge?.copyWith(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                              height: 1.25,
-                            ),
-                          ),
-                        ],
-                      )
-                    : const SizedBox.shrink(),
-              ),
-              if (hasCaption) const SizedBox(width: 12),
+              if (hasReactions)
+                // Скролл гарантирует одну строку — Wrap внутри
+                // ReactionChipStrip иначе переносится на вторую при
+                // большом числе разных эмодзи.
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: ReactionChipStrip(
+                        reactions: story.reactions,
+                        currentUserId: widget.currentUserId,
+                        onToggle: _toggleStoryReaction,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                const Spacer(),
               // Reaction button — only on others' stories. Own stories
               // show the viewer-count badge instead, since reacting to
               // your own story doesn't make sense.
@@ -934,21 +959,32 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
     );
   }
 
+  /// Чанк 26: было — StoryPosterCardFrame (AspectRatio 9:16 + скруглённые
+  /// углы + внутренний паддинг). На full-bleed Positioned.fill он получает
+  /// тайтовые constraints и теряет свой аспект (AspectRatio игнорирует
+  /// заданное соотношение, если родитель уже диктует точный размер) —
+  /// итоговая «рамка» просто клипала углы экрана по borderRadius, что и
+  /// давало эффект «медиа в рамке». Полноэкранный фон без клипа и
+  /// фиксированного аспекта — так же, как у фото/видео.
   Widget _buildTextStory(Story story) {
-    return StoryPosterCardFrame(
-      palette: _palette,
-      aspectRatio: 9 / 16,
-      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 34),
-      child: Align(
-        alignment: Alignment.center,
-        child: StoryPosterText(
-          primaryText: (story.text ?? '').trim().isEmpty
-              ? 'История без текста'
-              : story.text!.trim(),
-          centered: true,
-          maxLines: 8,
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        StoryPosterBackground(palette: _palette),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 80),
+          child: Align(
+            alignment: Alignment.center,
+            child: StoryPosterText(
+              primaryText: (story.text ?? '').trim().isEmpty
+                  ? 'История без текста'
+                  : story.text!.trim(),
+              centered: true,
+              maxLines: 8,
+            ),
+          ),
         ),
-      ),
+      ],
     );
   }
 
@@ -998,7 +1034,8 @@ class _StoryProgressSegment extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
         child: LinearProgressIndicator(
           value: isCompleted ? 1 : 0,
-          minHeight: 4,
+          // Чанк 26: было 4dp — тоньше, как в Telegram (2dp).
+          minHeight: 2,
           backgroundColor: backgroundColor,
           valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
         ),
@@ -1011,7 +1048,8 @@ class _StoryProgressSegment extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
         child: LinearProgressIndicator(
           value: animation.value,
-          minHeight: 4,
+          // Чанк 26: было 4dp — тоньше, как в Telegram (2dp).
+          minHeight: 2,
           backgroundColor: backgroundColor,
           valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
         ),
