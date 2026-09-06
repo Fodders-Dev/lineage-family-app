@@ -1039,11 +1039,11 @@ class _NotificationCard extends StatelessWidget {
                       groupedCount > 1
                           ? '${item.title} · ещё ${groupedCount - 1}'
                           : item.title,
-                      // Плотность (чанк 23): 1 строка вместо 2 — заголовок
-                      // строки уведомления, не абзац; длинные заголовки
-                      // (редкость) обрезаются многоточием, а не растягивают
-                      // строку до ~2× высоты.
-                      maxLines: 1,
+                      // Плотность (чанк 23, ревью): заголовок до 2 строк —
+                      // «Мария прокомментировала ваш пост «…»» для 50+ не
+                      // режем многоточием; плотность берём отступами, строка
+                      // растёт только когда текст реально длинный.
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyLarge?.copyWith(
                         fontWeight: FontWeight.w600,
