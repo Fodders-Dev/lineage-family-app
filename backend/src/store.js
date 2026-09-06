@@ -16998,6 +16998,16 @@ class FileStore {
     overlay.persons = (Array.isArray(db.persons) ? db.persons : []).map(
       (entry) => (entry ? {...entry} : entry),
     );
+    // Ревью SPEED-11: circleMembers и personIdentities сегодня переприсваиваются
+    // перед push (filter → новый массив), но это свойство кода кругов, а не
+    // инвариант. Мелкие копии массивов (ссылки на те же записи) закрывают
+    // ветку «push в замороженный массив» на будущее — цена копии ничтожна.
+    overlay.circleMembers = Array.isArray(db.circleMembers)
+      ? [...db.circleMembers]
+      : [];
+    overlay.personIdentities = Array.isArray(db.personIdentities)
+      ? [...db.personIdentities]
+      : [];
     if (cache) {
       cache.circleViews.set(treeId, overlay);
     }
