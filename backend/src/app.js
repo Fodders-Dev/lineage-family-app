@@ -1959,7 +1959,14 @@ function createApp({
       // чтения — обработчик, который после requireTreeAccess мутирует
       // блоб через _mutate, не должен отдавать клиенту данные из этого
       // снимка (см. docs/speed_measurement.md, SPEED-9 B).
-      const db = req.storeSnapshot || (await store._read());
+      //
+      // SPEED-11: readSharedSnapshot() вместо _read() — на PostgresStore
+      // попадание в кэш отдаёт общий замороженный снимок без
+      // structuredClone ~480 КБ и без SQL сессий (см. docs/speed_measurement.md,
+      // SPEED-11). Безопасно ровно потому, что все шесть store-методов
+      // ниже по цепочке этого снимка read-only и не трогают db.sessions —
+      // это доказано аудитом и тестами SPEED-11, а не предположением.
+      const db = req.storeSnapshot || (await store.readSharedSnapshot());
       if (!req.storeSnapshot) {
         req.storeSnapshot = db;
       }
