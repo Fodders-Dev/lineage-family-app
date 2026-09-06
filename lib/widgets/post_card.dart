@@ -341,7 +341,11 @@ class _PostCardState extends State<PostCard>
 
     return GlassPanel(
       padding: EdgeInsets.zero,
-      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
+      // Плотность (чанк 20): было 4/7 — двойной инсет с SliverPadding(14)
+      // ленты давал 18dp от края экрана и 14dp зазор между карточками;
+      // теперь 0/4 — 14dp от края (в целевом коридоре 12–14) и 8dp зазор
+      // между карточками.
+      margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
       borderRadius: BorderRadius.circular(tokens.radiusMd + 2),
       plain: true,
       child: GestureDetector(
@@ -357,12 +361,20 @@ class _PostCardState extends State<PostCard>
             _buildPostHeader(),
             if (widget.post.content.isNotEmpty)
               Padding(
+                // Плотность (чанк 20): было space16/space12 (16/0/16/12) с
+                // bodyMedium (14sp, height 1.45) — теперь 16sp/1.3 (спека).
+                // Низ — 4dp (space4): держит бюджет ≤150dp вместе с шапкой,
+                // которую тянет вверх Material-минимум тач-цели меню ⋮ (48dp,
+                // см. _buildPostHeader) — без этого общий бюджет не сходится.
                 padding: EdgeInsets.fromLTRB(
-                    tokens.space16, 0, tokens.space16, tokens.space12),
+                    tokens.space12, 0, tokens.space12, tokens.space4),
                 child: Text(
                   widget.post.content,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    height: 1.45,
+                  style: AppTheme.sans(
+                    color: tokens.ink,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                    height: 1.3,
                   ),
                 ),
               ),
@@ -396,11 +408,19 @@ class _PostCardState extends State<PostCard>
     );
 
     return Padding(
+      // Плотность (чанк 20): было space16/space12/space12/space12 (аватар
+      // 40 + 24dp паддинга = 64dp шапка). Реальный пол высоты шапки — не
+      // аватар (40), а Material-минимум тач-цели меню ⋮ (IconButton внутри
+      // PopupMenuButton держит 48dp несмотря на наш constraints/padding —
+      // сам constraints параметр PopupMenuButton описывает не тач-зону, а
+      // размер выпадающего меню). 4/4 сверху-снизу даёт 48+8=56dp — ближе
+      // всего к целевым ≤52dp без урезания тач-цели ниже Material-стандарта.
+      // Имя 16sp/w600 (было 14.5/w700), метаданные 13sp (было 11.5).
       padding: EdgeInsets.fromLTRB(
-        tokens.space16,
         tokens.space12,
-        tokens.space12,
-        tokens.space12,
+        4,
+        tokens.space8,
+        4,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -428,8 +448,8 @@ class _PostCardState extends State<PostCard>
                     text: TextSpan(
                       style: AppTheme.sans(
                         color: tokens.ink,
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
                         height: 1.15,
                       ),
                       children: [
@@ -441,24 +461,52 @@ class _PostCardState extends State<PostCard>
                   DefaultTextStyle.merge(
                     style: AppTheme.sans(
                       color: tokens.inkMuted,
-                      fontSize: 11.5,
+                      fontSize: 13,
                       fontWeight: FontWeight.w500,
                       height: 1.2,
                     ),
-                    child: Wrap(
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      spacing: 6,
+                    // Плотность (чанк 20): было Wrap — на длинных
+                    // локалях/крупном системном шрифте (50+ аудитория)
+                    // он тихо переносился на вторую строку и ломал
+                    // «шапка — одна строка ≤52dp». Row + Flexible/
+                    // ellipsis на переменных сегментах (время, лейбл,
+                    // счётчик веток) гарантирует одну строку всегда.
+                    child: Row(
                       children: [
-                        Text(timeText),
+                        Flexible(
+                          child: Text(
+                            timeText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
                         const Text('·'),
-                        Icon(_audienceIcon, size: 11, color: tokens.inkMuted),
-                        Text(_audienceLabel),
+                        const SizedBox(width: 6),
+                        Icon(_audienceIcon, size: 13, color: tokens.inkMuted),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            _audienceLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
                         if (widget.post.scopeType ==
                             TreeContentScopeType.branches) ...[
+                          const SizedBox(width: 6),
                           const Text('·'),
+                          const SizedBox(width: 6),
                           Icon(Icons.alt_route,
-                              size: 11, color: tokens.inkMuted),
-                          Text('Ветки: ${widget.post.anchorPersonIds.length}'),
+                              size: 13, color: tokens.inkMuted),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              'Ветки: ${widget.post.anchorPersonIds.length}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
                         ],
                       ],
                     ),
