@@ -541,3 +541,86 @@ test("SPEED-12: GET /v1/browse/:token (публичный, без auth) — read
     await shutdown(ctx);
   }
 });
+
+// ──────────────────────────────────────────────────────────────────
+// 4. Регресс-тест на баг _writableCirclesViewForTree — ⚠️ подтверждено
+//    ДЕЙСТВУЮЩИМ на main (SPEED-11, не только на этой ветке, см.
+//    docs/speed_measurement.md SPEED-12): GET /v1/gatherings,
+//    GET /v1/polls, GET /v1/stories на федеративном дереве падали 500,
+//    если viewer ≠ author хотя бы одной записи (обычный случай — так
+//    семья и использует общую ленту), потому что requireTreeAccess уже
+//    кладёт РЕАЛЬНО заморожённый req.storeSnapshot на эти три маршрута
+//    (SPEED-9 B, прод-код, не тронут этой задачей), а
+//    _canUserViewCircleContent безусловно зовёт
+//    _writableCirclesViewForTree ДО проверки circle.kind==="all_tree".
+//    Этот тест не про сам SPEED-12 (маршруты gatherings/polls/stories
+//    им не переведены — они уже были на снимке) — он специально
+//    воспроизводит условие (viewer ≠ author), которое НИ ОДИН
+//    существующий тест (speed9-b-single-read.test.js использует
+//    author === viewer) не покрывал.
+// ──────────────────────────────────────────────────────────────────
+
+test(
+  "РЕГРЕСС (был живой на main): GET /v1/gatherings|polls|stories не падают, когда viewer ≠ author",
+  async () => {
+    const ctx = await startTestServer();
+    try {
+      const owner = await makeUser(ctx.baseUrl, "circlesbug-owner@example.com");
+      const viewer = await makeUser(ctx.baseUrl, "circlesbug-viewer@example.com");
+      const tree = await ctx.store.createTree({
+        creatorId: owner.userId,
+        name: "Дерево для регресса кругов",
+        description: "",
+        isPrivate: true,
+        kind: "family",
+      });
+      const semya = await ctx.store.createSemya({
+        ownerId: owner.userId,
+        name: "Семья регресса",
+        treeId: tree.id,
+      });
+      // viewer должен быть членом СЕМЬИ (не только tree.memberIds) —
+      // федеративный requireTreeAccess гейтит через findMembership.
+      await ctx.store.addMembership({
+        semyaId: semya.id,
+        userId: viewer.userId,
+        role: "viewer",
+        invitedByUserId: owner.userId,
+      });
+
+      await ctx.store.createGathering({
+        treeId: tree.id,
+        authorId: owner.userId,
+        authorName: "Владелец",
+        title: "Событие",
+        startAt: "2026-07-01T15:00:00.000Z",
+      });
+      await ctx.store.createPoll({
+        treeId: tree.id,
+        authorId: owner.userId,
+        authorName: "Владелец",
+        question: "Вопрос?",
+        options: ["Да", "Нет"],
+      });
+      await ctx.store.createStory({
+        treeId: tree.id,
+        authorId: owner.userId,
+        authorName: "Владелец",
+        type: "text",
+        text: "Текст истории",
+      });
+
+      for (const url of [
+        `/v1/gatherings?treeId=${tree.id}`,
+        `/v1/polls?treeId=${tree.id}`,
+        `/v1/stories?treeId=${tree.id}`,
+      ]) {
+        // eslint-disable-next-line no-await-in-loop
+        const res = await authedGet(ctx.baseUrl, url, viewer.token);
+        assert.equal(res.status, 200, `${url} не должен падать 500`);
+      }
+    } finally {
+      await shutdown(ctx);
+    }
+  },
+);

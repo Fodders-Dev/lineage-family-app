@@ -1281,3 +1281,293 @@ SPEED-11); реальную wiring-цепочку `requireTreeAccess → readSha
   и тесты» выше). Ветка не мержится в main до явного «го» — см.
   `.claude/rules/backend-store.md`.
 
+## SPEED-12 — общий снимок ещё на восемь горячих GET-маршрутов (06.09.2026)
+
+SPEED-9 B/11 перевели на `readSharedSnapshot()` только шесть GET через
+`requireTreeAccess` (persons/person/graph/gatherings/polls/stories).
+Остальные горячие чтения (посты, поиск персон, граф родства, вложения
+графа, онбординг, публичный browse-token) продолжали ходить через
+`_read()` — клон блоба + SQL сессий на КАЖДЫЙ отдельный store-вызов
+внутри одного HTTP-запроса.
+
+### Инвентаризация
+
+| маршрут | метод(ы) store | читает через | мутирует db по пути | перевод |
+|---|---|---|---|---|
+| `GET /v1/posts` | `listPosts`, `listUserTrees`, `listPostCommentsForPosts` | 3× `_read()` | нет (см. ниже про `_canUserViewCirclePost`) | ✅ снимок |
+| `GET /v1/persons/search` | `searchPersonsForUser`, `filterLegacyPersonsByGraphVisibility` | 2× `_read()` | нет | ✅ снимок |
+| `GET /v1/graph/relation` | `findGraphPersonById`×2, гейт-`_read()`, `findBloodRelation`, `previewGraphPersonsByIds` | 5× `_read()` | нет | ✅ снимок (1 вместо 5) |
+| `GET /v1/graph-persons/:id` (`requireGraphPersonRead`) | `findGraphPersonById`, гейт-`_read()` | 2× `_read()` | нет | ✅ снимок |
+| `GET .../persons/:id/attributes` | `findGraphPersonByLegacy`, гейт-`_read()`, `listPersonAttributes` | 3× `_read()` | **да** — `listPersonAttributes` | ✅ частично: снимок для гейта, `listPersonAttributes` не тронут (см. ниже) |
+| `GET .../persons/:id/identity-suggestions` | `store._read()` (после `requireTreeAccess`) | 1× (уже SPEED-8d) | нет | ✅ переиспользует `req.storeSnapshot` |
+| `GET /v1/me/onboarding-state` | `getOnboardingState` | 1× `_read()` | нет | ✅ снимок (счётчик не меняется, но нет `structuredClone` на попадании) |
+| `GET /v1/trees` | `listUserTrees` | 1× `_read()` (0 на Postgres — scoped SQL) | нет | ✅ internal-swap (нулевой эффект на проде, для FileStore/тестов) |
+| `GET /v1/browse/:token` (public, no-auth) | `store._read()` для persons/relations | 1× (плюс 3 других scoped/не-scoped read в самом маршруте, не в периметре) | нет | ✅ снимок |
+| `GET /v1/profile/me/account-linking-status` | `listUserAuthIdentities` | 1× `_read()` (НЕ scoped на Postgres) | нет | ✅ internal-swap |
+| `GET /v1/profile/me/contributions` | `listProfileContributions` | 1× `_read()` (НЕ scoped на Postgres) | нет | ✅ internal-swap + фикс `db.profileContributions =` на локальную const |
+| `requireGraphPersonEdit` (гейт перед PATCH/POST/DELETE) | `dbForGrants`, `findGraphPersonByLegacy` | 2× `_read()` | нет (только читает грант) | ✅ снимок (не GET, но безопасно и попутно) |
+| `GET /v1/merge-proposals/pending` | `listPendingMergeProposalsForUser` | 1× `_read()`, при `changed` — `_write()` | **да, безусловно** — `_reconcilePersonIdentities`/`_ensureCrossTreeMergeProposals` | ❌ не переведён (см. ниже) |
+| `GET .../persons` (`listPersons`) | уже SPEED-9 B | — | — | не в периметре — уже готово |
+
+### Перевод: механизм
+
+Восемь методов (`listPosts`, `listUserTrees`, `getOnboardingState`,
+`searchPersonsForUser`, `listUserAuthIdentities`, `listProfileContributions`,
+`findGraphPersonByLegacy`, `findGraphPersonById`, `findBloodRelation`,
+`previewGraphPersonsByIds`) получили опциональный `db`/`prefetchedDb`
+(без него — прежнее поведение, `readSharedSnapshot()` вместо `_read()`
+внутри). Аудит перед переводом — как в SPEED-11: все восемь — чистое
+чтение (`.find`/`.filter`/`.map`, `structuredClone` только на возврат
+отдельных записей), ни один не мутирует `db`. `listUserTrees`/
+`getOnboardingState`/`listUserAuthIdentities` получили ПРЯМОЙ internal-
+swap (`_read()` → `readSharedSnapshot()` внутри метода, без нового
+параметра) — они либо единственный store-вызов в своём маршруте (нечего
+комбинировать), либо (для `listUserTrees`) переопределены в
+`PostgresStore` собственным scoped SQL, так что внутренний дефолт
+FileStore-версии касается только FileStore/тестов. Маршруты с
+несколькими последовательными вызовами (`posts`, `persons/search`,
+`graph/relation`) явно читают снимок ОДИН раз и передают его во все
+вызовы — это не только избегает лишнего `structuredClone`, но и
+схлопывает несколько последовательных `SELECT version` в один (single-
+flight из SPEED-11 схлопывает только КОНКУРЕНТНЫЕ вызовы, не
+последовательные `await` в одном обработчике).
+
+### Найденный и исправленный баг: `_writableCirclesViewForTree` — ⚠️ УЖЕ НА ПРОДЕ (не только SPEED-12)
+
+**Это не риск SPEED-12, а подтверждённый ДЕЙСТВУЮЩИЙ баг на `main`**
+(SPEED-11, смержено 06.09.2026, тот же день) — не зависит от того,
+мержится ли эта ветка. Эмпирически проверено (`git show
+main:backend/src/store.js` — строка `const overlay = {...db};` byte-in-
+byte совпадает с тем, что было в этой ветке до фикса) прямым вызовом
+метода: на федеративном дереве `GET /v1/gatherings`, `GET /v1/polls`,
+`GET /v1/stories`, просматриваемые ЛЮБЫМ пользователем, кроме автора
+конкретной записи (обычный, не краевой случай — ровно так семья и
+использует общую ленту), падают с 500 `"shared snapshot has no
+sessions"`. Причина — `_canUserViewCircleContent` пропускает ранний
+`authorId === viewerUserId` выход и сразу зовёт
+`_writableCirclesViewForTree(db, treeId, cache)` БЕЗУСЛОВНО, до проверки
+`circle.kind === "all_tree"` — то есть падает даже дефолтный
+«видно всем» круг. `req.storeSnapshot`, который туда попадает —
+`readSharedSnapshot()`, реально `Object.freeze()`'нутый (SPEED-11),
+и `gathering-routes.js`/`poll-routes.js`/`story-routes.js` передают его
+как `db: req.storeSnapshot || null` (SPEED-9 B, уже прод-код). Скорее
+всего ещё не замечено на реальном трафике только потому, что SPEED-11
+смержен сегодня же и gatherings/polls/stories — младшие фичи с низким
+трафиком. **Правка ниже (единая для posts/gatherings/polls/stories)
+устраняет это; рекомендация — считать её независимым hotfix-кандидатом
+для `main`, а не только частью SPEED-12** (решение — за пользователем,
+ветки с прод-кодом мержатся по «го», см. `.claude/rules/backend-store.md`).
+
+Перевод `listPosts` на `readSharedSnapshot()` впервые в проде довёл
+РЕАЛЬНО заморожённый `db` до `_canUserViewCirclePost` →
+`_writableCirclesViewForTree`, которая строила copy-on-write оверлей как
+`const overlay = {...db};`. Object spread делает `[[Get]]` на КАЖДОМ
+enumerable-свойстве источника — включая `sessions`, которое
+`readSharedSnapshot()`'ная обёртка (SPEED-11) намеренно объявляет
+throw-геттером. Результат — `listPosts` падал с "shared snapshot has no
+sessions" на любом посте, требующем circle-visibility проверки, хотя
+сам метод формально не трогает `db.sessions`.
+
+До SPEED-12 эта ветка кода почти никогда не могла столкнуться с РЕАЛЬНО
+заморожённым `db`, доходящим до самой копии: `_canUserViewCircleContent`
+(общий движок и для `_canUserViewCirclePost`, и для прямых вызовов из
+`listStories`/`listGatherings`/`listPolls`) возвращает `true` РАНЬШЕ
+`_writableCirclesViewForTree`, если `authorId === viewerUserId` — а
+единственный существующий тест, гоняющий stories/gatherings/polls через
+HTTP с федеративным деревом (`speed9-b-single-read.test.js`, `db =
+req.storeSnapshot`, заморожен) создаёт фикстуру автором-владельцем И
+им же смотрит («viewerUserId: owner.userId») — ранний выход срабатывает
+ДО копии, баг не проявляется. `listPosts`, вызванный НАПРЯМУЮ (без HTTP,
+без `db`-аргумента) в `circles-reconcile.test.js` с разными автором
+(`user-a`) и зрителем (`user-c`), — первый случай, где заморозка
+(мой internal-swap `_read()`→`readSharedSnapshot()` для дефолта
+`listPosts`) и обход раннего выхода совпали одновременно, и обнажил
+задел: баг был латентным для ВСЕХ ЧЕТЫРЁХ потребителей
+`_writableCirclesViewForTree` (posts/stories/gatherings/polls) при
+(заморожен db) И (author ≠ viewer) — не специфичен для `listPosts`,
+просто именно его дефолт эта задача поменяла первым, и именно этот тест
+первым свёл оба условия. Фикс — единый для всех вызывающих: `overlay`
+строится явным копированием ключей (`Object.keys(db)`) с пропуском
+`"sessions"`, вместо spread, плюс собственный throw-геттер на
+`overlay.sessions` (тот же контракт «fail loud», что и у
+`_buildSharedSnapshotView`). Регресс-тест —
+`speed12-shared-snapshot-more.test.js`, тест 2: явно берёт
+`readSharedSnapshot()` (не просто `_read()`-клон) и прогоняет через
+`listPosts`/`searchPersonsForUser`/`findGraphPersonById`/
+`findBloodRelation`.
+
+### Что НЕ переведено и почему
+
+**`GET /v1/merge-proposals/pending`** (`listPendingMergeProposalsForUser`)
+— НЕ переведён на снимок. Метод вызывает
+`_ensureCrossTreeMergeProposals` → `_reconcilePersonIdentities` →
+`backfillPersonIdentities`, которая БЕЗУСЛОВНО мутирует `db.persons[].
+identityId` и переприсваивает `db.personIdentities` на КАЖДЫЙ вызов
+(материализация недостающих identity-связей — самоисцеляющийся паттерн
+«на чтении»), плюс `_ensureCrossTreeMergeProposals` сама делает
+`db.mergeProposals.push(...)`, когда находит новую cross-tree пару.
+На заморожённом `db` `.push()` на массиве бросает `TypeError`
+безусловно, а `db.personIdentities = X`/`person.identityId = X` —
+sloppy-mode присваивание на frozen-объекте — тихо no-op'ается: код
+продолжил бы работать на СТАРЫХ (до реконсиляции) identity-связях,
+рассинхронизированный со свежесозданными предложениями. Оба исхода хуже
+текущего поведения. Копия по образцу `_writableCirclesViewForTree`
+здесь непропорционально дороже (`backfillPersonIdentities` трогает
+`persons`+`personIdentities` ГЛОБАЛЬНО, не по одному дереву) и не решает
+корневую проблему — метод продолжил бы делать ту же CPU-работу на каждый
+вызов, просто на клонированных структурах вместо на приватном `_read()`-
+клоне. Правильный фикс — dry-run separation (см. ниже CPU-профиль) —
+отдельная задача.
+
+Попутно исправлен ТОЛЬКО pre-existing анти-паттерн: `db.profileContributions
+= Array.isArray(...) ? ... : []` (голое переприсваивание поля на `db`)
+заменено на локальную `const` в `listProfileContributions` — не меняет
+поведение, но безопасно и на заморожённом, и на обычном `db` (не
+относится к `_mutate`-контракту — переприсваивание не персистилось и
+раньше, это чисто internal-переменная гигиена).
+
+**`listPersonAttributes`** (использует `GET .../attributes`) — НЕ
+переведён по той же причине в миниатюре: `upsertPersonAttributesForPerson`
+лениво материализует `personAttributes`-строки для персон без них
+(`db.personAttributes.push(...)`) при `changed`. Маршрут получил частичный
+выигрыш — гейт (`findGraphPersonByLegacy` + `filterSensitiveAttributesForViewer`)
+теперь на общем снимке (`req.storeSnapshot`), а сам `listPersonAttributes`
+оставлен на честном `_read()`.
+
+**`app.js` — только 2 прямых `store._read()`, не 3** (бриф предполагал
+3): `requireGraphPersonEdit`/`dbForGrants` (переведён — read-only гейт
+гранта, не мутация) и `requireGraphPersonRead`/`db` (переведён). Третьего
+места не найдено (`grep -n "\._read("` по всему `app.js` — только эти
+два, плюс шесть SPEED-9 B/11 `readSharedSnapshot()`-вызовов).
+
+### CPU-профиль: `listPendingMergeProposalsForUser` и `searchPersonsForUser`/`listPersons`
+
+Метод — `node --cpu-prof` на копии прод-блоба (`backend/.scratch/local_db.json`,
+155 persons/25 деревьев/89 users/24 mergeProposals), как в SPEED-8c/8d/10.
+300-500 повторов одного вызова, `speed10_cpuprofile_report.js --top 20`:
+
+**`listPendingMergeProposalsForUser`** (реальный пользователь-ревьюер
+24 предложений, самое крупное дерево — 41 person):
+
+| self% | функция |
+|---|---|
+| 21.0 | `_read` (store.js) |
+| 12.8 | анонимная функция — `migration-utils.js:88` (`stableSerialize` callback) |
+| 11.9 | `stableSerialize` — `migration-utils.js:83` |
+| 9.9 | `write` — `node:string_decoder` (часть `JSON.parse`/хэша) |
+| 6.5 | `update` — `hash` (crypto, SHA-256) |
+| 5.6 | анонимная — `migration-utils.js:92` |
+| 2.5 | `tokenSimilarity` (identity-matcher.js) |
+| 1.9 | `_ensureCrossTreeMergeProposals` |
+| 1.7 | `scoreNormalizedPersons` |
+| 1.6 | `listPendingMergeProposalsForUser` (сама функция) |
+| 1.2 | `_scorePersonPairCached` |
+
+`hashSnapshot`/`stableSerialize`-related self-time (строки 2-6 таблицы)
+= **~47%** самого self-time вызова; `_read()` — ещё **21%**. Итого
+≈68% времени `GET /v1/merge-proposals/pending` — это ДВЕ вещи, обе вне
+периметра SPEED-12: клон блоба (`_read()`, решается снимком — но снимок
+здесь небезопасен, см. выше) и ДВОЙНОЙ `hashSnapshot` внутри
+`backfillPersonIdentities` (`beforeHash`/`afterHash` — полная
+`stableSerialize`+SHA-256 сериализация ВСЕХ `persons`+`personIdentities`
+базы, дважды, на КАЖДЫЙ вызов `_reconcilePersonIdentities`, которая сама
+вызывается на КАЖДЫЙ вызов `listPendingMergeProposalsForUser`). Сама
+логика мэтчинга (`tokenSimilarity`/`scoreNormalizedPersons`/
+`_ensureCrossTreeMergeProposals`/`_scorePersonPairCached`) — **~7%**.
+
+Задача прямо разрешает трогать `hashSnapshot` ТОЛЬКО с тестом,
+доказывающим идентичный `changed` на состояниях пусто/всё есть/частично/
+нормализация-только — `backfillPersonIdentities` вызывается из 11 мест
+по `store.js` (миграции при буте, `_reconcilePersonIdentities` из ~10
+мутирующих путей), так что замена hash-based diff на счётчик-based
+(`createdCount`/`linkedPersonCount` уже существуют, но не покрывают
+100% случаев — например, `.filter()` в конце может отбросить identity
+без userId/personIds, не инкрементируя ни один счётчик) требует
+доказательства эквивалентности на каждой ветке, а не только на happy-path.
+Это НЕ сделано в рамках SPEED-12 — риск ошибиться в функции, которая
+back-стопит слияние identity по всему приложению, выше, чем цена
+недооптимизированного эндпоинта. **Оставлено как самая ценная находка
+для отдельной задачи** (потенциально устраняет ~47% self-time этого
+маршрута), не трогать `backfillPersonIdentities` без выделенного теста.
+
+**`searchPersonsForUser`** (500 повторов, дерево 41 person): `_read`
+47.3% + `write`/string_decoder (часть `JSON.parse`) 23% ≈ **70%+**
+self-time — сама функция (`searchPersonsForUser`+`buildCanonicalPersonView`+
+sort-компаратор) — **~1.8%**. Аналогично `listPersons` (500 повторов):
+`_read` 47.2% + `write` 22.5% ≈ **70%**, `buildCanonicalPersonView`
+самостоятельно — **2.1%**. Вывод: для этих двух методов НЕТ отдельного
+CPU-хотспота внутри самой бизнес-логики — весь выигрыш от снимка
+(устранение клона на попадании) уже даёт почти весь возможный эффект;
+локальная мемоизация (`usersById`-карта вместо `db.users.find()` на
+каждый матч) не применена — по профилю её потенциальный вклад (<1%)
+не оправдывает изменение сигнатуры/риска ради него.
+
+### Замер: pg-mem-бёрст (буду входа + лента), копия прод-блоба
+
+Харнесс — `backend/.scratch/speed12_pgmem_bench.js` (не коммитится):
+`buildStore` из `test/postgres-read-cache.test.js` (`PostgresStore` +
+pg-mem), копия прод-блоба как seed-строка. «До» — N независимых
+`store._read()` (N — фактическое число до SPEED-12 на каждый маршрут:
+posts=2, persons-search=2, graph/relation=5, onboarding-state=1 — без
+`findTree`/`listUserTrees`, у которых 0 blob-read что до, что после,
+они scoped SQL на Postgres И несовместимы с pg-mem — LATERAL, та же
+оговорка, что и в SPEED-11); «после» — реальные (эта ветка) методы с
+одним `readSharedSnapshot()` на маршрут. `mergeProposalsPending` —
+контрольная пара (метод НЕ менялся, замер должен показывать «без
+регресса»). Бёрст — 5 маршрутов × 12 повторов, `Promise.all` на повтор,
+3 прогона:
+
+| замер | до | после |
+|---|---|---|
+| бёрст (5 маршрутов × 12, wall p50) | 99-103 мс | 23-25 мс (**≈4.3×**) |
+| `searchPersonsForUser`+`filterLegacyPersonsByGraphVisibility`, одиночный вызов (p50 из 20) | 17.7 мс | 2.0 мс (**≈9×**) |
+| `listPendingMergeProposalsForUser`, одиночный вызов (p50 из 20, контроль — не менялся) | 18.4 мс | 19.2 мс (шум, без регресса) |
+
+**Оговорка** — как во всех pg-mem-замерах этого документа: относительный
+эффект механизма, не абсолютные прод-миллисекунды (нет сетевого RTT,
+который есть на реальном Postgres — там абсолютная разница БОЛЬШЕ, не
+меньше).
+
+### Идентичность и тесты
+
+`backend/test/speed12-shared-snapshot-more.test.js` (10 тестов,
+`FileStore` + `createApp`, федеративное дерево):
+1. Десять store-методов с `prefetchedDb` дают результат, идентичный
+   вызову без него.
+2. Реально ЗАМОРОЖЕННЫЙ `readSharedSnapshot()` (не просто «параметр
+   передан») прогоняется через `listPosts`/`searchPersonsForUser`/
+   `findGraphPersonById`/`findBloodRelation` без throw — тест, который
+   поймал бы баг `_writableCirclesViewForTree` выше (и ловил его, пока
+   фикс не был внесён).
+3. Восемь HTTP-маршрутов — число `_read()` за реальный запрос меньше
+   наивной до-фикса последовательности (posts 4→2, persons/search 2→1,
+   graph/relation 5→1, graph-persons/:id 2→1, attributes 4→3,
+   identity-suggestions 3→2, onboarding-state и browse/:token — точный
+   счёт с явным разбором ДРУГИХ, вне периметра, `_read()` в тех же
+   маршрутах, см. комментарии в файле).
+
+`npm --prefix backend test` — **740/740** (было 730, +10 новых), ~21-24 с;
+`api.test.js` перегнан отдельно — 126/126, флейка не было.
+
+### Риски
+
+- **`hashSnapshot`/`backfillPersonIdentities` двойная сериализация —
+  крупнейшая непокрытая находка** (см. CPU-профиль выше, ~47% self-time
+  `listPendingMergeProposalsForUser`). Не тронуто сознательно — нужен
+  выделенный тест на 4 категории состояний ДО любой правки.
+- **`listPersonAttributes`/merge-proposals — материализация-на-чтении
+  паттерн, incompатибельный со снимком по построению.** Любой БУДУЩИЙ
+  рефакторинг, который попытается «на всякий случай» дать этим методам
+  `readSharedSnapshot()`, столкнётся с `TypeError` на `.push()` в первом
+  же реальном случае материализации — не «доказанная безопасность», а
+  архитектурная граница (то же предупреждение, что SPEED-11 сделала для
+  `_writableCirclesViewForTree`).
+- **`_writableCirclesViewForTree`-подобный баг может повториться.** Любой
+  НОВЫЙ overlay/копия поверх `readSharedSnapshot()`, написанный через
+  `{...db}` вместо явного копирования ключей, воспроизведёт тот же throw
+  на `sessions` в момент, когда ПЕРВЫЙ реальный вызывающий передаст
+  туда по-настоящему заморожённый `db` (а не просто `_read()`-клон) —
+  ревью новых spread'ов над `db`/`req.storeSnapshot` остаётся
+  ответственностью код-ревью, тест ловит только уже известные пути.
+- **Не проверено на реальном Postgres** — как и весь корпус SPEED-9…11.
+
