@@ -563,6 +563,7 @@ class _PostCardState extends State<PostCard>
   }
 
   Widget _buildPostImages(List<String> images) {
+    final tokens = _tokensFor(Theme.of(context));
     final lightboxItems = images
         .map(
           (url) => isFeedVideoUrl(url)
@@ -603,18 +604,22 @@ class _PostCardState extends State<PostCard>
       onTap: openLightbox,
       caption: widget.post.content,
       captionPrefix: 'Фото к посту',
+      // Плотность (чанк 20): во всю ширину контентной области карточки —
+      // без бокового инсета (дефолт галереи даёт space12 слева/справа).
+      padding: EdgeInsets.only(bottom: tokens.space8),
     );
   }
 
   Widget _buildInvalidPostImageFallback() {
     final tokens = _tokensFor(Theme.of(context));
     return Padding(
-      padding: EdgeInsets.fromLTRB(
-          tokens.space12, 0, tokens.space12, tokens.space12),
+      // Плотность (чанк 20): во всю ширину, скругление 12 (было radiusMd
+      // = 20) — единый язык с FeedMediaGallery._tileFor, без рамки-в-рамке.
+      padding: EdgeInsets.only(bottom: tokens.space8),
       child: AspectRatio(
-        aspectRatio: 16 / 9,
+        aspectRatio: 4 / 5,
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(tokens.radiusMd),
+          borderRadius: BorderRadius.circular(12),
           child: const FeedMediaFallback(),
         ),
       ),
@@ -629,15 +634,18 @@ class _PostCardState extends State<PostCard>
       children: [
         if (_likeCount > 0 || _commentCount > 0)
           Padding(
+            // Плотность (чанк 20): было space16/space8, счётчики 12sp —
+            // боковые инсеты сужены до space12, счётчики подняты до 14sp
+            // (спека «ряд действий: счётчики 14sp»).
             padding: EdgeInsets.fromLTRB(
-                tokens.space16, 0, tokens.space16, tokens.space8),
+                tokens.space12, 0, tokens.space12, tokens.space4),
             child: Row(
               children: [
                 if (_likeCount > 0)
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 9,
-                      vertical: 4,
+                      vertical: 5,
                     ),
                     decoration: BoxDecoration(
                       color: tokens.surface.withValues(alpha: 0.7),

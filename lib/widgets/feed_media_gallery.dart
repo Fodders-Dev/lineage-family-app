@@ -57,7 +57,9 @@ class FeedMediaGallery extends StatelessWidget {
   Widget build(BuildContext context) {
     if (imageUrls.isEmpty) return const SizedBox.shrink();
     final tokens = _tokensFor(context);
-    final borderRadius = BorderRadius.circular(tokens.radiusMd);
+    // Плотность (чанк 20): скругление 12 (было tokens.radiusMd = 20) —
+    // единый радиус для одиночного тайла и карусели, без рамки-в-рамке.
+    final borderRadius = BorderRadius.circular(12);
     final pad = padding ??
         EdgeInsets.fromLTRB(
           tokens.space12,
@@ -70,7 +72,9 @@ class FeedMediaGallery extends StatelessWidget {
       return Padding(
         padding: pad,
         child: AspectRatio(
-          aspectRatio: 16 / 9,
+          // Плотность (чанк 20): не выше 4:5 (портретный кап) — было
+          // жёсткое 16:9, которое сильно обрезало вертикальные фото.
+          aspectRatio: 4 / 5,
           child: ClipRRect(
             borderRadius: borderRadius,
             // MouseRegion gives a "click" cursor on web/desktop; we keep
