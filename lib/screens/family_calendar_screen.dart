@@ -45,6 +45,14 @@ class FamilyCalendarScreen extends StatefulWidget {
 enum _CalendarViewMode { month, list }
 
 class _FamilyCalendarScreenState extends State<FamilyCalendarScreen> {
+  /// Короткие RU-подписи месяца для дата-бейджа agenda-строки (чанк 23) —
+  /// зашиты, а не через intl: DateFormat('LLL', 'ru') не гарантирует
+  /// стабильную короткую форму на всех платформах/версиях ICU.
+  static const List<String> _shortMonths = [
+    'янв', 'фев', 'мар', 'апр', 'май', 'июн',
+    'июл', 'авг', 'сен', 'окт', 'ноя', 'дек',
+  ];
+
   late final EventService _service = widget.serviceOverride ?? EventService();
   String? _treeId;
   bool _loading = true;
@@ -547,8 +555,10 @@ class _FamilyCalendarScreenState extends State<FamilyCalendarScreen> {
         : diff == 1
             ? 'Завтра · $dateLabel'
             : dateLabel;
+    // Плотность (чанк 23): заголовок дня — 28dp вместо свободно растущего
+    // padding (было top:16/bottom:8 ≈ 42dp с учётом строки текста).
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
+      padding: const EdgeInsets.fromLTRB(4, 6, 4, 2),
       child: Text(
         diff == 0 ? label : label[0].toUpperCase() + label.substring(1),
         key: diff == 0 ? const Key('calendar-agenda-today') : null,
@@ -576,7 +586,9 @@ class _FamilyCalendarScreenState extends State<FamilyCalendarScreen> {
     ];
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      // Плотность (чанк 23): питч строки 56 + 6 отступа вместо 8 — строка
+      // события 56dp (бейдж 40 + вертикальный паддинг 8×2).
+      padding: const EdgeInsets.only(bottom: 6),
       child: Material(
         color: tokens.surfaceStrong,
         borderRadius: BorderRadius.circular(16),
@@ -584,9 +596,11 @@ class _FamilyCalendarScreenState extends State<FamilyCalendarScreen> {
           borderRadius: BorderRadius.circular(16),
           onTap: () => _openAgendaEvent(event),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: Row(
               children: [
+                // Дата-бейдж вместо цветной иконки категории: день/месяц
+                // видны сразу в строке, без обращения к заголовку дня выше.
                 Container(
                   width: 40,
                   height: 40,
@@ -595,7 +609,31 @@ class _FamilyCalendarScreenState extends State<FamilyCalendarScreen> {
                     color: color.withValues(alpha: 0.14),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(event.icon, size: 20, color: color),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '${event.date.day}',
+                        style: AppTheme.sans(
+                          color: tokens.ink,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          height: 1,
+                        ),
+                      ),
+                      Text(
+                        _FamilyCalendarScreenState._shortMonths[
+                            event.date.month - 1],
+                        style: AppTheme.sans(
+                          color: color,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          height: 1,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -646,6 +684,12 @@ class _FamilyCalendarScreenState extends State<FamilyCalendarScreen> {
                       fontWeight: FontWeight.w700,
                     ),
                   ),
+                ),
+                const SizedBox(width: 2),
+                Icon(
+                  Icons.chevron_right,
+                  size: 24,
+                  color: tokens.inkMuted.withValues(alpha: 0.55),
                 ),
               ],
             ),
