@@ -6244,6 +6244,48 @@ function isMessageReadByUser(message, userId) {
   return message?.isRead === true;
 }
 
+// SPEED-11: recursively Object.freeze()s a plain JSON-shaped value (arrays/
+// objects/primitives — exactly what a normalized db snapshot is; no class
+// instances, no functions, no cycles by construction since it round-trips
+// through Postgres jsonb / JSON.parse). Used to freeze a cache-fill snapshot
+// EXACTLY ONCE, so readSharedSnapshot() can hand the same object out to every
+// concurrent GET without a structuredClone per hit. `seen` guards against a
+// cycle anyway (cheap insurance, not expected to ever trigger on this data).
+//
+// Early-returns on a value that's ALREADY frozen instead of walking into it:
+// this function is the ONLY thing that ever freezes state data (verified —
+// no other bare `Object.freeze()` touches a db snapshot), and it always
+// freezes top-down before recursing, so "already frozen" can only mean "this
+// exact subtree was already fully processed by a prior call". That makes
+// re-freezing an already-shared snapshot O(1) instead of O(size) — load-
+// bearing for readSharedSnapshot() calling this defensively on every cache
+// hit (see PostgresStore.readSharedSnapshot) and for the miss path being
+// safe if a concurrent single-flight ever raced two full freezes.
+function deepFreezeState(value, seen) {
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  if (Object.isFrozen(value)) {
+    return value;
+  }
+  const visited = seen || new WeakSet();
+  if (visited.has(value)) {
+    return value;
+  }
+  visited.add(value);
+  Object.freeze(value);
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      deepFreezeState(item, visited);
+    }
+  } else {
+    for (const key of Object.keys(value)) {
+      deepFreezeState(value[key], visited);
+    }
+  }
+  return value;
+}
+
 class FileStore {
   constructor(dataPath) {
     this.dataPath = dataPath;
@@ -6363,6 +6405,46 @@ class FileStore {
       await fs.rename(tempPath, this.dataPath);
     });
     return this._writeQueue;
+  }
+
+  // SPEED-11: read-only snapshot for GET routes that used to call _read()
+  // just to hand the result straight to a store method as `prefetchedDb`
+  // (see requireTreeAccess in app.js — SPEED-9 B introduced that pattern).
+  // FileStore has no version-keyed cache (PostgresStore overrides this to
+  // actually skip the structuredClone on a cache hit — see there for the
+  // real payoff); here it's just _read() + freeze, so tests and local/dev
+  // (file-store mode) get the SAME contract — frozen, no `sessions` — as
+  // prod, without a store-specific branch in callers.
+  async readSharedSnapshot() {
+    const state = await this._read();
+    deepFreezeState(state);
+    return this._buildSharedSnapshotView(state);
+  }
+
+  // SPEED-11: wraps an already-frozen db snapshot for read-only, cross-
+  // request sharing. Every top-level collection is exposed by reference
+  // (safe — `state` is frozen) EXCEPT `sessions`: that collection is a
+  // point-in-time snapshot taken when the cache was filled, never refreshed
+  // for a cache HIT (PostgresStore's per-request session projection query is
+  // exactly what this method exists to skip) — so silently handing it out
+  // would serve stale-or-wrong session data to whoever reads db.sessions.
+  // Fail loud instead: callers that need sessions must go through
+  // findSession/findUserBySessionToken/etc., which query the projection
+  // table directly (Postgres) or _read() honestly (FileStore).
+  _buildSharedSnapshotView(state) {
+    const shared = {...state};
+    delete shared.sessions;
+    Object.defineProperty(shared, "sessions", {
+      enumerable: true,
+      configurable: false,
+      get() {
+        throw new Error(
+          "readSharedSnapshot(): shared snapshot has no sessions — use " +
+            "findSession/findUserBySessionToken/store session methods instead of db.sessions (SPEED-11)",
+        );
+      },
+    });
+    return Object.freeze(shared);
   }
 
   // Atomic read-modify-write. Serializes the ENTIRE read → mutate → write of
@@ -16864,6 +16946,64 @@ class FileStore {
     );
   }
 
+  // SPEED-11: ensureCirclesForTree (called below) reconciles auto-circles
+  // in-memory on EVERY call — SPEED-8c made that reconciliation intentionally
+  // transient (never persisted from a read path), which was always safe
+  // because `db` used to be a private structuredClone from _read(). Now that
+  // readSharedSnapshot() can hand this method a FROZEN, cross-request-shared
+  // `db` (SPEED-11), the same in-place `db.circles.push(...)` / `circle[key]
+  // = value` writes would throw (Array mutators throw on a frozen array
+  // regardless of strict mode) or silently no-op (plain property assignment
+  // in sloppy-mode store.js) — either crashing the request or computing
+  // visibility off half-reconciled circles. This builds a cheap, request-
+  // scoped copy-on-write projection — ONLY `circles`/`persons` rows
+  // belonging to `treeId` are cloned, everything else stays a shared
+  // reference into the frozen snapshot — so ensureCirclesForTree can mutate
+  // it freely without ever touching the shared cache. No-op (returns `db`
+  // unchanged) when `db` isn't frozen, which covers every pre-existing
+  // caller (createPost/createStory/listPosts/... always pass a private
+  // _read() clone) with zero extra cost beyond one Object.isFrozen check.
+  // Memoized per treeId in `cache` (same lifetime as cache.circles/
+  // .identities — one JS object per listX() call, discarded after).
+  _writableCirclesViewForTree(db, treeId, cache) {
+    if (!db || !Object.isFrozen(db)) {
+      return db;
+    }
+    if (cache) {
+      if (!cache.circleViews) {
+        cache.circleViews = new Map();
+      }
+      const existing = cache.circleViews.get(treeId);
+      if (existing) {
+        return existing;
+      }
+    }
+    const overlay = {...db};
+    overlay.circles = (Array.isArray(db.circles) ? db.circles : []).map(
+      (entry) => (entry && entry.treeId === treeId ? {...entry} : entry),
+    );
+    // persons — needed because ensureAutoCirclesForTree calls
+    // backfillPersonIdentities(db) when this tree still has a person
+    // without identityId (legacy-data path, SPEED-8c) — that mutates
+    // person.identityId IN PLACE. backfillPersonIdentities scans+mutates
+    // ALL persons in `db.persons`, not just this tree's (it back-links
+    // personIdentities globally), so cloning only THIS tree's rows would
+    // leave persons of OTHER trees frozen — their in-place identityId
+    // write would silently no-op (sloppy-mode assignment on a frozen
+    // object) while the identity it built still lists them as linked,
+    // an inconsistent (if currently unread — every caller here scopes
+    // its own lookups by treeId) overlay. Cloning every person is the
+    // robust fix, not "prove it's unreachable today": cheap regardless,
+    // given this app's person counts (low hundreds, not millions).
+    overlay.persons = (Array.isArray(db.persons) ? db.persons : []).map(
+      (entry) => (entry ? {...entry} : entry),
+    );
+    if (cache) {
+      cache.circleViews.set(treeId, overlay);
+    }
+    return overlay;
+  }
+
   // SPEED-10: `cache` — опциональный объект {circles, identities} (см.
   // _createCircleVisibilityCache), построенный ОДИН раз вызывающим циклом
   // (listPosts/listStories/listGatherings/listPolls/getBranchDigest/
@@ -16891,18 +17031,22 @@ class FileStore {
       return true;
     }
 
+    // SPEED-11: no-op unless `db` is the frozen shared snapshot
+    // (readSharedSnapshot) — see _writableCirclesViewForTree above.
+    const effectiveDb = this._writableCirclesViewForTree(db, treeId, cache);
+
     const explicitCircleId = normalizeNullableString(rawCircleId);
     let allTreeCircle;
     if (cache) {
       if (!cache.circles.has(treeId)) {
-        cache.circles.set(treeId, ensureCirclesForTree(db, treeId));
+        cache.circles.set(treeId, ensureCirclesForTree(effectiveDb, treeId));
       }
       ({allTreeCircle} = cache.circles.get(treeId));
     } else {
-      ({allTreeCircle} = ensureCirclesForTree(db, treeId));
+      ({allTreeCircle} = ensureCirclesForTree(effectiveDb, treeId));
     }
     const circleId = explicitCircleId || allTreeCircle?.id;
-    const circle = db.circles.find(
+    const circle = effectiveDb.circles.find(
       (entry) => entry.treeId === treeId && entry.id === circleId,
     );
     if (!circle) {
@@ -16918,13 +17062,13 @@ class FileStore {
       if (!cache.identities.has(identityCacheKey)) {
         cache.identities.set(
           identityCacheKey,
-          this._userIdentityIdsInTree(db, treeId, normalizedViewerUserId),
+          this._userIdentityIdsInTree(effectiveDb, treeId, normalizedViewerUserId),
         );
       }
       viewerIdentityIds = cache.identities.get(identityCacheKey);
     } else {
       viewerIdentityIds = this._userIdentityIdsInTree(
-        db,
+        effectiveDb,
         treeId,
         normalizedViewerUserId,
       );
@@ -16933,7 +17077,7 @@ class FileStore {
       return false;
     }
 
-    return db.circleMembers.some((entry) => {
+    return effectiveDb.circleMembers.some((entry) => {
       return (
         entry.treeId === treeId &&
         entry.circleId === circle.id &&
@@ -17209,8 +17353,28 @@ class FileStore {
     }
 
     if (removedExpiredStories) {
-      db.stories = activeStories;
-      await this._write(db);
+      // SPEED-11: used to reassign db.stories and _write(db) directly — with
+      // prefetchedDb possibly being the frozen, cross-request shared
+      // readSharedSnapshot() (SPEED-11), that reassignment would silently
+      // no-op (frozen object, sloppy-mode assignment) and the _write would
+      // persist a snapshot that could already be stale relative to what
+      // other requests wrote meanwhile — an actual lost-update risk even
+      // on the old private-clone path (fixed here as a side effect, not
+      // just worked around). The response below is already computed from
+      // `activeStories` (a fresh in-memory filter, independent of db.stories)
+      // so it doesn't depend on this write landing before we return. Pruning
+      // itself moves to _mutate — an atomic read-modify-write that re-reads
+      // fresh state instead of persisting a snapshot we merely observed.
+      await this._mutate((freshDb, skip) => {
+        const stillActive = freshDb.stories.filter(
+          (entry) => !isExpiredAt(entry.expiresAt, now),
+        );
+        if (stillActive.length === freshDb.stories.length) {
+          return skip(null);
+        }
+        freshDb.stories = stillActive;
+        return null;
+      });
     }
 
     const circleCache = this._createCircleVisibilityCache();
@@ -22154,6 +22318,7 @@ module.exports = {
   createPersonIdentityRecord,
   createPostRecord,
   createTreeChangeRecord,
+  deepFreezeState,
   deriveSessionPublicId,
   describeMessagePreview,
   isExpiredAt,
