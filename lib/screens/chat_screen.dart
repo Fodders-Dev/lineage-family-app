@@ -5013,6 +5013,15 @@ class _ChatScreenState extends State<ChatScreen> {
                 tooltip: 'Открепить',
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                // tapTargetSize: shrinkWrap — M3 по умолчанию (padded)
+                // добавляет НЕВИДИМЫЙ, но занимающий layout паддинг до
+                // 48dp тач-цели ПОВЕРХ minimumSize из constraints; без
+                // этого однострочный закреп раздувается за целевые
+                // 44-48dp. 44×44 из constraints уже держит правило
+                // «тач-цели ≥44dp» сам по себе.
+                style: IconButton.styleFrom(
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
                 iconSize: 18,
                 icon: const Icon(Icons.close),
               ),
