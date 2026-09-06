@@ -256,16 +256,18 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                               ],
                               const SizedBox(height: 14),
                               _buildPersonalSection(dateFormat),
-                              const SizedBox(height: 22),
+                              const SizedBox(height: 6),
                               Padding(
                                 padding:
                                     const EdgeInsets.symmetric(horizontal: 12),
                                 child: PillButton(
+                                  key: const Key('complete-profile-save-cta'),
                                   label: _isLoading
                                       ? 'Сохраняем…'
                                       : 'Сохранить и продолжить',
                                   icon: Icons.check_rounded,
                                   expanded: true,
+                                  height: 52,
                                   onPressed: _isLoading ? null : _saveProfile,
                                 ),
                               ),
@@ -817,8 +819,10 @@ class _RegistrationGenderButton extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        height: 52,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
+        // Плотность (чанк 21): 52 → 48dp — тач-цель ≥44dp сохраняется,
+        // ряд из трёх кнопок компактнее.
+        height: 48,
+        padding: const EdgeInsets.symmetric(horizontal: 6),
         decoration: BoxDecoration(
           color: isSelected ? tokens.accentSoft : tokens.bgTintWarm,
           borderRadius: BorderRadius.circular(14),
@@ -835,14 +839,15 @@ class _RegistrationGenderButton extends StatelessWidget {
               size: 16,
               color: isSelected ? tokens.accent : tokens.inkMuted,
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 5),
             Flexible(
               child: Text(
                 label,
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppTheme.sans(
                   color: isSelected ? tokens.accent : tokens.inkMuted,
-                  fontSize: 12.5,
+                  fontSize: 16,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0,
                 ),

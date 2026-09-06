@@ -630,6 +630,7 @@ class PillButton extends StatelessWidget {
     required this.onPressed,
     this.variant = PillButtonVariant.primary,
     this.expanded = false,
+    this.height = 36,
   });
 
   final String label;
@@ -637,6 +638,12 @@ class PillButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final PillButtonVariant variant;
   final bool expanded;
+  // Default (36) matches every existing caller unchanged. A taller
+  // value is for a screen's single primary CTA that needs a bigger
+  // touch target (e.g. registration «Сохранить и продолжить», 52dp) —
+  // Row centers icon+label within the taller box, so raising it here
+  // never affects the other callers.
+  final double height;
 
   @override
   Widget build(BuildContext context) {
@@ -666,7 +673,7 @@ class PillButton extends StatelessWidget {
     Widget content = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14),
       child: SizedBox(
-        height: 36,
+        height: height,
         child: Row(
           mainAxisSize: expanded ? MainAxisSize.max : MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
