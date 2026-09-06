@@ -783,3 +783,238 @@ backfill меняет `persons` → изменение доказано ПРЯМ
   прогретое на буте состояние проходило мимо — первые попадания отдавали
   бы несинхронизированный граф до ближайшей записи. Теперь sync делается
   на клоне перед записью в `_cachedState` (O(N) после SPEED-9 A, ~25 мс).
+
+## SPEED-10 — куда уходят 200–480 мс бёрста, когда чтение блоба уже в кэше (06.09.2026)
+
+После SPEED-9 B прод-журнал бёрста входа (10 параллельных GET на одном
+Node-потоке) всё ещё показывал медианы persons 226 / graph 252 / stories
+295 / gatherings 368 / polls 378 / merge-proposals/pending 483 /
+onboarding-state 187 мс — при том, что SPEED-8a-кэш чтения блоба уже
+попадает (SELECT версии + `structuredClone`, не полный SELECT). Гипотеза:
+CPU-компьют самого маршрута на каждый запрос, помноженный на конкуренцию
+за один event-loop в бёрсте.
+
+### Профиль (метод SPEED-8c/8d/9): `node --cpu-prof`, копия прод-блоба
+
+Харнесс — `backend/tool/speed10_bench.js` (без данных, коммитится) поверх
+`FileStore` напрямую: дерево `22dd65fb-…` (41 person, 66 relations, 2
+`semyaMembers` — owner+viewer, тот же снаряд, что и в SPEED-9 B), owner —
+стюард сразу трёх деревьев (нужно для merge-proposals). Прод-копия на
+момент работы содержала 0 историй/встреч — `--augment` добавляет по 24
+синтетических истории/встречи/опроса через сами `store.createStory/
+createGathering/createPoll` (валидная форма гарантирована самим стором,
+не руками), автор — owner, зритель — viewer (разные люди, чтобы не
+сработал ранний выход `authorId === viewerUserId`). Профиль — 60 одиночных
++ 30×7 бёрст-вызовов (`backend/tool/speed10_cpuprofile_report.js`,
+self-time по `hitCount` из `.cpuprofile`).
+
+Топ-15 self-time ДО (25191 мс запись, 16263 сэмплов):
+
+| self % | self, мс | функция — файл:строка |
+|---|---|---|
+| 11.4 | 2876 | `ensureAutoCirclesForTree` — store.js:1202 |
+| 11.3 | 2852 | `_read` — store.js:6313 |
+| 6.1 | 1547 | `write` — node:string_decoder (часть JSON.parse) |
+| 5.2 | 1306 | `(anonymous)` — store.js:1710 (`normalizeParticipantIds` callback) |
+| 4.8 | 1214 | `normalizeIsoDate` — identity-matcher.js:26 |
+| 4.8 | 1208 | `normalizeName` — identity-matcher.js:6 |
+| 4.1 | 1081 | `identityIdsForPersonIds` — store.js:1042 |
+| 4.1 | 1030 | `normalizeCircleMemberIdentityIds` — store.js:978 |
+| 3.8 | 965 | `normalizeNameTokens` — identity-matcher.js:16 |
+| 3.8 | 962 | `(anonymous)` — store.js:6334 (внутри `_write`) |
+| 3.5 | 897 | `normalizeParticipantIds` — store.js:1703 |
+| 2.9 | 722 | `_canUserViewCircleContent` — store.js:16732 |
+| 2.8 | 702 | `(idle)` |
+| 2.8 | 702 | `buildAutoCircleSpecsForTree` — store.js:1098 |
+| 2.5 | 640 | `(garbage collector)` |
+
+Две отдельные находки, обе — «пересчёт на каждый элемент вместо одного
+раза на вызов»:
+
+1. **`ensureAutoCirclesForTree`/`buildAutoCircleSpecsForTree`/
+   `_canUserViewCircleContent`** (вместе с их внутренними
+   `identityIdsForPersonIds`/`normalizeCircleMemberIdentityIds`/
+   `normalizeParticipantIds`) — суммарно **≈27% self-time**. Причина:
+   `_canUserViewCircleContent(db, {treeId, ...})` вызывает
+   `ensureCirclesForTree(db, treeId)` БЕЗУСЛОВНО на каждый вызов, даже
+   когда элемент помечен `all_tree` (проверка на `all_tree` идёт уже
+   ПОСЛЕ пересборки кругов). `ensureAutoCirclesForTree` — это полный BFS
+   двух направлений (потомки/предки) по `persons×relations` дерева НА
+   КАЖДОГО person, плюс вложенный проход по всем relations на каждую
+   пару-спецификацию — итого пересобирает ВСЕ авто-круги дерева заново.
+   `listStories/listGatherings/listPolls` (и `listPosts`/`getBranchDigest`/
+   `searchPosts`) зовут это на КАЖДЫЙ элемент ленты одного и того же
+   дерева — M элементов = M полных пересборок одного и того же результата.
+2. **`normalizeIsoDate`/`normalizeName`/`normalizeNameTokens`**
+   (identity-matcher.js) — **≈16% self-time**. `_ensureCrossTreeMergeProposals`
+   (внутри `listPendingMergeProposalsForUser`) гоняет двойной цикл
+   `stewardPersons × allPersons` и на КАЖДУЮ пару зовёт `scorePersonPair`,
+   которая заново нормализует ОБЕ стороны — хотя `allPersons` один и тот
+   же набор на всём двойном цикле, и `_markStaleMergeProposals` /
+   финальный `.filter()` того же вызова снова гоняют `scorePersonPair` по
+   тем же persons третий и четвёртый раз.
+
+`_read` (11.3%) + `write`/JSON-парсинг (6.1%) + `(anonymous)` внутри
+`_write` (3.8%) — это ожидаемый «пол» (диск + `JSON.parse`/`stringify` +
+`_syncGraphFromLegacy`, SPEED-9 A) — НЕ трогали, см. «Что не тронуто».
+
+### Что исправлено
+
+1. **`buildCanonicalPersonView({usersById})`** (store.js) — `listPersons`
+   строит `Map` id→user (`buildUsersByIdMap`, уже существовала с SPEED-9 D)
+   ОДИН раз вместо `db.users.find()` на каждого person дерева.
+2. **`_buildPersonGraphIndex` + `_buildPersonViewFromGraph({index,
+   legacyPerson})`** — `getTreeGraphSnapshot` строил снимок дерева, на
+   КАЖДОГО person заново делая четыре `.find()` по ГЛОБАЛЬНЫМ
+   `db.persons/db.graphPersons/db.branchPersonViews/db.users`. Теперь три
+   карты строятся один раз на весь снимок, person передаётся напрямую
+   (уже под рукой из фильтра). Тот же приём, что `_buildGraphSyncIndex`
+   в SPEED-9 A.
+3. **`_createCircleVisibilityCache` + опциональный `cache` в
+   `_canUserViewCircleContent`/`_canUserViewCirclePost`** — мемоизирует
+   `ensureCirclesForTree(db, treeId)` и `_userIdentityIdsInTree(db, treeId,
+   userId)` по ключу `treeId`/`(treeId, userId)` в пределах ОДНОГО вызова
+   `listPosts/listStories/listGatherings/listPolls/getBranchDigest/
+   searchPosts`. `ensureCirclesForTree` идемпотентна на неизменном `db`
+   (первый вызов создаёт недостающие круги, дальше находит их же) —
+   кэшировать её результат в пределах одного db-снимка безопасно.
+4. **`_scorePersonPairCached(left, right, normCache)`** (store.js,
+   поверх экспортированных из identity-matcher.js
+   `normalizePersonForScoring`/`scoreNormalizedPersons`, тех же самых
+   функций, что SPEED-8d уже ввёл для identity-suggestions) —
+   `_ensureCrossTreeMergeProposals`/`_markStaleMergeProposals`/
+   `_mergeProposalStillActionable` делят один `normCache` (Map
+   personId→нормализованная форма) на весь вызов
+   `listPendingMergeProposalsForUser` — было S×P нормализаций каждой
+   стороны, стало ≤S+P.
+5. **Не пишем блоб, когда пересчёт дал те же значения** —
+   `_ensureCrossTreeMergeProposals`'s `else`-ветка (предложение уже
+   `pending`) раньше безусловно ставила `changed=true`, из-за чего на
+   дереве с хотя бы одним pending-предложением (обычное дело после
+   первого прохода) КАЖДЫЙ `GET merge-proposals/pending` безусловно
+   писал блоб целиком — на PostgreSQL это `UPDATE` всей строки + сброс
+   SPEED-8a-кэша для ВСЕХ последующих чтений до следующего попадания.
+   Теперь `changed=true` только если `matchScore`/`matchSignals`/
+   `reasons`/`reviewerUserIds` реально отличаются от уже сохранённых —
+   итоговые значения `existing` те же самые в обоих случаях, меняется
+   только необходимость `_write()`.
+
+Контракт всех затронутых маршрутов не менялся: везде — новый
+ОПЦИОНАЛЬНЫЙ параметр с default = прежнее поведение (честный `.find()`/
+пересчёт без памяти). Ни один из ~10 остальных вызывающих
+`_buildPersonViewFromGraph`/`buildCanonicalPersonView`/
+`_canUserViewCircleContent`/`_mergeProposalStillActionable` вне
+изменённых маршрутов не передаёт новые параметры — поведение байт-в-байт
+прежнее (проверено `grep` по всем вызовам).
+
+### Идентичность и тесты
+
+`backend/test/speed10-identity.test.js` (7 тестов, FileStore) — по
+разделу на каждую из четырёх оптимизаций: (A) `listPersons` резолвит
+каждого linked person'а через СВОЕГО user'а по карте (не путает при
+нескольких пользователях в одном дереве); (B) индексированный путь
+`getTreeGraphSnapshot` совпадает person-в-person с одиночным `findPerson`
+на дереве деда/отца/сына + person вне ветки; (C) `listStories/
+listGatherings/listPolls` с кэшем видимости дают ту же видимость по
+авто-кругу «Ветка», что и раньше, включая кросс-дерево лента без
+`treeId` (кэш не путает деревья); (D) `listPendingMergeProposalsForUser`
+с `normCache` побайтово совпадает с ручным прогоном тех же трёх методов
+БЕЗ кэша, не-стюард по-прежнему ничего не видит, а повторный вызов без
+изменений НЕ пишет блоб (спай на `_write`, 0 записей — было: всегда ≥1),
+при этом легитимное изменение (совпавший `birthPlace` → выросший
+`matchScore`) пишет ровно один раз и отражается в ответе.
+
+`npm --prefix backend test` — **721/721** (было 714, +7 новых), ~26 с;
+`api.test.js` в общем прогоне флейка не дал.
+
+### Замер: одиночный вызов и бёрст (FileStore, копия прод-блоба + синтетика)
+
+| метод | одиночный до, мс (median×20) | одиночный после | Δ |
+|---|---|---|---|
+| `listPersons` | 11.30 | 8.54 | −24% |
+| `getTreeGraphSnapshot` | 14.80 | 12.26 | −17% |
+| `listStories` | 54.03 | 10.25 | **−81%** |
+| `listGatherings` | 44.53 | 10.20 | **−77%** |
+| `listPolls` | 43.88 | 10.52 | **−76%** |
+| `listPendingMergeProposalsForUser` | 84.84 | 19.89 | **−77%** |
+| `getOnboardingState` | 9.01 | 8.63 | −4% (пол `_read()`, не в периметре) |
+
+| бёрст (7 маршрутов × 12 повторов, `Promise.all`) | до | после | Δ |
+|---|---|---|---|
+| wall median | 258.17 мс | 77.57 мс | **−70%** |
+| wall max | 326.59 мс | 91.83 мс | **−72%** |
+
+Топ-15 self-time ПОСЛЕ (7605 мс запись — **3.3× короче** при той же
+нагрузке 60+30×7 вызовов): `_read` — 35.5% (теперь безусловный лидер,
+как и ожидалось), `write`/JSON-парсинг — 16.6%, `(idle)`/`(gc)` — 9.4%,
+остаток — `_syncGraphFromLegacy`/`_syncPersonToGraph`/`_buildGraphSyncIndex`
+(SPEED-9 A, ~6% суммарно — не в периметре) и `stableSerialize`/hash
+(backfillPersonIdentities, ~7% — см. ниже) — `ensureAutoCirclesForTree`
+упал с 11.4% до 2.1% (в АБСОЛЮТНЫХ мс — с 2876 до 163, то есть в 17.6
+раза, а не только по доле), `normalizeName`/`normalizeIsoDate`/
+`normalizeNameTokens` из identity-matcher.js исчезли из топ-20 совсем.
+
+**Оговорка (как в SPEED-9 B)**: это FileStore, не PostgresStore —
+`_read()` здесь честный диск+`JSON.parse` (~35% профиля), тогда как на
+проде кэш-хит SPEED-8a — это `structuredClone` + 2 SQL round-trip'а
+(версия + сессии), заметно дешевле. Значит устраняемый этой задачей
+route-level CPU (`ensureAutoCirclesForTree`/нормализация merge-пар) на
+проде — БОЛЬШАЯ доля общего времени запроса, чем показывают проценты
+выше; абсолютные мс переносить на прод нельзя, но направление и
+относительное ускорение (17.6× на `ensureAutoCirclesForTree`, 70% на
+бёрст целиком) — да.
+
+### Что не тронуто и почему
+
+- **`structuredClone(_cachedState)` в `PostgresStore._read()` на
+  попадании кэша (SPEED-8a).** В профиле FileStore это `_read`+JSON-
+  парсинг — 41.6% суммарно (35.5+6.1 в новом профиле). На Postgres то
+  же место — `structuredClone` ВСЕГО состояния (сейчас ~480 КБ блоб) на
+  КАЖДЫЙ `_read()`, даже когда вызывающему нужны 2-3 поля. Инвариант
+  (приватная копия на чтение) — сознательный выбор SPEED-8a, менять
+  семантику здесь не стали по прямому ограничению задачи. Предложение
+  на будущее: ленивый клон только тех top-level коллекций, которые
+  реально читает вызывающий метод (`db.persons`/`db.circles`/... по
+  требованию, не всё состояние разом) — оценка эффекта требует
+  отдельного профиля на реальном Postgres, не входит в этот тикет.
+- **`_reconcilePersonIdentities`/`backfillPersonIdentities` двойной
+  `hashSnapshot` (sha256 всех persons+personIdentities, ДО и ПОСЛЕ)
+  внутри `_ensureCrossTreeMergeProposals`.** В ПОСЛЕ-профиле —
+  `stableSerialize`+`(anonymous)` migration-utils.js:88/92+`update`
+  hash:134 ≈ **7% self-time**, второй по величине источник после
+  `_read()`. `_reconcilePersonIdentities` вызывается тут БЕЗУСЛОВНО на
+  каждый `listPendingMergeProposalsForUser`, даже когда у всех persons
+  уже есть согласованный `identityId` (steady state — обычный случай).
+  SPEED-8c уже чинил ровно этот паттерн для `ensureAutoCirclesForTree`
+  (гейт `treeHasPersonsWithoutIdentity(db, treeId)`) — но
+  `_reconcilePersonIdentities` вызывается из **19 разных мест** по
+  store.js (create/link/merge-пути), и её текущая логика не только
+  «добавляет отсутствующий identityId», но и синхронизирует
+  `identity.personIds` со всеми `person.identityId` — дешёвый гейт
+  «есть ли person без identityId» рискует не отловить рассинхрон
+  `personIds`-массива и молча пропустить нужную починку в одном из
+  других 18 вызывающих. Не в периметре этой задачи — риск
+  (широко разделяемый helper, 19 caller'ов, не аудировал все) не
+  оправдан выигрышем одного маршрута; кандидат для отдельного тикета.
+- **`_isPersonSteward`/`personStewardUserIds`** (`db.trees.find()` на
+  каждый person в фильтре `stewardPersons`) — не входит в топ-20
+  ни до, ни после (O(persons×trees), но trees мало, ~25) — не трогали:
+  не даёт заметного вклада, оптимизация не прошла бы порог 15%.
+- **`_syncGraphFromLegacy`** (SPEED-9 A, внутри каждого `_read()`/
+  `_write()`) — уже O(N) после SPEED-9 A, в новом профиле — фиксированный
+  «налог» на каждый вызов (~6% суммарно), вне периметра (задача про
+  route-level compute поверх УЖЕ оптимизированного `_read()`).
+
+### Риски
+
+Все четыре правки — чисто аддитивные (новый опциональный параметр,
+default воспроизводит старое поведение один-в-один) и не трогают
+`_mutate`/`_write`/`_read`, SQL `PostgresStore`, контракты маршрутов
+или форму ответа. Наибольший радиус поражения — у пункта 5 (когда именно
+пишется блоб для merge-proposals): написан консервативно (сравнение по
+значению всех четырёх полей, а не эвристика) и покрыт отдельным тестом
+на то, что легитимное изменение оценки по-прежнему пишет. Кэш видимости
+кругов (пункт 3) живёт СТРОГО в пределах одного вызова (новый `Map` на
+каждый вызов `listX`, не переживает между запросами) — протухания между
+запросами быть не может по конструкции.
+
