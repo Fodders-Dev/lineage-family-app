@@ -341,7 +341,11 @@ class _PostCardState extends State<PostCard>
 
     return GlassPanel(
       padding: EdgeInsets.zero,
-      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
+      // Плотность (чанк 20): было 4/7 — двойной инсет с SliverPadding(14)
+      // ленты давал 18dp от края экрана и 14dp зазор между карточками;
+      // теперь 0/4 — 14dp от края (в целевом коридоре 12–14) и 8dp зазор
+      // между карточками.
+      margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
       borderRadius: BorderRadius.circular(tokens.radiusMd + 2),
       plain: true,
       child: GestureDetector(
@@ -357,12 +361,20 @@ class _PostCardState extends State<PostCard>
             _buildPostHeader(),
             if (widget.post.content.isNotEmpty)
               Padding(
+                // Плотность (чанк 20): было space16/space12 (16/0/16/12) с
+                // bodyMedium (14sp, height 1.45) — теперь 16sp/1.3 (спека).
+                // Низ — 4dp (space4): держит бюджет ≤150dp вместе с шапкой,
+                // которую тянет вверх Material-минимум тач-цели меню ⋮ (48dp,
+                // см. _buildPostHeader) — без этого общий бюджет не сходится.
                 padding: EdgeInsets.fromLTRB(
-                    tokens.space16, 0, tokens.space16, tokens.space12),
+                    tokens.space12, 0, tokens.space12, tokens.space4),
                 child: Text(
                   widget.post.content,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    height: 1.45,
+                  style: AppTheme.sans(
+                    color: tokens.ink,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                    height: 1.3,
                   ),
                 ),
               ),
@@ -372,8 +384,8 @@ class _PostCardState extends State<PostCard>
               _buildInvalidPostImageFallback(),
             if (_reactions.isNotEmpty)
               Padding(
-                padding: EdgeInsets.fromLTRB(tokens.space16, tokens.space4,
-                    tokens.space16, tokens.space4),
+                padding: EdgeInsets.fromLTRB(tokens.space12, tokens.space4,
+                    tokens.space12, tokens.space4),
                 child: ReactionChipStrip(
                   reactions: _reactions,
                   currentUserId: _currentUserId,
@@ -396,11 +408,19 @@ class _PostCardState extends State<PostCard>
     );
 
     return Padding(
+      // Плотность (чанк 20): было space16/space12/space12/space12 (аватар
+      // 40 + 24dp паддинга = 64dp шапка). Реальный пол высоты шапки — не
+      // аватар (40), а Material-минимум тач-цели меню ⋮ (IconButton внутри
+      // PopupMenuButton держит 48dp несмотря на наш constraints/padding —
+      // сам constraints параметр PopupMenuButton описывает не тач-зону, а
+      // размер выпадающего меню). 4/4 сверху-снизу даёт 48+8=56dp — ближе
+      // всего к целевым ≤52dp без урезания тач-цели ниже Material-стандарта.
+      // Имя 16sp/w600 (было 14.5/w700), метаданные 13sp (было 11.5).
       padding: EdgeInsets.fromLTRB(
-        tokens.space16,
         tokens.space12,
-        tokens.space12,
-        tokens.space12,
+        4,
+        tokens.space8,
+        4,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -428,8 +448,8 @@ class _PostCardState extends State<PostCard>
                     text: TextSpan(
                       style: AppTheme.sans(
                         color: tokens.ink,
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
                         height: 1.15,
                       ),
                       children: [
@@ -441,24 +461,52 @@ class _PostCardState extends State<PostCard>
                   DefaultTextStyle.merge(
                     style: AppTheme.sans(
                       color: tokens.inkMuted,
-                      fontSize: 11.5,
+                      fontSize: 13,
                       fontWeight: FontWeight.w500,
                       height: 1.2,
                     ),
-                    child: Wrap(
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      spacing: 6,
+                    // Плотность (чанк 20): было Wrap — на длинных
+                    // локалях/крупном системном шрифте (50+ аудитория)
+                    // он тихо переносился на вторую строку и ломал
+                    // «шапка — одна строка ≤52dp». Row + Flexible/
+                    // ellipsis на переменных сегментах (время, лейбл,
+                    // счётчик веток) гарантирует одну строку всегда.
+                    child: Row(
                       children: [
-                        Text(timeText),
+                        Flexible(
+                          child: Text(
+                            timeText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
                         const Text('·'),
-                        Icon(_audienceIcon, size: 11, color: tokens.inkMuted),
-                        Text(_audienceLabel),
+                        const SizedBox(width: 6),
+                        Icon(_audienceIcon, size: 13, color: tokens.inkMuted),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            _audienceLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
                         if (widget.post.scopeType ==
                             TreeContentScopeType.branches) ...[
+                          const SizedBox(width: 6),
                           const Text('·'),
+                          const SizedBox(width: 6),
                           Icon(Icons.alt_route,
-                              size: 11, color: tokens.inkMuted),
-                          Text('Ветки: ${widget.post.anchorPersonIds.length}'),
+                              size: 13, color: tokens.inkMuted),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              'Ветки: ${widget.post.anchorPersonIds.length}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
                         ],
                       ],
                     ),
@@ -515,6 +563,7 @@ class _PostCardState extends State<PostCard>
   }
 
   Widget _buildPostImages(List<String> images) {
+    final tokens = _tokensFor(Theme.of(context));
     final lightboxItems = images
         .map(
           (url) => isFeedVideoUrl(url)
@@ -555,18 +604,22 @@ class _PostCardState extends State<PostCard>
       onTap: openLightbox,
       caption: widget.post.content,
       captionPrefix: 'Фото к посту',
+      // Плотность (чанк 20): во всю ширину контентной области карточки —
+      // без бокового инсета (дефолт галереи даёт space12 слева/справа).
+      padding: EdgeInsets.only(bottom: tokens.space8),
     );
   }
 
   Widget _buildInvalidPostImageFallback() {
     final tokens = _tokensFor(Theme.of(context));
     return Padding(
-      padding: EdgeInsets.fromLTRB(
-          tokens.space12, 0, tokens.space12, tokens.space12),
+      // Плотность (чанк 20): во всю ширину, скругление 12 (было radiusMd
+      // = 20) — единый язык с FeedMediaGallery._tileFor, без рамки-в-рамке.
+      padding: EdgeInsets.only(bottom: tokens.space8),
       child: AspectRatio(
-        aspectRatio: 16 / 9,
+        aspectRatio: 4 / 5,
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(tokens.radiusMd),
+          borderRadius: BorderRadius.circular(12),
           child: const FeedMediaFallback(),
         ),
       ),
@@ -581,15 +634,18 @@ class _PostCardState extends State<PostCard>
       children: [
         if (_likeCount > 0 || _commentCount > 0)
           Padding(
+            // Плотность (чанк 20): было space16/space8, счётчики 12sp —
+            // боковые инсеты сужены до space12, счётчики подняты до 14sp
+            // (спека «ряд действий: счётчики 14sp»).
             padding: EdgeInsets.fromLTRB(
-                tokens.space16, 0, tokens.space16, tokens.space8),
+                tokens.space12, 0, tokens.space12, tokens.space4),
             child: Row(
               children: [
                 if (_likeCount > 0)
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 9,
-                      vertical: 4,
+                      vertical: 5,
                     ),
                     decoration: BoxDecoration(
                       color: tokens.surface.withValues(alpha: 0.7),
@@ -602,13 +658,13 @@ class _PostCardState extends State<PostCard>
                         // Unified «тепло» vocabulary: the same warm
                         // Material heart the action button uses, not a
                         // stray white-heart emoji.
-                        Icon(Icons.favorite, size: 11, color: tokens.warm),
+                        Icon(Icons.favorite, size: 12, color: tokens.warm),
                         const SizedBox(width: 4),
                         Text(
                           _likeCount.toString(),
                           style: AppTheme.sans(
                             color: tokens.inkSecondary,
-                            fontSize: 12,
+                            fontSize: 14,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -620,7 +676,7 @@ class _PostCardState extends State<PostCard>
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 9,
-                      vertical: 4,
+                      vertical: 5,
                     ),
                     decoration: BoxDecoration(
                       color: tokens.surface.withValues(alpha: 0.7),
@@ -632,7 +688,7 @@ class _PostCardState extends State<PostCard>
                       children: [
                         Icon(
                           Icons.mode_comment_outlined,
-                          size: 12,
+                          size: 13,
                           color: tokens.accent,
                         ),
                         const SizedBox(width: 4),
@@ -640,7 +696,7 @@ class _PostCardState extends State<PostCard>
                           _commentCount.toString(),
                           style: AppTheme.sans(
                             color: tokens.inkSecondary,
-                            fontSize: 12,
+                            fontSize: 14,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -650,13 +706,14 @@ class _PostCardState extends State<PostCard>
               ],
             ),
           ),
-        Container(
-          height: 0.7,
-          margin: EdgeInsets.symmetric(horizontal: tokens.space16),
-          color: tokens.surfaceLine,
-        ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
+          // Плотность (чанк 20): разделитель убран (был Container 0.7dp
+          // с ~12dp паддинга вокруг) — строка действий сама держит ровно
+          // 44dp (см. _PostActionButton), «одна строка 44dp» из спеки.
+          // Низ убран (0dp) — освобождает бюджет ≤150dp, который шапка
+          // забирает Material-минимумом тач-цели меню (см. _buildPostHeader);
+          // строка всё равно внутри скруглённого угла карточки (ClipRRect).
+          padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
           child: Row(
             children: [
               Expanded(
@@ -742,7 +799,9 @@ class _PostActionButton extends StatelessWidget {
       onTap: onPressed,
       borderRadius: BorderRadius.circular(14),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+        // Плотность (чанк 20): 10 → 13 вертикали — с иконкой 18dp и
+        // лейблом 14sp это даёт ровно 44dp тап-цель на всю строку действий.
+        padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 4),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
@@ -758,7 +817,7 @@ class _PostActionButton extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: AppTheme.sans(
                   color: active ? tokens.warm : tokens.inkSecondary,
-                  fontSize: 13,
+                  fontSize: 14,
                   fontWeight: FontWeight.w600,
                 ),
               ),
