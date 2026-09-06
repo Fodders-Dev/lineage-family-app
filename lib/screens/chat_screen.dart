@@ -9662,11 +9662,22 @@ class _ChatBubble extends StatelessWidget {
         : null;
 
     return Padding(
-      padding: EdgeInsets.symmetric(
-        // Telegram-style grouping: consecutive same-sender messages tuck
-        // tighter (1px) than the gap between runs (2px).
-        vertical: groupedWithPrev ? 1 : 2,
-        horizontal: 10,
+      // Плотность (чанк 22): зазор между пузырями — спека держит его на
+      // 2dp внутри одного автора / 8dp при смене автора. Раньше верх и
+      // низ были симметричны и оба зависели ТОЛЬКО от [groupedWithPrev]
+      // этого же сообщения — а зазор между двумя пузырями фактически
+      // равен bottom(верхнего) + top(нижнего), где bottom верхнего
+      // сообщения отражает его СОБСТВЕННУЮ группировку (с сообщением
+      // ЕЩЁ выше), а не то, продолжает ли его текущее. На стыке рана
+      // (последнее сообщение серии само было «grouped» сверху) это
+      // тихо давало короткий зазор вместо разделительного. Фикс: низ —
+      // константа (1dp), весь зазор кодирует top ТЕКУЩЕГО сообщения,
+      // которое как раз знает, продолжает ли оно автора над собой.
+      padding: EdgeInsets.fromLTRB(
+        10,
+        groupedWithPrev ? 1 : 7,
+        10,
+        1,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
