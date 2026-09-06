@@ -10827,7 +10827,35 @@ class FileStore {
     };
   }
 
-  _mergeProposalStillActionable(db, proposal) {
+  // SPEED-10: normCache — опциональная Map personId→normalizePersonForScoring
+  // (см. identity-matcher.js), построенная и переиспользуемая вызывающим
+  // на протяжении ОДНОГО listPendingMergeProposalsForUser: тот же person
+  // проверяется тут МНОГОКРАТНО (кандидат в _ensureCrossTreeMergeProposals,
+  // потом снова в _markStaleMergeProposals, потом снова в финальном
+  // .filter()) — без кэша каждый раз заново гонял normalizeName/
+  // normalizeNameTokens/normalizeIsoDate по обеим сторонам (scorePersonPair).
+  // Без normCache — прежнее поведение (reviewMergeProposal и т.п.
+  // одиночные вызовы, кэш ради одной пары не нужен).
+  _scorePersonPairCached(left, right, normCache = null) {
+    if (!normCache) {
+      return scorePersonPair(left, right);
+    }
+    const leftKey = left?.id;
+    const rightKey = right?.id;
+    let leftNorm = leftKey && normCache.get(leftKey);
+    if (!leftNorm) {
+      leftNorm = normalizePersonForScoring(left);
+      if (leftKey) normCache.set(leftKey, leftNorm);
+    }
+    let rightNorm = rightKey && normCache.get(rightKey);
+    if (!rightNorm) {
+      rightNorm = normalizePersonForScoring(right);
+      if (rightKey) normCache.set(rightKey, rightNorm);
+    }
+    return scoreNormalizedPersons(leftNorm, rightNorm);
+  }
+
+  _mergeProposalStillActionable(db, proposal, normCache = null) {
     if (!proposal || proposal.status !== "pending") {
       return false;
     }
@@ -10862,10 +10890,10 @@ class FileStore {
     ) {
       return false;
     }
-    return Boolean(scorePersonPair(fromPerson, candidatePerson));
+    return Boolean(this._scorePersonPairCached(fromPerson, candidatePerson, normCache));
   }
 
-  _markStaleMergeProposals(db) {
+  _markStaleMergeProposals(db, normCache = null) {
     let changed = false;
     db.mergeProposals = Array.isArray(db.mergeProposals)
       ? db.mergeProposals
@@ -10873,7 +10901,7 @@ class FileStore {
     for (const proposal of db.mergeProposals) {
       if (
         proposal.status === "pending" &&
-        !this._mergeProposalStillActionable(db, proposal)
+        !this._mergeProposalStillActionable(db, proposal, normCache)
       ) {
         proposal.status = "stale";
         proposal.resolvedAt = nowIso();
@@ -11022,7 +11050,14 @@ class FileStore {
     }
   }
 
-  _ensureCrossTreeMergeProposals(db, userId, {limit = 50} = {}) {
+  // SPEED-10: normCache — см. _scorePersonPairCached. Этот метод — сам
+  // главный потребитель: цикл stewardPersons × allPersons без кэша
+  // renormализовал ОБОИХ persons на КАЖДУЮ пару, хотя allPersons — тот же
+  // фиксированный набор на протяжении всего двойного цикла (и candidatePerson
+  // повторно перебирается для каждого fromPerson) — см. docs/speed_measurement.md
+  // SPEED-10 (profile: normalizeIsoDate/normalizeName/normalizeNameTokens
+  // суммарно ~16% self-time одного бёрста).
+  _ensureCrossTreeMergeProposals(db, userId, {limit = 50, normCache = null} = {}) {
     const normalizedUserId = normalizeNullableString(userId);
     if (!normalizedUserId) {
       return false;
@@ -11061,7 +11096,7 @@ class FileStore {
           continue;
         }
 
-        const match = scorePersonPair(fromPerson, candidatePerson);
+        const match = this._scorePersonPairCached(fromPerson, candidatePerson, normCache);
         if (!match) {
           continue;
         }
@@ -11127,11 +11162,34 @@ class FileStore {
           changed = true;
           createdCount += 1;
         } else {
+          // SPEED-10: раньше этот путь безусловно ставил changed=true —
+          // на дереве, где хотя бы одна pending-пара уже существует (что
+          // после первого прохода почти всегда так), КАЖДЫЙ вызов
+          // listPendingMergeProposalsForUser безусловно писал блоб целиком
+          // (полный JSON.stringify + fs.rename на GET-путь), даже когда
+          // recompute дал ТЕ ЖЕ значения. Итоговые поля existing — те же
+          // самые независимо от этой проверки; меняется только то, нужен
+          // ли _write. См. docs/speed_measurement.md SPEED-10.
+          const matchSignalsChanged =
+            Boolean(existing.matchSignals?.name) !== Boolean(matchSignals.name) ||
+            Boolean(existing.matchSignals?.birthYear) !== Boolean(matchSignals.birthYear);
+          const reasonsChanged =
+            !Array.isArray(existing.reasons) ||
+            existing.reasons.length !== match.reasons.length ||
+            existing.reasons.some((reason, index) => reason !== match.reasons[index]);
+          const somethingChanged =
+            existing.matchScore !== match.score ||
+            matchSignalsChanged ||
+            reasonsChanged ||
+            !sameNormalizedIds(existing.reviewerUserIds, reviewerUserIds);
+
           existing.matchScore = match.score;
           existing.matchSignals = matchSignals;
           existing.reasons = match.reasons;
           existing.reviewerUserIds = reviewerUserIds;
-          changed = true;
+          if (somethingChanged) {
+            changed = true;
+          }
         }
 
         if (createdCount >= limit) {
@@ -11236,11 +11294,17 @@ class FileStore {
     };
   }
 
+  // SPEED-10: normCache — одна Map на весь вызов, разделяемая
+  // _ensureCrossTreeMergeProposals/_markStaleMergeProposals/финальным
+  // .filter() ниже — те же persons проверяются во ВСЕХ трёх местах
+  // (кандидаты → staleness-рефреш → staleness-рецепт для reviewer-набора),
+  // без кэша каждый раз заново нормализовался. См. _scorePersonPairCached.
   async listPendingMergeProposalsForUser(userId, {limit = 50} = {}) {
     const normalizedUserId = normalizeNullableString(userId);
     const db = await this._read();
-    let changed = this._ensureCrossTreeMergeProposals(db, normalizedUserId, {limit});
-    changed = this._markStaleMergeProposals(db) || changed;
+    const normCache = new Map();
+    let changed = this._ensureCrossTreeMergeProposals(db, normalizedUserId, {limit, normCache});
+    changed = this._markStaleMergeProposals(db, normCache) || changed;
     if (changed) {
       await this._write(db);
     }
@@ -11252,7 +11316,7 @@ class FileStore {
           normalizeParticipantIds(proposal.reviewerUserIds).includes(
             normalizedUserId,
           ) &&
-          this._mergeProposalStillActionable(db, proposal),
+          this._mergeProposalStillActionable(db, proposal, normCache),
       )
       .sort((left, right) =>
         String(right.createdAt || "").localeCompare(String(left.createdAt || "")),
