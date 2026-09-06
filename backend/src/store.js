@@ -16978,7 +16978,14 @@ class FileStore {
         return existing;
       }
     }
-    const overlay = {...db};
+    // ХОТФИКС (06.09): не {...db} — spread перечисляет геттер sessions
+    // общего снимка (SPEED-11), а он бросает по контракту. Копируем ключи
+    // явно, sessions пропускаем — кругам он не нужен.
+    const overlay = {};
+    for (const key of Object.keys(db)) {
+      if (key === "sessions") continue;
+      overlay[key] = db[key];
+    }
     overlay.circles = (Array.isArray(db.circles) ? db.circles : []).map(
       (entry) => (entry && entry.treeId === treeId ? {...entry} : entry),
     );
