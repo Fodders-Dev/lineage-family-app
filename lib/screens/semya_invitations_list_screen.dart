@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../backend/models/semya_invitation.dart';
@@ -149,20 +150,37 @@ class _SemyaInvitationsListScreenState
         onInvite: _openInviteScreen,
       );
     }
+    // Плотность (чанк 25): группировка «Ожидают» / «История» — Telegram-
+    // стиль секций вместо одного плоского списка, где ожидающие приглашения
+    // тонут среди принятых/отозванных. Чисто отображение — порядок и
+    // содержимое controller.invitations не меняются, только группировка
+    // при рендере.
+    final pending = controller.invitations.where((i) => i.isPending).toList();
+    final history = controller.invitations.where((i) => i.isTerminal).toList();
     return RefreshIndicator(
       onRefresh: controller.refresh,
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        itemCount: controller.invitations.length,
-        separatorBuilder: (_, __) => const Divider(height: 1),
-        itemBuilder: (context, index) {
-          final inv = controller.invitations[index];
-          return _InvitationTile(
-            invitation: inv,
-            onRevoke: inv.isPending ? () => _confirmRevoke(inv) : null,
-            onCopyLink: inv.isPending ? () => _copyLink(inv) : null,
-          );
-        },
+      child: ListView(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        children: [
+          if (pending.isNotEmpty) ...[
+            const _GroupHeader(label: 'Ожидают'),
+            for (final inv in pending)
+              _InvitationTile(
+                invitation: inv,
+                onRevoke: () => _confirmRevoke(inv),
+                onCopyLink: () => _copyLink(inv),
+              ),
+          ],
+          if (history.isNotEmpty) ...[
+            const _GroupHeader(label: 'История'),
+            for (final inv in history)
+              _InvitationTile(
+                invitation: inv,
+                onRevoke: null,
+                onCopyLink: null,
+              ),
+          ],
+        ],
       ),
     );
   }
@@ -179,39 +197,43 @@ class _EmptyState extends StatelessWidget {
     final theme = Theme.of(context);
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               Icons.mail_outline_rounded,
-              size: 56,
+              size: 40,
               color: theme.colorScheme.onSurfaceVariant,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             Text(
               'Пока нет приглашений',
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(
               canInvite
                   ? 'Отправьте первое приглашение родственнику.'
                   : 'Когда владелец отправит приглашения — вы увидите их здесь.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(
+                fontSize: 14,
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
             if (canInvite) ...[
-              const SizedBox(height: 20),
-              FilledButton.icon(
-                key: const Key('semya-invitations-empty-cta'),
-                onPressed: onInvite,
-                icon: const Icon(Icons.person_add_alt_outlined),
-                label: const Text('Пригласить'),
+              const SizedBox(height: 16),
+              SizedBox(
+                height: 52,
+                child: FilledButton.icon(
+                  key: const Key('semya-invitations-empty-cta'),
+                  onPressed: onInvite,
+                  icon: const Icon(Icons.person_add_alt_outlined),
+                  label: const Text('Пригласить'),
+                ),
               ),
             ],
           ],
@@ -221,6 +243,38 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
+/// Плотность (чанк 25): секционный заголовок групп «Ожидают»/«История»
+/// — 28dp, как в остальных плотных списках (уведомления, чат).
+class _GroupHeader extends StatelessWidget {
+  const _GroupHeader({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: SizedBox(
+        height: 16,
+        child: Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.2,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Плотность (чанк 25): строка списка вместо ListTile — было
+/// title+subtitle+trailing с дефолтными паддингами ListTile (~72dp);
+/// стало кастомный Row 56dp: круглая иконка-статус 40dp вместо текстовой
+/// плашки, имя+время в одной строке (16sp/12sp), статус+роль — вторая
+/// строка 13sp, действия (копировать/отозвать) — тач-цели 44dp.
 class _InvitationTile extends StatelessWidget {
   const _InvitationTile({
     required this.invitation,
@@ -235,88 +289,181 @@ class _InvitationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return ListTile(
+    return Container(
       key: Key('semya-invitation-tile-${invitation.id}'),
-      title: Text(
-        invitation.recipientLabel,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      subtitle: Text(
-        'Роль: ${invitation.role.displayLabel}',
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
+            width: 0.6,
+          ),
         ),
       ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: [
-          _StatusBadge(status: invitation.status),
-          if (onCopyLink != null) ...[
-            const SizedBox(width: 4),
-            IconButton(
-              key: Key('semya-invitation-copy-${invitation.id}'),
-              tooltip: 'Скопировать ссылку',
-              icon: const Icon(Icons.copy_rounded, size: 18),
-              onPressed: onCopyLink,
+          _StatusAvatar(status: invitation.status),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        invitation.recipientLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _formatShortDate(invitation.createdAt),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontSize: 12,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Text(
+                      invitation.status.displayLabel,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: _statusForeground(theme, invitation.status),
+                      ),
+                    ),
+                    Text(
+                      ' · ${invitation.role.displayLabel}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontSize: 13,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          ],
-          if (onRevoke != null)
-            IconButton(
-              key: Key('semya-invitation-revoke-${invitation.id}'),
-              tooltip: 'Отозвать',
-              icon: Icon(
-                Icons.cancel_outlined,
-                size: 18,
-                color: theme.colorScheme.error,
+          ),
+          if (onCopyLink != null)
+            SizedBox(
+              width: 44,
+              height: 44,
+              child: IconButton(
+                key: Key('semya-invitation-copy-${invitation.id}'),
+                tooltip: 'Скопировать ссылку',
+                icon: const Icon(Icons.copy_rounded, size: 20),
+                onPressed: onCopyLink,
               ),
-              onPressed: onRevoke,
+            ),
+          if (onRevoke != null)
+            SizedBox(
+              width: 44,
+              height: 44,
+              child: IconButton(
+                key: Key('semya-invitation-revoke-${invitation.id}'),
+                tooltip: 'Отозвать',
+                icon: Icon(
+                  Icons.cancel_outlined,
+                  size: 20,
+                  color: theme.colorScheme.error,
+                ),
+                onPressed: onRevoke,
+              ),
             ),
         ],
       ),
     );
   }
+
+  static String _formatShortDate(String iso) {
+    final dt = DateTime.tryParse(iso);
+    if (dt == null) return '';
+    try {
+      return DateFormat('d MMM', 'ru').format(dt.toLocal());
+    } catch (_) {
+      return '${dt.day}.${dt.month.toString().padLeft(2, '0')}';
+    }
+  }
 }
 
-class _StatusBadge extends StatelessWidget {
-  const _StatusBadge({required this.status});
+/// Плотность (чанк 25): круглая иконка-статус 40dp вместо текстовой
+/// плашки — цвет несёт смысл (ожидает/принято/отклонено), а сам статус
+/// остаётся читаемым текстом в строке ниже (13sp).
+class _StatusAvatar extends StatelessWidget {
+  const _StatusAvatar({required this.status});
 
   final SemyaInvitationStatus status;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final Color background;
-    final Color foreground;
-    switch (status) {
-      case SemyaInvitationStatus.pending:
-        background = theme.colorScheme.primary.withValues(alpha: 0.16);
-        foreground = theme.colorScheme.primary;
-        break;
-      case SemyaInvitationStatus.accepted:
-        background = Colors.green.withValues(alpha: 0.16);
-        foreground = Colors.green.shade800;
-        break;
-      case SemyaInvitationStatus.revoked:
-      case SemyaInvitationStatus.expired:
-      case SemyaInvitationStatus.unknown:
-        background = theme.colorScheme.surfaceContainerHighest;
-        foreground = theme.colorScheme.onSurfaceVariant;
-        break;
-    }
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      width: 40,
+      height: 40,
       decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(10),
+        color: _statusBackground(theme, status),
+        shape: BoxShape.circle,
       ),
-      child: Text(
-        status.displayLabel,
-        style: theme.textTheme.labelSmall?.copyWith(
-          color: foreground,
-          fontWeight: FontWeight.w700,
-        ),
+      child: Icon(
+        _statusIcon(status),
+        size: 20,
+        color: _statusForeground(theme, status),
       ),
     );
+  }
+}
+
+Color _statusBackground(ThemeData theme, SemyaInvitationStatus status) {
+  switch (status) {
+    case SemyaInvitationStatus.pending:
+      return theme.colorScheme.primary.withValues(alpha: 0.14);
+    case SemyaInvitationStatus.accepted:
+      return Colors.green.withValues(alpha: 0.14);
+    case SemyaInvitationStatus.revoked:
+      return theme.colorScheme.errorContainer.withValues(alpha: 0.5);
+    case SemyaInvitationStatus.expired:
+    case SemyaInvitationStatus.unknown:
+      return theme.colorScheme.surfaceContainerHighest;
+  }
+}
+
+Color _statusForeground(ThemeData theme, SemyaInvitationStatus status) {
+  switch (status) {
+    case SemyaInvitationStatus.pending:
+      return theme.colorScheme.primary;
+    case SemyaInvitationStatus.accepted:
+      return Colors.green.shade800;
+    case SemyaInvitationStatus.revoked:
+      return theme.colorScheme.error;
+    case SemyaInvitationStatus.expired:
+    case SemyaInvitationStatus.unknown:
+      return theme.colorScheme.onSurfaceVariant;
+  }
+}
+
+IconData _statusIcon(SemyaInvitationStatus status) {
+  switch (status) {
+    case SemyaInvitationStatus.pending:
+      return Icons.hourglass_top_rounded;
+    case SemyaInvitationStatus.accepted:
+      return Icons.check_rounded;
+    case SemyaInvitationStatus.revoked:
+      return Icons.close_rounded;
+    case SemyaInvitationStatus.expired:
+    case SemyaInvitationStatus.unknown:
+      return Icons.schedule_rounded;
   }
 }
