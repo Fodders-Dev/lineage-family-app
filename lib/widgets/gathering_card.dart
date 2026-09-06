@@ -231,9 +231,7 @@ class _GatheringCardState extends State<GatheringCard> {
   // Короткие ярлыки для строки метаданных шапки (было: отдельный чип
   // «Вся семья» / «Отдельные ветки» после «когда·где»).
   String get _audienceLabel =>
-      _gathering.scopeType == TreeContentScopeType.branches
-          ? 'Ветки'
-          : 'Семья';
+      _gathering.scopeType == TreeContentScopeType.branches ? 'Ветки' : 'Семья';
 
   IconData get _audienceIcon =>
       _gathering.scopeType == TreeContentScopeType.branches
@@ -484,7 +482,8 @@ class _GatheringCardState extends State<GatheringCard> {
             ),
             const SizedBox(width: 4),
           ],
-          if (remaining > 0) _ParticipantBubble(tokens: tokens, label: '+$remaining'),
+          if (remaining > 0)
+            _ParticipantBubble(tokens: tokens, label: '+$remaining'),
         ],
       ),
     );
@@ -594,18 +593,26 @@ class _GatheringCardState extends State<GatheringCard> {
   }
 
   String _formatWhen() {
-    final pattern = _gathering.isAllDay ? 'd MMMM y' : 'd MMMM y, HH:mm';
-    final start = DateFormat(pattern, 'ru').format(_gathering.startAt);
+    // Год показываем только для чужого года: «11 сентября 2026, 14:00» в
+    // одной строке с местом резался до «11 сентября 2026, 11…» на 412dp,
+    // а год у ближайшей встречи — шум.
+    final thisYear = DateTime.now().year;
+    String dayPattern(DateTime d) => d.year == thisYear ? 'd MMMM' : 'd MMMM y';
+    final startAt = _gathering.startAt;
+    final pattern = _gathering.isAllDay
+        ? dayPattern(startAt)
+        : '${dayPattern(startAt)}, HH:mm';
+    final start = DateFormat(pattern, 'ru').format(startAt);
     final end = _gathering.endAt;
     if (end == null) return start;
-    final sameDay = end.year == _gathering.startAt.year &&
-        end.month == _gathering.startAt.month &&
-        end.day == _gathering.startAt.day;
+    final sameDay = end.year == startAt.year &&
+        end.month == startAt.month &&
+        end.day == startAt.day;
     final endLabel = _gathering.isAllDay
-        ? DateFormat('d MMMM y', 'ru').format(end)
+        ? DateFormat(dayPattern(end), 'ru').format(end)
         : sameDay
             ? DateFormat('HH:mm', 'ru').format(end)
-            : DateFormat('d MMMM y, HH:mm', 'ru').format(end);
+            : DateFormat('${dayPattern(end)}, HH:mm', 'ru').format(end);
     return '$start — $endLabel';
   }
 
