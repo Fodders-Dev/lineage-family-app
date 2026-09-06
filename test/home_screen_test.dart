@@ -247,6 +247,21 @@ class _FakeBrowserNotificationBridge implements BrowserNotificationBridge {
   }
 }
 
+// S-fanout (05-06.09.2026): HomeScreen defers stories/gatherings/polls/
+// identity-review/family-connection-prompt/events past the first frame
+// via StartupScheduler (initialDelay 700ms + 150ms between up to 6
+// tasks — see lib/startup/startup_scheduler.dart). A bare
+// `pumpAndSettle()` does NOT advance far enough to fire those (Flutter's
+// test binding only fast-forwards the fake clock while a frame is
+// actively scheduled — a dormant `Future.delayed` sitting in the timer
+// queue doesn't count, same reasoning as the existing coach-mark-tour
+// test below). Any assertion on that content needs an explicit pump
+// past the whole queue first — this helper covers the worst case.
+Future<void> pumpPastStartupFanout(WidgetTester tester) async {
+  await tester.pump(const Duration(seconds: 2));
+  await tester.pumpAndSettle();
+}
+
 FamilyTree _buildTree({
   required String id,
   required String name,
@@ -318,6 +333,9 @@ void main() {
       );
 
       await tester.pumpAndSettle();
+      // Events (birthday) load in the deferred "second wave" now — give
+      // the queue time to run before asserting on it.
+      await pumpPastStartupFanout(tester);
 
       expect(find.text('Родня'), findsWidgets);
       expect(find.text('Дерево активно'), findsNothing);
@@ -501,6 +519,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      // Events load in the deferred "second wave" now.
+      await pumpPastStartupFanout(tester);
 
       expect(find.widgetWithText(ChoiceChip, 'Все'), findsOneWidget);
       expect(find.widgetWithText(ChoiceChip, 'Родня'), findsOneWidget);
@@ -666,6 +686,10 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      // Gatherings/polls load in the deferred "second wave" now — posts
+      // are already there (immediate), but the mixed-feed assertions
+      // below need the queue to run first.
+      await pumpPastStartupFanout(tester);
 
       // All three kinds of content are in the feed.
       expect(find.byType(PostCard), findsOneWidget);
@@ -941,6 +965,9 @@ void main() {
 
       await tester.pumpWidget(MaterialApp.router(routerConfig: router));
       await tester.pumpAndSettle();
+      // The family-connection-prompt load is in the deferred "second
+      // wave" now.
+      await pumpPastStartupFanout(tester);
 
       expect(find.byKey(const Key('home-family-connection-prompt')),
           findsOneWidget);

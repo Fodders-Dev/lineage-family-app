@@ -12,6 +12,7 @@ import '../backend/interfaces/story_service_interface.dart';
 import '../models/post.dart' show TreeContentScopeType;
 import '../models/reaction_summary.dart';
 import '../models/story.dart';
+import '../utils/startup_trace.dart';
 import 'custom_api_auth_service.dart';
 
 class CustomApiStoryService implements StoryServiceInterface {
@@ -165,6 +166,7 @@ class CustomApiStoryService implements StoryServiceInterface {
     required String path,
     Map<String, dynamic>? body,
   }) async {
+    StartupTrace.logRequest(method, path);
     final uri = _buildUri(path);
     late http.Response response;
     final headers = _headers();
@@ -192,6 +194,7 @@ class CustomApiStoryService implements StoryServiceInterface {
     required String path,
     Map<String, String>? queryParams,
   }) async {
+    StartupTrace.logRequest(method, path);
     final uri = _buildUri(path, queryParams: queryParams);
     late http.Response response;
 

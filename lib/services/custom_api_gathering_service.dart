@@ -9,6 +9,7 @@ import '../backend/interfaces/gathering_service_interface.dart';
 import '../backend/interfaces/storage_service_interface.dart';
 import '../models/gathering.dart';
 import '../models/post.dart' show TreeContentScopeType;
+import '../utils/startup_trace.dart';
 import 'custom_api_auth_service.dart';
 
 /// Phase E2: HTTP client for /v1/gatherings. Cloned from
@@ -191,6 +192,7 @@ class CustomApiGatheringService implements GatheringServiceInterface {
     Map<String, dynamic>? body,
     Map<String, String>? queryParams,
   }) async {
+    StartupTrace.logRequest(method, path);
     final uri = _buildUri(path, queryParams: queryParams);
     final headers = _headers();
 

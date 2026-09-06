@@ -10,6 +10,7 @@ import '../models/identity_claim.dart';
 import '../models/merge_proposal.dart';
 import '../models/person_attribute.dart';
 import '../models/public_identity_result.dart';
+import '../utils/startup_trace.dart';
 import 'custom_api_auth_service.dart';
 
 class CustomApiIdentityService implements IdentityServiceInterface {
@@ -242,6 +243,7 @@ class CustomApiIdentityService implements IdentityServiceInterface {
     required String path,
     Map<String, dynamic>? body,
   }) async {
+    StartupTrace.logRequest(method, path);
     final request = http.Request(method, _buildUri(path))
       ..headers.addAll(_headers(hasBody: body != null));
     if (body != null) {

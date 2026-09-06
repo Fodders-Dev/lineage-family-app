@@ -17,6 +17,7 @@ import '../models/family_person.dart' as rodnya_models;
 import '../navigation/app_router_shared.dart';
 import '../providers/tree_provider.dart';
 import '../utils/relative_details_route.dart';
+import '../utils/startup_trace.dart';
 import 'active_chat_tracker.dart';
 import 'android_incoming_call_service.dart';
 import 'call_coordinator_service.dart';
@@ -478,6 +479,7 @@ class CustomApiNotificationService implements NotificationServiceInterface {
     }
 
     try {
+      StartupTrace.logRequest('GET', '/v1/notifications?status=unread&limit=20');
       final response = await _httpClient.get(
         _buildUri(runtimeConfig, '/v1/notifications?status=unread&limit=20'),
         headers: _headers(token),
@@ -653,6 +655,7 @@ class CustomApiNotificationService implements NotificationServiceInterface {
     }
 
     try {
+      StartupTrace.logRequest('GET', '/v1/notifications/unread-count');
       final response = await _httpClient.get(
         _buildUri(runtimeConfig, '/v1/notifications/unread-count'),
         headers: _headers(token),

@@ -19,6 +19,7 @@ import '../models/chat_message_search_result.dart';
 import '../models/chat_messages_page.dart';
 import '../models/chat_preview.dart';
 import '../models/chat_send_progress.dart';
+import '../utils/startup_trace.dart';
 import '../utils/voice_waveform.dart';
 import 'app_status_service.dart';
 import 'chat_draft_store.dart';
@@ -2249,6 +2250,7 @@ class CustomApiChatService
     Map<String, dynamic>? body,
     Map<String, String>? queryParameters,
   }) async {
+    StartupTrace.logRequest(method, path);
     final uri = _buildUri(path, queryParameters: queryParameters);
     late http.Response response;
 

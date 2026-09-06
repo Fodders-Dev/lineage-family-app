@@ -9,6 +9,7 @@ import '../backend/interfaces/poll_service_interface.dart';
 import '../backend/interfaces/storage_service_interface.dart';
 import '../models/poll.dart';
 import '../models/post.dart' show TreeContentScopeType;
+import '../utils/startup_trace.dart';
 import 'custom_api_auth_service.dart';
 
 /// Phase E5: HTTP client for /v1/polls. Cloned from
@@ -181,6 +182,7 @@ class CustomApiPollService implements PollServiceInterface {
     Map<String, dynamic>? body,
     Map<String, String>? queryParams,
   }) async {
+    StartupTrace.logRequest(method, path);
     final uri = _buildUri(path, queryParams: queryParams);
     final headers = _headers();
 

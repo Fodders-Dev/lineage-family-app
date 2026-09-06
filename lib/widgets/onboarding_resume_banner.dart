@@ -21,7 +21,19 @@ import '../theme/app_theme.dart';
 /// state hydration picks up currentStep, banner re-evaluates после
 /// completion via authStateChanges subscription.
 class OnboardingResumeBanner extends StatefulWidget {
-  const OnboardingResumeBanner({super.key});
+  const OnboardingResumeBanner({super.key, this.deferUntil});
+
+  /// S-fanout (05.09.2026): без этого поля баннер стреляет своим
+  /// `/v1/me/onboarding-state` GET прямо на mount — то есть в том же
+  /// кадре, что и весь остальной стартовый fan-out (~10 параллельных
+  /// GET на холодном старте). Когда caller (HomeScreen's
+  /// StartupScheduler) передаёт [deferUntil], реальный `_resolve()`
+  /// откладывается до завершения этого future — HomeScreen ставит его
+  /// последним в свою последовательную очередь «второй волны», так что
+  /// этот запрос уходит последним, а не в общей пачке. `null` (любое
+  /// другое встраивание баннера, включая существующие тесты) сохраняет
+  /// прежнее немедленное поведение.
+  final Future<void>? deferUntil;
 
   /// Сброс session-dismiss между тестами (static переживает пересоздание
   /// виджета — этим и ценен в проде, но тестам нужен чистый старт).
@@ -48,7 +60,14 @@ class _OnboardingResumeBannerState extends State<OnboardingResumeBanner> {
   @override
   void initState() {
     super.initState();
-    _resolve();
+    final gate = widget.deferUntil;
+    if (gate != null) {
+      unawaited(gate.then((_) {
+        if (mounted) _resolve();
+      }));
+    } else {
+      _resolve();
+    }
     if (GetIt.I.isRegistered<AuthServiceInterface>()) {
       // Re-fetch state когда session changes (skip / completion /
       // refresh broadcast'нут authStateChanges).

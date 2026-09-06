@@ -11,6 +11,7 @@ import '../models/comment.dart';
 import '../models/media_upload_progress.dart';
 import '../models/post.dart';
 import '../models/reaction_summary.dart';
+import '../utils/startup_trace.dart';
 import 'custom_api_auth_service.dart';
 
 class CustomApiPostService implements PostServiceInterface {
@@ -452,6 +453,7 @@ class CustomApiPostService implements PostServiceInterface {
     Map<String, dynamic>? body,
     Map<String, String>? queryParams,
   }) async {
+    StartupTrace.logRequest(method, path);
     final uri = _buildUri(path, queryParams: queryParams);
     final headers = _headers();
 
