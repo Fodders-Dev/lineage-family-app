@@ -9864,9 +9864,12 @@ class _ChatBubble extends StatelessWidget {
                         ),
                       if (reactionGroups.isNotEmpty) ...[
                         const SizedBox(height: 8),
+                        // Плотность (чанк 22): зазор чипов 4dp (было 6) —
+                        // спека: «ряд чипов 24dp под пузырём с зазором
+                        // 4dp».
                         Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
+                          spacing: 4,
+                          runSpacing: 4,
                           children: reactionGroups
                               .map(
                                 (reaction) => _ReactionPill(
@@ -10132,16 +10135,16 @@ class _ReplyQuoteCard extends StatelessWidget {
     );
     final maxTextWidth = math.max(140.0, maxPreviewWidth - 34);
 
+    // Плотность (чанк 22): убрана собственная фон-плашка цитаты (была
+    // read Container с цветной заливкой + скруглением поверх пузыря —
+    // ровно та «рамка-в-рамке», которую спека запрещает). Полоса-
+    // акцент 3dp остаётся единственным визуальным маркером цитаты,
+    // цитата рисуется прямо на поверхности пузыря. borderRadius
+    // сохранён только для формы ripple у InkWell ниже.
     final content = Container(
       key: const ValueKey<String>('chat-reply-quote-card'),
       constraints: BoxConstraints(maxWidth: maxPreviewWidth),
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-      decoration: BoxDecoration(
-        color: isMe
-            ? Colors.white.withValues(alpha: 0.16)
-            : scheme.primary.withValues(alpha: 0.08),
-        borderRadius: borderRadius,
-      ),
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -10177,8 +10180,11 @@ class _ReplyQuoteCard extends StatelessWidget {
                       : 'Сообщение без текста',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
+                  // Плотность (чанк 22): 14sp (было bodySmall=12) —
+                  // спека держит цитату на 2 строках 14sp.
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: bodyColor,
+                    fontSize: 14,
                     height: 1.25,
                   ),
                 ),

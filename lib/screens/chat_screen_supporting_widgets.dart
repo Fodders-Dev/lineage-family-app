@@ -1745,8 +1745,11 @@ class _ReactionPill extends StatelessWidget {
         ),
         child: Text(
           '${reaction.emoji} ${reaction.count}',
+          // Плотность (чанк 22): 13sp явно (labelSmall=11 по умолчанию) —
+          // спека: «ряд чипов ... текст 13sp», чип держит ~24dp высоты.
           style: theme.textTheme.labelSmall?.copyWith(
             color: textColor,
+            fontSize: 13,
             fontWeight: reaction.isMine ? FontWeight.w800 : FontWeight.w600,
           ),
         ),
