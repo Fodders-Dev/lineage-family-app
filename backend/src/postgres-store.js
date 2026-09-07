@@ -2062,6 +2062,7 @@ class PostgresStore extends FileStore {
 
     return this._enqueueWrite("_stateWriteQueue", async () => {
       await this.initialize();
+      const preUpdateCachedVersion = this._cachedVersion;
       const result = await this._pool.query(
         `UPDATE ${this._qualifiedTableName}
             SET data = jsonb_set(
@@ -2083,7 +2084,7 @@ class PostgresStore extends FileStore {
                 FROM jsonb_array_elements(COALESCE(data->'trees', '[]'::jsonb)) AS tree_entry
                WHERE COALESCE(tree_entry->>'id', '') = $3
             )
-          RETURNING updated_at`,
+          RETURNING version`,
         [
           this._rowId,
           JSON.stringify(person),
@@ -2093,6 +2094,50 @@ class PostgresStore extends FileStore {
       );
       if (result.rowCount === 0) {
         return null;
+      }
+      // SPEED-14: this scoped UPDATE bypasses _write() entirely (that's the
+      // whole point — no full-blob read/serialize/sidecar for the common
+      // "add a relative" case), so it never told the SPEED-8a/11 read cache
+      // about the row's new version. Left alone, the very next _read() in
+      // the SAME request (e.g. the route handler's dispatchTreeMutation →
+      // resolveTreeAudienceUserIds, called right after this method returns)
+      // sees _cachedVersion pointing at the OLD row version and pays a full
+      // cache-miss reload (SELECT ~1-2MB + parse + normalize + graph-sync +
+      // structuredClone + sidecar write) — confirmed via a fake-pool probe,
+      // see docs/speed_measurement.md SPEED-14; this was the dominant cost
+      // of POST /v1/trees/:id/persons.
+      //
+      // Patch the cache in place ONLY when we can PROVE nothing else wrote
+      // to the row between our last known-good cache fill and this blind
+      // append: preUpdateCachedVersion === writtenVersion - 1 means no
+      // interleaving writer landed in between (version is monotonic and
+      // every writer increments it by exactly 1, invariant guarded
+      // elsewhere — see postgres-store.test.js). If that doesn't hold (cache
+      // was cold, or some other write raced us) we do NOT guess — leave the
+      // cache exactly as this method left it before SPEED-14 (pointing at
+      // the old version), which self-corrects via an honest reload on the
+      // next _read(), same as today.
+      const writtenVersion = PostgresStore._normalizeStateVersion(
+        result?.rows?.[0]?.version,
+      );
+      if (
+        this._cachedState &&
+        writtenVersion !== null &&
+        preUpdateCachedVersion !== null &&
+        preUpdateCachedVersion === writtenVersion - 1
+      ) {
+        const patchedState = {
+          ...this._cachedState,
+          persons: [...(this._cachedState.persons || []), person],
+          personIdentities: [
+            ...(this._cachedState.personIdentities || []),
+            identity,
+          ],
+        };
+        this._commitCachedState(patchedState, writtenVersion);
+        // Same fallback fs cache as every other writer — backgrounded, see
+        // _persistSnapshotCache.
+        this._persistSnapshotCache(this._cachedState);
       }
       return structuredClone(person);
     });
