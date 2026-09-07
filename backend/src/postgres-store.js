@@ -5598,10 +5598,56 @@ class PostgresStore extends FileStore {
     await this._snapshotCacheHydrationPromise;
   }
 
-  async _persistSnapshotCache(snapshot) {
+  // SPEED-14: the sidecar snapshot file is a boot/outage fallback ONLY —
+  // _hydrateCachedStateFromSnapshotCache() reads it once at boot before the
+  // first real _read(), and _serveCachedSnapshotFallback() reaches for it
+  // only when a live DB read/write fails. Nothing on the hot read/write path
+  // ever trusts it for correctness (that's _cachedState/_cachedVersion,
+  // SPEED-8a/11) — so it never needs to block the response the caller is
+  // building. Every _persistSnapshotCache() call site (_write, the boot
+  // migrations, the read-miss refill) used to `await` a full
+  // JSON.stringify(~1-2MB) + fs.writeFile + implicit fsync-on-close of the
+  // ENTIRE state on every single write/miss, all before the client got its
+  // answer — e.g. createPerson/deletePerson/linkPersonToUser/
+  // createAuthHandoff's own _write() call, or the cache-miss _read() a
+  // request like dispatchTreeMutation triggers right after a write. Now the
+  // call schedules the write and returns immediately; the actual fs work
+  // happens in the background on _snapshotCacheWriteChain.
+  //
+  // Coalesced, not merely queued: if a newer snapshot arrives while a
+  // write is still in flight, only the LATEST one is persisted next — we
+  // never need to burn a disk write on an intermediate snapshot nobody will
+  // ever read (the sidecar is a point-in-time fallback, not a log). If the
+  // process crashes before a scheduled write lands, the worst case is a
+  // stale (or, on first boot, missing) sidecar — bootstrap already treats
+  // "no valid sidecar" as normal (falls back to an honest DB read), so this
+  // trades "always fresh on disk" for "fresh soon, never blocks", which is
+  // exactly the tradeoff a read-only fallback cache should make.
+  //
+  // close()/_flushSnapshotCacheWrites() await the chain, so graceful
+  // shutdown and tests that assert on the sidecar's final contents still
+  // see it land.
+  _persistSnapshotCache(snapshot) {
     if (!this._snapshotCachePath || !snapshot) {
       return;
     }
+    this._pendingSnapshotCacheWrite = snapshot;
+    if (!this._snapshotCacheWriteChain) {
+      this._snapshotCacheWriteChain = this._drainSnapshotCacheWrites();
+    }
+  }
+
+  async _drainSnapshotCacheWrites() {
+    while (this._pendingSnapshotCacheWrite) {
+      const next = this._pendingSnapshotCacheWrite;
+      this._pendingSnapshotCacheWrite = null;
+      // eslint-disable-next-line no-await-in-loop
+      await this._writeSnapshotCacheFile(next);
+    }
+    this._snapshotCacheWriteChain = null;
+  }
+
+  async _writeSnapshotCacheFile(snapshot) {
     try {
       await fs.mkdir(path.dirname(this._snapshotCachePath), {recursive: true});
       await fs.writeFile(
@@ -5619,6 +5665,18 @@ class PostgresStore extends FileStore {
           message: String(error?.message || error || "unknown_error"),
         }),
       );
+    }
+  }
+
+  // Test/shutdown hook: wait for any in-flight or still-pending sidecar
+  // write to land. Purely additive — nothing on the request path calls
+  // this; it exists so close() can shut down cleanly and so tests can
+  // assert on the sidecar file's final contents without racing the
+  // background write.
+  async _flushSnapshotCacheWrites() {
+    while (this._snapshotCacheWriteChain) {
+      // eslint-disable-next-line no-await-in-loop
+      await this._snapshotCacheWriteChain;
     }
   }
 
@@ -5653,6 +5711,10 @@ class PostgresStore extends FileStore {
 
   async close() {
     await Promise.allSettled([this._stateWriteQueue, this._sessionWriteQueue]);
+    // SPEED-14: the sidecar snapshot write is now backgrounded (see
+    // _persistSnapshotCache) — drain it before tearing down the pool so a
+    // graceful shutdown doesn't drop the last write's fallback-cache copy.
+    await this._flushSnapshotCacheWrites();
     if (this._poolRelease) {
       await this._poolRelease();
       this._poolRelease = null;
