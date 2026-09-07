@@ -17,6 +17,7 @@ import '../backend/interfaces/identity_duplicate_capable_family_tree_service.dar
 import '../backend/interfaces/identity_suggestions_capable_family_tree_service.dart';
 import '../backend/interfaces/kinship_check_capable_family_tree_service.dart';
 import '../backend/interfaces/person_tree_resolution_capable_family_tree_service.dart';
+import '../backend/interfaces/relatives_cache_capable_family_tree_service.dart';
 import '../backend/interfaces/semya_capable_family_tree_service.dart';
 import '../backend/interfaces/onboarding_capable_family_tree_service.dart';
 import '../backend/interfaces/profile_service_interface.dart';
@@ -70,6 +71,7 @@ class CustomApiFamilyTreeService
         OnboardingCapableFamilyTreeService,
         KinshipCheckCapableFamilyTreeService,
         PersonTreeResolutionCapableFamilyTreeService,
+        RelativesCacheCapableFamilyTreeService,
         SemyaCapableFamilyTreeService {
   CustomApiFamilyTreeService({
     required CustomApiAuthService authService,
@@ -78,12 +80,14 @@ class CustomApiFamilyTreeService
     LocalStorageService? localStorageService,
     ProfileServiceInterface? profileService,
     TreeGraphCache? treeGraphCache,
+    DateTime Function()? clock,
   })  : _authService = authService,
         _runtimeConfig = runtimeConfig,
         _httpClient = httpClient ?? http.Client(),
         _localStorageService = localStorageService,
         _profileService = profileService,
-        _treeGraphCache = treeGraphCache;
+        _treeGraphCache = treeGraphCache,
+        _clock = clock ?? DateTime.now;
 
   final CustomApiAuthService _authService;
   final BackendRuntimeConfig _runtimeConfig;
@@ -91,9 +95,30 @@ class CustomApiFamilyTreeService
   final LocalStorageService? _localStorageService;
   final ProfileServiceInterface? _profileService;
   final TreeGraphCache? _treeGraphCache;
+  final DateTime Function() _clock;
   final Map<String, String> _personTreeIds = <String, String>{};
   final Map<String, TreeGraphSnapshot> _graphSnapshotCache =
       <String, TreeGraphSnapshot>{};
+
+  // perf(client): getRelatives(treeId) short-TTL cache + single-flight.
+  // Cold start on the home screen calls this for the same treeId from
+  // two independent deferred tasks a beat apart — the «Сегодня для
+  // семьи» prompt and, ~1s later via StartupScheduler's queue,
+  // EventService.getUpcomingEvents() — neither aware of the other. A
+  // plain in-flight dedup wouldn't help (they don't overlap in time),
+  // so this is a real TTL cache: short enough that a genuinely new
+  // visit re-fetches almost immediately, long enough to absorb that
+  // gap and any screen-to-screen navigation right after. Every person/
+  // relation mutation below invalidates it immediately via
+  // _invalidateTreeCaches, and RelativesCacheCapableFamilyTreeService
+  // lets the tree_mutated realtime/push handler do the same for
+  // changes made by another device.
+  final Map<String, List<FamilyPerson>> _relativesCache =
+      <String, List<FamilyPerson>>{};
+  final Map<String, DateTime> _relativesCacheStamps = <String, DateTime>{};
+  final Map<String, Future<List<FamilyPerson>>> _relativesInFlight =
+      <String, Future<List<FamilyPerson>>>{};
+  static const Duration _relativesCacheTtl = Duration(seconds: 30);
   late final StreamController<List<TreeInvitation>>
       _pendingInvitationsController =
       StreamController<List<TreeInvitation>>.broadcast(
@@ -151,7 +176,29 @@ class CustomApiFamilyTreeService
   }
 
   @override
-  Future<List<FamilyPerson>> getRelatives(String treeId) async {
+  Future<List<FamilyPerson>> getRelatives(String treeId) {
+    final cached = _relativesCache[treeId];
+    final cachedAt = _relativesCacheStamps[treeId];
+    if (cached != null &&
+        cachedAt != null &&
+        _clock().difference(cachedAt) < _relativesCacheTtl) {
+      return Future.value(cached);
+    }
+    final inFlight = _relativesInFlight[treeId];
+    if (inFlight != null) {
+      return inFlight;
+    }
+    final future = _fetchRelatives(treeId);
+    _relativesInFlight[treeId] = future;
+    unawaited(future.whenComplete(() {
+      if (identical(_relativesInFlight[treeId], future)) {
+        _relativesInFlight.remove(treeId);
+      }
+    }));
+    return future;
+  }
+
+  Future<List<FamilyPerson>> _fetchRelatives(String treeId) async {
     final response = await _requestJson(
       method: 'GET',
       path: '/v1/trees/$treeId/persons',
@@ -162,7 +209,28 @@ class CustomApiFamilyTreeService
       _personTreeIds[person.id] = treeId;
     }
     await _cachePersons(relatives);
+    _relativesCache[treeId] = relatives;
+    _relativesCacheStamps[treeId] = _clock();
     return relatives;
+  }
+
+  /// Single choke point for treeId-scoped cache invalidation. Clears
+  /// both the graph-snapshot cache (pre-existing) and the
+  /// getRelatives() short-TTL cache above, so every call site below
+  /// that used to invalidate just the former now keeps both in sync
+  /// with a one-line change. Also reachable from outside this class
+  /// via [invalidateRelativesCache] — see
+  /// RelativesCacheCapableFamilyTreeService.
+  void _invalidateTreeCaches(String treeId) {
+    _graphSnapshotCache.remove(treeId);
+    _relativesCache.remove(treeId);
+    _relativesCacheStamps.remove(treeId);
+  }
+
+  @override
+  void invalidateRelativesCache(String treeId) {
+    _relativesCache.remove(treeId);
+    _relativesCacheStamps.remove(treeId);
   }
 
   /// Phase 0 cross-tree picker: surface relatives the user already
@@ -262,8 +330,8 @@ class CustomApiFamilyTreeService
     // applied at the backend (the link itself doesn't propagate,
     // but the next edit on either side now will). Invalidate
     // graph snapshots for both so the consumer refetches.
-    _graphSnapshotCache.remove(sourceTreeId);
-    _graphSnapshotCache.remove(targetTreeId);
+    _invalidateTreeCaches(sourceTreeId);
+    _invalidateTreeCaches(targetTreeId);
   }
 
   @override
@@ -318,7 +386,7 @@ class CustomApiFamilyTreeService
     // snapshot so the next read shows the new canonical value.
     // keep is technically a no-op for graph data, but the badge
     // count still changes; cheap to invalidate either way.
-    _graphSnapshotCache.remove(treeId);
+    _invalidateTreeCaches(treeId);
   }
 
   // ── Phase 4: Find Blood Relation ───────────────────────────────────
@@ -542,7 +610,7 @@ class CustomApiFamilyTreeService
         'isPrimaryParentSet': isPrimaryParentSet,
       },
     );
-    _graphSnapshotCache.remove(treeId);
+    _invalidateTreeCaches(treeId);
   }
 
   @override
@@ -551,7 +619,7 @@ class CustomApiFamilyTreeService
     required String relationId,
   }) async {
     await _requestDelete(path: '/v1/trees/$treeId/relations/$relationId');
-    _graphSnapshotCache.remove(treeId);
+    _invalidateTreeCaches(treeId);
   }
 
   @override
@@ -573,7 +641,7 @@ class CustomApiFamilyTreeService
       customRelationLabel1to2: customRelationLabel1to2,
       customRelationLabel2to1: customRelationLabel2to1,
     );
-    _graphSnapshotCache.remove(treeId);
+    _invalidateTreeCaches(treeId);
   }
 
   @override
@@ -604,7 +672,7 @@ class CustomApiFamilyTreeService
         'unionStatus': unionStatus,
       },
     );
-    _graphSnapshotCache.remove(treeId);
+    _invalidateTreeCaches(treeId);
   }
 
   @override
@@ -628,7 +696,7 @@ class CustomApiFamilyTreeService
 
     final person = _personFromResponse(response, fallbackTreeId: treeId);
     _personTreeIds[person.id] = treeId;
-    _graphSnapshotCache.remove(treeId);
+    _invalidateTreeCaches(treeId);
     await _cachePerson(person);
     return person.id;
   }
@@ -651,7 +719,7 @@ class CustomApiFamilyTreeService
 
     final updatedPerson = _personFromResponse(response, fallbackTreeId: treeId);
     _personTreeIds[updatedPerson.id] = treeId;
-    _graphSnapshotCache.remove(treeId);
+    _invalidateTreeCaches(treeId);
     await _cachePerson(updatedPerson);
 
     // Phase 1.1 unified-graph migration: identity propagation. The
@@ -674,7 +742,7 @@ class CustomApiFamilyTreeService
           if (entry is Map) {
             final affectedTreeId = entry['treeId']?.toString();
             if (affectedTreeId != null && affectedTreeId.isNotEmpty) {
-              _graphSnapshotCache.remove(affectedTreeId);
+              _invalidateTreeCaches(affectedTreeId);
               // We don't have the freshly-propagated person in
               // hand without an extra round-trip — clearing the
               // snapshot cache is enough to force the consumer
@@ -812,7 +880,7 @@ class CustomApiFamilyTreeService
     );
 
     final relation = _relationFromResponse(response, fallbackTreeId: treeId);
-    _graphSnapshotCache.remove(treeId);
+    _invalidateTreeCaches(treeId);
     await _cacheRelation(relation);
     return relation;
   }
@@ -1161,6 +1229,13 @@ class CustomApiFamilyTreeService
     final selfPerson = _personFromResponse(response, fallbackTreeId: treeId);
     _personTreeIds[selfPerson.id] = treeId;
     await _cachePerson(selfPerson);
+    // This POST bypasses addRelative(), so it must invalidate the same
+    // caches addRelative() would — otherwise the createRelation() call
+    // right below resolves targetPersonId/selfPerson.id against a
+    // getRelatives() snapshot taken before this person existed (surfaced
+    // by the getRelatives short-TTL cache: isCurrentUserInTree() above
+    // just populated it with the pre-join roster).
+    _invalidateTreeCaches(treeId);
 
     await createRelation(
       treeId: treeId,
@@ -1195,7 +1270,7 @@ class CustomApiFamilyTreeService
 
     await _requestDelete(path: '/v1/trees/$treeId/persons/$resolvedPersonId');
     _personTreeIds.remove(resolvedPersonId);
-    _graphSnapshotCache.remove(treeId);
+    _invalidateTreeCaches(treeId);
     final localStorageService = _localStorageService;
     if (localStorageService != null) {
       await localStorageService.deleteRelative(resolvedPersonId);
@@ -1229,7 +1304,7 @@ class CustomApiFamilyTreeService
       );
     }
     final updated = _personFromJson(personJson, fallbackTreeId: treeId);
-    _graphSnapshotCache.remove(treeId);
+    _invalidateTreeCaches(treeId);
     return updated;
   }
 
@@ -1254,7 +1329,7 @@ class CustomApiFamilyTreeService
 
     final updatedPerson = _personFromResponse(response, fallbackTreeId: treeId);
     _personTreeIds[updatedPerson.id] = treeId;
-    _graphSnapshotCache.remove(treeId);
+    _invalidateTreeCaches(treeId);
     _invalidateCachesForPropagatedTrees(response);
     await _cachePerson(updatedPerson);
     return updatedPerson;
@@ -1282,7 +1357,7 @@ class CustomApiFamilyTreeService
 
     final updatedPerson = _personFromResponse(response, fallbackTreeId: treeId);
     _personTreeIds[updatedPerson.id] = treeId;
-    _graphSnapshotCache.remove(treeId);
+    _invalidateTreeCaches(treeId);
     _invalidateCachesForPropagatedTrees(response);
     await _cachePerson(updatedPerson);
     return updatedPerson;
@@ -1315,7 +1390,7 @@ class CustomApiFamilyTreeService
 
     final updatedPerson = _personFromResponse(response, fallbackTreeId: treeId);
     _personTreeIds[updatedPerson.id] = treeId;
-    _graphSnapshotCache.remove(treeId);
+    _invalidateTreeCaches(treeId);
     _invalidateCachesForPropagatedTrees(response);
     await _cachePerson(updatedPerson);
     return updatedPerson;
@@ -1323,9 +1398,9 @@ class CustomApiFamilyTreeService
 
   // Phase 1.1 helper: when the backend reports `propagatedTo` /
   // `identityPropagation.affected` on a write response, drop the
-  // graph-snapshot cache for each touched tree so the next read
-  // fetches fresh data. Backwards-compatible: silently no-ops on
-  // older response shapes that don't carry the field.
+  // graph-snapshot + getRelatives caches for each touched tree so the
+  // next read fetches fresh data. Backwards-compatible: silently
+  // no-ops on older response shapes that don't carry the field.
   void _invalidateCachesForPropagatedTrees(Map<String, dynamic> response) {
     // New shape (media routes): top-level `propagatedTo: [...]`.
     final propagated = response['propagatedTo'];
@@ -1334,7 +1409,7 @@ class CustomApiFamilyTreeService
         if (entry is Map) {
           final treeId = entry['treeId']?.toString();
           if (treeId != null && treeId.isNotEmpty) {
-            _graphSnapshotCache.remove(treeId);
+            _invalidateTreeCaches(treeId);
           }
         }
       }
@@ -1350,7 +1425,7 @@ class CustomApiFamilyTreeService
           if (entry is Map) {
             final treeId = entry['treeId']?.toString();
             if (treeId != null && treeId.isNotEmpty) {
-              _graphSnapshotCache.remove(treeId);
+              _invalidateTreeCaches(treeId);
             }
           }
         }

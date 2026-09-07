@@ -1404,6 +1404,73 @@ void main() {
       coordinator.dispose();
     },
   );
+
+  test(
+    'perf(client): hydrateIncomingCall skips the redundant global fallback '
+    'when the scoped lookup already found a call',
+    () async {
+      // Bootstrap with no active call so ensureRuntimeReady's own resync()
+      // leaves _currentCall null — otherwise hydrateIncomingCall's
+      // already-current-call short-circuit would return without ever
+      // reaching _callService.getActiveCall, and this test would pass
+      // for the wrong reason (0 requests instead of the fix mattering).
+      final service = _CountingCallService(activeCall: null);
+      final coordinator = CallCoordinatorService(callService: service);
+      await coordinator.ensureRuntimeReady();
+      service.activeCall = _buildCall(state: CallState.ringing);
+      service.resetCounters();
+
+      final call = await coordinator.hydrateIncomingCall(chatId: 'chat-1');
+
+      expect(call?.id, 'call-1');
+      // Before the fix this fired getActiveCall(chatId: 'chat-1') AND
+      // getActiveCall() unconditionally — the exact same request twice
+      // whenever the scoped lookup already succeeded.
+      expect(service.activeCallRequests, 1);
+
+      coordinator.dispose();
+    },
+  );
+
+  test(
+    'perf(client): hydrateIncomingCall falls back to the global lookup only '
+    'when the scoped one comes up empty',
+    () async {
+      final service = _CountingCallService(activeCall: null);
+      final coordinator = CallCoordinatorService(callService: service);
+      await coordinator.ensureRuntimeReady();
+      service.resetCounters();
+
+      final call = await coordinator.hydrateIncomingCall(chatId: 'chat-1');
+
+      expect(call, isNull);
+      // Scoped lookup (chat-1) came up empty, so the global fallback is
+      // legitimate here — exactly one extra request, not more.
+      expect(service.activeCallRequests, 2);
+
+      coordinator.dispose();
+    },
+  );
+
+  test(
+    'perf(client): hydrateIncomingCall with no chatId never double-fetches',
+    () async {
+      final service = _CountingCallService(activeCall: null);
+      final coordinator = CallCoordinatorService(callService: service);
+      await coordinator.ensureRuntimeReady();
+      service.activeCall = _buildCall(state: CallState.ringing);
+      service.resetCounters();
+
+      final call = await coordinator.hydrateIncomingCall();
+
+      expect(call?.id, 'call-1');
+      // No chatId to begin with → the first lookup IS the global one;
+      // the fallback branch must not fire a second time.
+      expect(service.activeCallRequests, 1);
+
+      coordinator.dispose();
+    },
+  );
 }
 
 CallInvite _buildCall({

@@ -9,6 +9,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:rodnya/backend/backend_runtime_config.dart';
 import 'package:rodnya/backend/interfaces/call_service_interface.dart';
+import 'package:rodnya/backend/interfaces/family_tree_service_interface.dart';
+import 'package:rodnya/backend/interfaces/relatives_cache_capable_family_tree_service.dart';
 import 'package:rodnya/models/call_event.dart';
 import 'package:rodnya/models/call_invite.dart';
 import 'package:rodnya/models/call_media_mode.dart';
@@ -162,6 +164,90 @@ void main() {
       expect(coordinator.hydratedCallIds, ['call-1']);
       expect(coordinator.hydratedChatIds, ['chat-1']);
       expect(shownGenericNotifications, isEmpty);
+
+      await service.dispose();
+    },
+  );
+
+  test(
+    'perf(client): tree_mutated invalidates CustomApiFamilyTreeService '
+    'getRelatives cache via RelativesCacheCapableFamilyTreeService',
+    () async {
+      final client = MockClient((request) async {
+        if (request.url.path == '/v1/notifications' &&
+            request.method == 'GET') {
+          return http.Response(
+            jsonEncode({
+              'notifications': [
+                {
+                  'id': 'notification-tree-1',
+                  'type': 'tree_mutated',
+                  'title': 'Родня',
+                  'body': '',
+                  'silent': true,
+                  'createdAt': _recentlyCreatedAt(),
+                  'data': {
+                    'treeId': 'tree-remote-1',
+                    'kind': 'person_updated',
+                    'actorUserId': 'user-2',
+                  },
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('{"message":"not found"}', 404);
+      });
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'custom_api_session_v1',
+        jsonEncode({
+          'accessToken': 'access-token',
+          'refreshToken': 'refresh-token',
+          'userId': 'user-1',
+          'email': 'dev@rodnya.app',
+          'displayName': 'Dev User',
+          'providerIds': ['password'],
+          'isProfileComplete': true,
+          'missingFields': const [],
+        }),
+      );
+
+      final authService = await CustomApiAuthService.create(
+        httpClient: client,
+        preferences: prefs,
+        runtimeConfig: const BackendRuntimeConfig(
+          apiBaseUrl: 'https://api.example.ru',
+        ),
+        invitationService: InvitationService(),
+      );
+
+      // A change made by ANOTHER device/family member arrives as a
+      // silent `tree_mutated` push. CustomApiFamilyTreeService's own
+      // mutation methods invalidate its getRelatives() cache directly
+      // (this device's own edits), but a remote change needs the
+      // notification handler to reach in via this capability.
+      final fakeFamilyTreeService = _FakeRelativesCacheFamilyTreeService();
+      GetIt.I.registerSingleton<FamilyTreeServiceInterface>(
+        fakeFamilyTreeService,
+      );
+
+      final service = await CustomApiNotificationService.create(
+        preferences: prefs,
+        authService: authService,
+        runtimeConfig: const BackendRuntimeConfig(
+          apiBaseUrl: 'https://api.example.ru',
+        ),
+        httpClient: client,
+      );
+
+      await service.initialize();
+      await service.syncPendingNotifications();
+
+      expect(fakeFamilyTreeService.invalidatedTreeIds, ['tree-remote-1']);
 
       await service.dispose();
     },
@@ -1485,6 +1571,24 @@ class _FakeFlutterLocalNotificationsPlatform
 
   @override
   Future<void> cancel({required int id}) async {}
+}
+
+/// Minimal double for the tree_mutated realtime-invalidation wiring test
+/// above. Implements only [invalidateRelativesCache]; every other
+/// FamilyTreeServiceInterface member falls through to noSuchMethod
+/// (the established pattern in this test suite for partial fakes —
+/// see e.g. access_grants_screen_test.dart's _CapableFakeService).
+class _FakeRelativesCacheFamilyTreeService
+    implements FamilyTreeServiceInterface, RelativesCacheCapableFamilyTreeService {
+  final List<String> invalidatedTreeIds = <String>[];
+
+  @override
+  void invalidateRelativesCache(String treeId) {
+    invalidatedTreeIds.add(treeId);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeNotificationCallCoordinator extends CallCoordinatorService {

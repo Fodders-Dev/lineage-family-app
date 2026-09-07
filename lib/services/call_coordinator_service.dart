@@ -382,8 +382,17 @@ class CallCoordinatorService extends ChangeNotifier
       if (normalizedCallId != null && normalizedCallId.isNotEmpty) {
         nextCall = await _callService.getCall(normalizedCallId);
       }
-      nextCall ??= await _callService.getActiveCall(chatId: chatId?.trim());
-      nextCall ??= await _callService.getActiveCall();
+      final normalizedChatId = chatId?.trim();
+      nextCall ??= await _callService.getActiveCall(chatId: normalizedChatId);
+      // Global fallback only makes sense when the first lookup was actually
+      // scoped to a chat — otherwise it's the exact same request repeated
+      // (perf: this used to fire unconditionally, doubling GET
+      // /v1/calls/active on every cold-start incoming-call check).
+      if (nextCall == null &&
+          normalizedChatId != null &&
+          normalizedChatId.isNotEmpty) {
+        nextCall = await _callService.getActiveCall();
+      }
       if (nextCall == null || nextCall.state.isTerminal) {
         return null;
       }

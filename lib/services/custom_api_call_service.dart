@@ -49,6 +49,22 @@ class CustomApiCallService
   StreamSubscription<CustomApiRealtimeEvent>? _realtimeSubscription;
   bool _realtimeBridgeStarted = false;
 
+  // perf(client): single-flight for GET /v1/calls/active. Cold start has
+  // ~3 independent initiators racing to check for an active/incoming call
+  // (CallCoordinatorService's own bootstrap + its realtime "connection.ready"
+  // listener + IncomingCallWatcher's own listener on the same event) — all
+  // legitimate, none removable without weakening incoming-call recovery.
+  // When their requests overlap in time (the common case — the backend
+  // response takes longer than the gap between initiators), they now share
+  // one in-flight HTTP call keyed by the normalized chatId instead of firing
+  // one each. A call that starts AFTER the in-flight one has resolved always
+  // issues a fresh request — this is not a TTL cache, just concurrency
+  // coalescing, so periodic polling and realtime-driven refreshes still see
+  // up-to-date state.
+  final Map<String, Future<CallInvite?>> _activeCallInFlight =
+      <String, Future<CallInvite?>>{};
+  static const String _activeCallGlobalKey = '_global_';
+
   @override
   String? get currentUserId => _authService.currentUserId;
 
@@ -80,12 +96,31 @@ class CustomApiCallService
   }
 
   @override
-  Future<CallInvite?> getActiveCall({String? chatId}) async {
+  Future<CallInvite?> getActiveCall({String? chatId}) {
+    final normalizedChatId = chatId?.trim();
+    final key = normalizedChatId == null || normalizedChatId.isEmpty
+        ? _activeCallGlobalKey
+        : normalizedChatId;
+    final inFlight = _activeCallInFlight[key];
+    if (inFlight != null) {
+      return inFlight;
+    }
+    final future = _fetchActiveCall(normalizedChatId);
+    _activeCallInFlight[key] = future;
+    unawaited(future.whenComplete(() {
+      if (identical(_activeCallInFlight[key], future)) {
+        _activeCallInFlight.remove(key);
+      }
+    }));
+    return future;
+  }
+
+  Future<CallInvite?> _fetchActiveCall(String? normalizedChatId) async {
     final uri = Uri.parse(
       '${_runtimeConfig.apiBaseUrl}/v1/calls/active',
     ).replace(
-      queryParameters: chatId != null && chatId.trim().isNotEmpty
-          ? <String, String>{'chatId': chatId.trim()}
+      queryParameters: normalizedChatId != null && normalizedChatId.isNotEmpty
+          ? <String, String>{'chatId': normalizedChatId}
           : null,
     );
     final response = await _requestJsonOptional(

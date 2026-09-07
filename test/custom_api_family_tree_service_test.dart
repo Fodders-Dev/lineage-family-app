@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -2234,4 +2235,184 @@ void main() {
     expect(results.last, hasLength(1));
     expect(pendingRequestsCount, 1);
   });
+
+  group('perf(client): getRelatives short-TTL cache + single-flight', () {
+    test('two calls back-to-back share one HTTP request', () async {
+      final ctx = await _RelativesCacheTestContext.create();
+
+      final first = await ctx.treeService.getRelatives('tree-relatives');
+      final second = await ctx.treeService.getRelatives('tree-relatives');
+
+      expect(first, hasLength(1));
+      expect(second, hasLength(1));
+      expect(ctx.requestCount, 1);
+    });
+
+    test('concurrent overlapping calls single-flight into one request',
+        () async {
+      final responseGate = Completer<void>();
+      final ctx = await _RelativesCacheTestContext.create(
+        responseGate: responseGate,
+      );
+
+      // Mirrors the startup scenario: «Сегодня для семьи» and
+      // EventService.getUpcomingEvents both ask for the same tree's
+      // relatives before either request has come back.
+      final futures = [
+        ctx.treeService.getRelatives('tree-relatives'),
+        ctx.treeService.getRelatives('tree-relatives'),
+      ];
+      await Future<void>.delayed(Duration.zero);
+      responseGate.complete();
+      final results = await Future.wait(futures);
+
+      expect(results.first, hasLength(1));
+      expect(results.last, hasLength(1));
+      expect(ctx.requestCount, 1);
+    });
+
+    test('cache expires after the TTL window', () async {
+      final ctx = await _RelativesCacheTestContext.create();
+
+      await ctx.treeService.getRelatives('tree-relatives');
+      expect(ctx.requestCount, 1);
+
+      ctx.now = DateTime(2026, 9, 7, 12, 0, 31);
+      await ctx.treeService.getRelatives('tree-relatives');
+      expect(ctx.requestCount, 2);
+    });
+
+    test('a person mutation invalidates the cache immediately', () async {
+      final ctx = await _RelativesCacheTestContext.create();
+
+      final before = await ctx.treeService.getRelatives('tree-relatives');
+      expect(before, hasLength(1));
+      expect(ctx.requestCount, 1);
+
+      await ctx.treeService.addRelative('tree-relatives', {
+        'firstName': 'Мария',
+        'lastName': 'Петрова',
+        'gender': 'female',
+      });
+
+      // Still well within the 30s TTL window — without invalidation
+      // this would incorrectly serve the pre-mutation cached list.
+      final after = await ctx.treeService.getRelatives('tree-relatives');
+      expect(after, hasLength(2));
+      expect(ctx.requestCount, 2);
+    });
+
+    test('invalidateRelativesCache forces a fresh fetch (tree_mutated hook)',
+        () async {
+      final ctx = await _RelativesCacheTestContext.create();
+
+      await ctx.treeService.getRelatives('tree-relatives');
+      expect(ctx.requestCount, 1);
+
+      // Simulates another device's edit arriving as a realtime/push
+      // `tree_mutated` event — CustomApiNotificationService calls this
+      // via RelativesCacheCapableFamilyTreeService.
+      ctx.treeService.invalidateRelativesCache('tree-relatives');
+
+      await ctx.treeService.getRelatives('tree-relatives');
+      expect(ctx.requestCount, 2);
+    });
+  });
+}
+
+/// Test harness for the getRelatives cache group above. Not a record —
+/// this repo targets Dart <4.0 and stays off Dart 3 syntax (records,
+/// patterns, class modifiers).
+class _RelativesCacheTestContext {
+  _RelativesCacheTestContext._(this.treeService);
+
+  final CustomApiFamilyTreeService treeService;
+  int requestCount = 0;
+  DateTime now = DateTime(2026, 9, 7, 12);
+
+  static Future<_RelativesCacheTestContext> create({
+    Completer<void>? responseGate,
+  }) async {
+    final persons = <Map<String, dynamic>>[
+      {
+        'id': 'user-1',
+        'treeId': 'tree-relatives',
+        'userId': 'user-1',
+        'name': 'Иван Петров',
+        'gender': 'male',
+        'isAlive': true,
+      },
+    ];
+
+    late final _RelativesCacheTestContext context;
+
+    final client = MockClient((request) async {
+      if (request.url.path == '/v1/trees/tree-relatives/persons' &&
+          request.method == 'GET') {
+        context.requestCount += 1;
+        if (responseGate != null) {
+          await responseGate.future;
+        }
+        return http.Response(
+          jsonEncode({'persons': persons}),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      if (request.url.path == '/v1/trees/tree-relatives/persons' &&
+          request.method == 'POST') {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final person = <String, dynamic>{
+          'id': 'person-new',
+          'treeId': 'tree-relatives',
+          'name': '${body['lastName']} ${body['firstName']}'.trim(),
+          'gender': body['gender'],
+          'isAlive': true,
+        };
+        persons.add(person);
+        return http.Response(
+          jsonEncode({'person': person}),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      return http.Response('{"message":"not found"}', 404);
+    });
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      'custom_api_session_v1',
+      jsonEncode({
+        'accessToken': 'access-token',
+        'refreshToken': 'refresh-token',
+        'userId': 'user-1',
+        'email': 'dev@rodnya.app',
+        'displayName': 'Dev User',
+        'providerIds': ['password'],
+        'isProfileComplete': true,
+        'missingFields': const [],
+      }),
+    );
+
+    final authService = await CustomApiAuthService.create(
+      httpClient: client,
+      preferences: prefs,
+      runtimeConfig: const BackendRuntimeConfig(
+        apiBaseUrl: 'https://api.example.ru',
+      ),
+      invitationService: InvitationService(),
+    );
+
+    context = _RelativesCacheTestContext._(
+      CustomApiFamilyTreeService(
+        authService: authService,
+        runtimeConfig: const BackendRuntimeConfig(
+          apiBaseUrl: 'https://api.example.ru',
+        ),
+        httpClient: client,
+        clock: () => context.now,
+      ),
+    );
+    return context;
+  }
 }

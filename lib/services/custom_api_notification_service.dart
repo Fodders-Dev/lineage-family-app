@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../backend/backend_runtime_config.dart';
 import '../backend/interfaces/family_tree_service_interface.dart';
 import '../backend/interfaces/notification_service_interface.dart';
+import '../backend/interfaces/relatives_cache_capable_family_tree_service.dart';
 import '../models/app_notification_item.dart';
 import '../models/family_person.dart' as rodnya_models;
 import '../navigation/app_router_shared.dart';
@@ -1250,6 +1251,7 @@ class CustomApiNotificationService implements NotificationServiceInterface {
       final treeId = _readTreeId(data);
       if (treeId != null && treeId.isNotEmpty) {
         TreeRefreshCoordinator.instance.requestRefresh(treeId);
+        _invalidateRelativesCacheForTree(treeId);
       }
       // Silent push: refetch only, no visual surface. Tree mutations
       // would spam user notifications otherwise (each person edit
@@ -2110,6 +2112,23 @@ class CustomApiNotificationService implements NotificationServiceInterface {
       );
     }
     return const <String, dynamic>{};
+  }
+
+  /// perf(client): `tree_mutated` realtime/push events report changes
+  /// made by ANOTHER device or family member — this device's own
+  /// mutation methods already invalidate
+  /// `CustomApiFamilyTreeService`'s getRelatives() cache directly, but
+  /// a remote change needs this explicit hook. No-op when the family
+  /// tree service isn't registered yet (early startup) or the
+  /// concrete implementation doesn't support the capability (test
+  /// doubles).
+  void _invalidateRelativesCacheForTree(String treeId) {
+    if (!GetIt.I.isRegistered<FamilyTreeServiceInterface>()) return;
+    final familyTreeService = GetIt.I<FamilyTreeServiceInterface>();
+    if (familyTreeService is RelativesCacheCapableFamilyTreeService) {
+      (familyTreeService as RelativesCacheCapableFamilyTreeService)
+          .invalidateRelativesCache(treeId);
+    }
   }
 
   /// Extract `treeId` from notification `data` map (used by
