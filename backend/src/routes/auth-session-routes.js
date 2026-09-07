@@ -85,6 +85,21 @@ function registerAuthSessionRoutes(
       return;
     }
 
+    // 152-ФЗ: свежая регистрация по email требует того же явного согласия,
+    // что и соцвход (см. google-auth-routes/vk-auth-routes, гейт
+    // безусловный с 06.09.2026). Экран регистрации делает чекбокс
+    // обязательным и всегда шлёт версию — сервер лишь гарантирует это на
+    // случай прямого вызова API. БЕЗ consentDocVersion аккаунт не создаём.
+    const trimmedConsentDocVersion = String(consentDocVersion || "").trim();
+    if (!trimmedConsentDocVersion) {
+      res.status(400).json({
+        message: "Нужно согласие на обработку персональных данных",
+        requiresConsent: true,
+        provider: "email",
+      });
+      return;
+    }
+
     try {
       const user = await store.createUser({
         email: trimmedEmail,
@@ -92,8 +107,7 @@ function registerAuthSessionRoutes(
         displayName: trimmedDisplayName,
         // Согласие с Соглашением/ПДн: клиент шлёт версию документов,
         // момент фиксирует сервер (аддитивно — старые клиенты без поля).
-        consentDocVersion:
-          typeof consentDocVersion === "string" ? consentDocVersion : null,
+        consentDocVersion: trimmedConsentDocVersion,
       });
       const deviceContext = readDeviceContext(req);
       const sessionTokens = await store.createSession(user.id, deviceContext);

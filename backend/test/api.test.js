@@ -171,6 +171,7 @@ async function registerTestUser(ctx, email, displayName) {
     body: JSON.stringify({
       email,
       password: "secret123",
+      consentDocVersion: "test-consent-v1",
       displayName,
     }),
   });
@@ -282,6 +283,7 @@ test("auth + profile bootstrap flow works end-to-end", async () => {
       body: JSON.stringify({
         email: "dev@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Dev User",
       }),
     });
@@ -361,6 +363,7 @@ test("auth routes stay available even when session touch fails in the background
       body: JSON.stringify({
         email: "touch-failure@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Touch Failure",
       }),
     });
@@ -420,6 +423,7 @@ test("direct call lifecycle works with backend signaling and webhook updates", a
       body: JSON.stringify({
         email,
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName,
       }),
     });
@@ -1655,6 +1659,7 @@ test("ringing calls automatically expire to missed after timeout", async () => {
       body: JSON.stringify({
         email,
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName,
       }),
     });
@@ -1753,6 +1758,7 @@ test("stale ringing call lazily expires consistently for both participants", asy
       body: JSON.stringify({
         email,
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName,
       }),
     });
@@ -1874,6 +1880,7 @@ test("new call creation ignores stale ringing busy state after lazy reconciliati
       body: JSON.stringify({
         email,
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName,
       }),
     });
@@ -1952,6 +1959,7 @@ test("person dossier merges profile data, preserves family summary, and handles 
       body: JSON.stringify({
         email,
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName,
       }),
     });
@@ -2134,6 +2142,7 @@ test("legacy first-party http media urls are normalized to https in API response
       body: JSON.stringify({
         email,
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName,
       }),
     });
@@ -2388,6 +2397,7 @@ test("delete account cascades owned state and local media cleanup", async () => 
       body: JSON.stringify({
         email: "owner-delete@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Delete Owner",
       }),
     });
@@ -2401,6 +2411,7 @@ test("delete account cascades owned state and local media cleanup", async () => 
       body: JSON.stringify({
         email: "peer-delete@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Delete Peer",
       }),
     });
@@ -2760,6 +2771,7 @@ test("Bug B (2026-05-26): google auth refuses silent merge to existing password 
       body: JSON.stringify({
         email,
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName,
       }),
     });
@@ -3186,6 +3198,7 @@ test("google link endpoint attaches google to the current account and enables la
       body: JSON.stringify({
         email,
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName,
       }),
     });
@@ -3241,6 +3254,7 @@ test("legacy phone verification and discovery routes are removed", async () => {
       body: JSON.stringify({
         email,
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName,
       }),
     });
@@ -3345,6 +3359,7 @@ test("MAX webapp flow supports pending link, link, and later login", async () =>
       body: JSON.stringify({
         email,
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName,
       }),
     });
@@ -3494,6 +3509,7 @@ test("account linking status exposes trusted-channel discovery model", async () 
       body: JSON.stringify({
         email,
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName,
       }),
     });
@@ -3543,6 +3559,7 @@ test("user profile respects section visibility and self view still returns full 
       body: JSON.stringify({
         email,
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName,
       }),
     });
@@ -3728,6 +3745,7 @@ test("user profile supports specific tree, branch and specific user visibility t
       body: JSON.stringify({
         email,
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName,
       }),
     });
@@ -4022,6 +4040,7 @@ test("auth identity linking resolves by provider first, then email", async () =>
       body: JSON.stringify({
         email,
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName,
       }),
     });
@@ -4144,6 +4163,7 @@ test("telegram auth start, exchange and pending link flow work end-to-end", asyn
       body: JSON.stringify({
         email,
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName,
       }),
     });
@@ -4394,6 +4414,7 @@ test("vk auth start, exchange and pending link flow work end-to-end", async () =
       body: JSON.stringify({
         email,
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName,
       }),
     });
@@ -4573,6 +4594,7 @@ test("profile notes and media endpoints work for authenticated user", async () =
       body: JSON.stringify({
         email: "notes@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Notes User",
       }),
     });
@@ -4680,6 +4702,7 @@ test("tree endpoints cover create tree, persons and relations", async () => {
       body: JSON.stringify({
         email: "tree@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Иван Иванов",
       }),
     });
@@ -4809,6 +4832,7 @@ test("tree duplicate endpoint returns read-only within-tree suggestions", async 
       body: JSON.stringify({
         email: "duplicates@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Owner User",
       }),
     });
@@ -6551,6 +6575,7 @@ test("cross-tree merge proposals expose only safe previews and require reviewer 
       body: JSON.stringify({
         email,
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName,
       }),
     });
@@ -6711,6 +6736,7 @@ test("cross-tree merge proposals hide stale deleted-card matches", async () => {
       body: JSON.stringify({
         email,
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName,
       }),
     });
@@ -6815,6 +6841,7 @@ test("identity claims, person privacy attributes and public discovery are opt-in
       body: JSON.stringify({
         email,
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName,
       }),
     });
@@ -7032,6 +7059,7 @@ test("tree history and relative gallery endpoints keep legacy photo alias", asyn
       body: JSON.stringify({
         email: "tree-history@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "История Дерева",
       }),
     });
@@ -7233,6 +7261,7 @@ test("relation endpoints persist marriage and divorce dates", async () => {
       body: JSON.stringify({
         email: "relations-dates@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Relation Dates",
       }),
     });
@@ -7346,6 +7375,7 @@ test("public tree endpoints expose read-only tree data without auth", async () =
       body: JSON.stringify({
         email: "public-tree@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Публичный Автор",
       }),
     });
@@ -7457,6 +7487,7 @@ test("tree delete removes owned trees and lets members leave invited trees", asy
       body: JSON.stringify({
         email: "tree-delete-owner@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Tree Delete Owner",
       }),
     });
@@ -7469,6 +7500,7 @@ test("tree delete removes owned trees and lets members leave invited trees", asy
       body: JSON.stringify({
         email: "tree-delete-member@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Tree Delete Member",
       }),
     });
@@ -7615,6 +7647,7 @@ test("post endpoints cover feed, likes and comments", async () => {
       body: JSON.stringify({
         email: "posts-alice@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Alice Posts",
       }),
     });
@@ -7627,6 +7660,7 @@ test("post endpoints cover feed, likes and comments", async () => {
       body: JSON.stringify({
         email: "posts-bob@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Bob Posts",
       }),
     });
@@ -7978,6 +8012,7 @@ test("post and comment emoji reactions toggle and surface in feed", async () => 
         body: JSON.stringify({
           email,
           password: "secret123",
+          consentDocVersion: "test-consent-v1",
           displayName,
         }),
       });
@@ -8875,6 +8910,7 @@ test("post search filters by content + author + tree access", async () => {
         body: JSON.stringify({
           email,
           password: "secret123",
+          consentDocVersion: "test-consent-v1",
           displayName,
         }),
       });
@@ -8982,6 +9018,7 @@ test("audience-presets compute core_family and close from relations", async () =
       body: JSON.stringify({
         email: "presets@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Артём",
       }),
     });
@@ -9110,6 +9147,7 @@ test("auto circles follow tree relations and filter audience content", async () 
         body: JSON.stringify({
           email,
           password: "secret123",
+          consentDocVersion: "test-consent-v1",
           displayName,
         }),
       });
@@ -9366,6 +9404,7 @@ test("story endpoints support create, view, expiry and delete", async () => {
       body: JSON.stringify({
         email: "stories-alice@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Alice Stories",
       }),
     });
@@ -9378,6 +9417,7 @@ test("story endpoints support create, view, expiry and delete", async () => {
       body: JSON.stringify({
         email: "stories-bob@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Bob Stories",
       }),
     });
@@ -9590,6 +9630,7 @@ test("chat endpoints cover preview list, history, send and mark as read", async 
       body: JSON.stringify({
         email: "alice@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Alice",
       }),
     });
@@ -9602,6 +9643,7 @@ test("chat endpoints cover preview list, history, send and mark as read", async 
       body: JSON.stringify({
         email: "bob@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Bob",
       }),
     });
@@ -9720,6 +9762,7 @@ test("chat message reactions are server-synced through history and realtime", as
         body: JSON.stringify({
           email,
           password: "secret123",
+          consentDocVersion: "test-consent-v1",
           displayName,
         }),
       });
@@ -9844,6 +9887,7 @@ test("chat message history supports limit, before and after pagination", async (
         body: JSON.stringify({
           email,
           password: "secret123",
+          consentDocVersion: "test-consent-v1",
           displayName,
         }),
       });
@@ -9958,6 +10002,7 @@ test("chat preview list applies the limit query parameter", async () => {
       body: JSON.stringify({
         email: "alice-chat-limit@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Alice Limit",
       }),
     });
@@ -9972,6 +10017,7 @@ test("chat preview list applies the limit query parameter", async () => {
         body: JSON.stringify({
           email: `peer-chat-limit-${index}@rodnya.app`,
           password: "secret123",
+          consentDocVersion: "test-consent-v1",
           displayName: name,
         }),
       });
@@ -10030,6 +10076,7 @@ test("chat preview list returns all chats up to the requested limit (no low cap)
       body: JSON.stringify({
         email: "alice-chat-cap@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Alice Chat Cap",
       }),
     });
@@ -10049,6 +10096,7 @@ test("chat preview list returns all chats up to the requested limit (no low cap)
         body: JSON.stringify({
           email: `peer-chat-cap-${index}@rodnya.app`,
           password: "secret123",
+          consentDocVersion: "test-consent-v1",
           displayName: name,
         }),
       });
@@ -10108,6 +10156,7 @@ test("chat preview list caps bulky group participant ids in preview payload", as
       body: JSON.stringify({
         email: "alice-chat-preview-cap@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Alice Preview Cap",
       }),
     });
@@ -10153,6 +10202,7 @@ test("chat preview list safely truncates oversized message previews", async () =
       body: JSON.stringify({
         email: "alice-chat-preview-text@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Alice Preview Text",
       }),
     });
@@ -10172,6 +10222,7 @@ test("chat preview list safely truncates oversized message previews", async () =
         body: JSON.stringify({
           email: `peer-chat-preview-text-${index}@rodnya.app`,
           password: "secret123",
+          consentDocVersion: "test-consent-v1",
           displayName: name,
         }),
       });
@@ -10239,6 +10290,7 @@ test("group chat endpoints create previews before first message and keep media p
       body: JSON.stringify({
         email: "group-alice@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Alice Group",
       }),
     });
@@ -10251,6 +10303,7 @@ test("group chat endpoints create previews before first message and keep media p
       body: JSON.stringify({
         email: "group-bob@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Bob Group",
       }),
     });
@@ -10263,6 +10316,7 @@ test("group chat endpoints create previews before first message and keep media p
       body: JSON.stringify({
         email: "group-cara@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Cara Group",
       }),
     });
@@ -10362,6 +10416,7 @@ test("direct chat details accept reversed participant order and return canonical
         body: JSON.stringify({
           email,
           password: "secret123",
+          consentDocVersion: "test-consent-v1",
           displayName,
         }),
       });
@@ -10413,6 +10468,7 @@ test("chat message edit and delete endpoints enforce ownership", async () => {
       body: JSON.stringify({
         email: "edit-alice@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Alice Edit",
       }),
     });
@@ -10425,6 +10481,7 @@ test("chat message edit and delete endpoints enforce ownership", async () => {
       body: JSON.stringify({
         email: "edit-bob@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Bob Edit",
       }),
     });
@@ -10534,6 +10591,7 @@ test("group chat details and participant management work for ordinary groups", a
         body: JSON.stringify({
           email,
           password: "secret123",
+          consentDocVersion: "test-consent-v1",
           displayName,
         }),
       });
@@ -10720,6 +10778,7 @@ test("tree graph snapshot syncs profile fields and normalizes family units", asy
       body: JSON.stringify({
         email: "graph-alice@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Артем Кузнецов",
       }),
     });
@@ -10732,6 +10791,7 @@ test("tree graph snapshot syncs profile fields and normalizes family units", asy
       body: JSON.stringify({
         email: "graph-bob@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Анастасия Шульяк",
       }),
     });
@@ -10996,6 +11056,7 @@ test("tree graph snapshot backfills linked profile photo for stale tree persons"
       body: JSON.stringify({
         email: "graph-stale@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Артем Кузнецов",
       }),
     });
@@ -11095,6 +11156,7 @@ test("tree graph snapshot infers detailed Russian in-law labels for the viewer",
       body: JSON.stringify({
         email: "graph-inlaw-viewer@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Артем Кузнецов",
       }),
     });
@@ -12354,6 +12416,7 @@ test("tree graph snapshot infers extended collateral blood labels", async () => 
       body: JSON.stringify({
         email: "graph-blood-viewer@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Максим Орлов",
       }),
     });
@@ -12519,6 +12582,7 @@ test("branch chat endpoint reuses branch thread and limits participants to that 
       body: JSON.stringify({
         email: "branch-alice@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Alice Branch",
       }),
     });
@@ -12531,6 +12595,7 @@ test("branch chat endpoint reuses branch thread and limits participants to that 
       body: JSON.stringify({
         email: "branch-bob@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Bob Branch",
       }),
     });
@@ -12689,6 +12754,7 @@ test("relation requests and invite processing work on custom backend", async () 
       body: JSON.stringify({
         email: "owner@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Owner User",
       }),
     });
@@ -12703,6 +12769,7 @@ test("relation requests and invite processing work on custom backend", async () 
         body: JSON.stringify({
           email: "recipient@rodnya.app",
           password: "secret123",
+          consentDocVersion: "test-consent-v1",
           displayName: "Recipient User",
         }),
       },
@@ -12958,6 +13025,7 @@ test("tree invitations support pending list and accept flow", async () => {
       body: JSON.stringify({
         email: "tree-owner@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Tree Owner",
       }),
     });
@@ -12970,6 +13038,7 @@ test("tree invitations support pending list and accept flow", async () => {
       body: JSON.stringify({
         email: "tree-invitee@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Tree Invitee",
       }),
     });
@@ -13058,6 +13127,7 @@ test("notification feed tracks unread events from chat, relation requests and tr
       body: JSON.stringify({
         email: "notify-alice@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Alice",
       }),
     });
@@ -13070,6 +13140,7 @@ test("notification feed tracks unread events from chat, relation requests and tr
       body: JSON.stringify({
         email: "notify-bob@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Bob",
       }),
     });
@@ -13259,6 +13330,7 @@ test("web push config exposes VAPID public key when enabled", async () => {
       body: JSON.stringify({
         email: "webpush-config@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Web Push Config",
       }),
     });
@@ -13308,6 +13380,7 @@ test("web push delivery marks delivery as sent for subscribed browser", async ()
       body: JSON.stringify({
         email: "webpush-owner@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Web Push Owner",
       }),
     });
@@ -13320,6 +13393,7 @@ test("web push delivery marks delivery as sent for subscribed browser", async ()
       body: JSON.stringify({
         email: "webpush-invitee@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Web Push Invitee",
       }),
     });
@@ -13422,6 +13496,7 @@ test("websocket realtime and push queue work for chat delivery", async () => {
       body: JSON.stringify({
         email: "ws-alice@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Alice WS",
       }),
     });
@@ -13434,6 +13509,7 @@ test("websocket realtime and push queue work for chat delivery", async () => {
       body: JSON.stringify({
         email: "ws-bob@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Bob WS",
       }),
     });
@@ -13608,6 +13684,7 @@ test("websocket realtime stays available when session touch fails in the backgro
       body: JSON.stringify({
         email: "ws-touch-failure@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "WS Touch Failure",
       }),
     });
@@ -13662,6 +13739,7 @@ test("chat message idempotency and auto-delete TTL work end-to-end", async () =>
       body: JSON.stringify({
         email: "ttl-alice@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Alice TTL",
       }),
     });
@@ -13674,6 +13752,7 @@ test("chat message idempotency and auto-delete TTL work end-to-end", async () =>
       body: JSON.stringify({
         email: "ttl-bob@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Bob TTL",
       }),
     });
@@ -13792,6 +13871,7 @@ test("presence, typing and read-state realtime updates reach chat participants",
       body: JSON.stringify({
         email: "presence-alice@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Alice Presence",
       }),
     });
@@ -13804,6 +13884,7 @@ test("presence, typing and read-state realtime updates reach chat participants",
       body: JSON.stringify({
         email: "presence-bob@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Bob Presence",
       }),
     });
@@ -13965,6 +14046,7 @@ test("chat message search returns scoped participant results", async () => {
       body: JSON.stringify({
         email: "search-alice@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Search Alice",
       }),
     });
@@ -13978,6 +14060,7 @@ test("chat message search returns scoped participant results", async () => {
       body: JSON.stringify({
         email: "search-bob@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Search Bob",
       }),
     });
@@ -13991,6 +14074,7 @@ test("chat message search returns scoped participant results", async () => {
       body: JSON.stringify({
         email: "search-charlie@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Search Charlie",
       }),
     });
@@ -14070,6 +14154,7 @@ test("chat drafts sync through REST and realtime for the current user", async ()
       body: JSON.stringify({
         email: "draft-alice@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Draft Alice",
       }),
     });
@@ -14083,6 +14168,7 @@ test("chat drafts sync through REST and realtime for the current user", async ()
       body: JSON.stringify({
         email: "draft-bob@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Draft Bob",
       }),
     });
@@ -14240,6 +14326,7 @@ test("chat pinned messages sync through REST and realtime", async () => {
       body: JSON.stringify({
         email: "pin-alice@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Pin Alice",
       }),
     });
@@ -14253,6 +14340,7 @@ test("chat pinned messages sync through REST and realtime", async () => {
       body: JSON.stringify({
         email: "pin-bob@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Pin Bob",
       }),
     });
@@ -14383,6 +14471,7 @@ test("rustore push delivery sends notification through RuStore API", async () =>
       body: JSON.stringify({
         email: "rustore-sender@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Rustore Sender",
       }),
     });
@@ -14395,6 +14484,7 @@ test("rustore push delivery sends notification through RuStore API", async () =>
       body: JSON.stringify({
         email: "rustore-recipient@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Rustore Recipient",
       }),
     });
@@ -14547,6 +14637,7 @@ test("fcm push delivery sends notification through FCM HTTP v1 (lowercase priori
       body: JSON.stringify({
         email: "fcm-sender@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Fcm Sender",
       }),
     });
@@ -14559,6 +14650,7 @@ test("fcm push delivery sends notification through FCM HTTP v1 (lowercase priori
       body: JSON.stringify({
         email: "fcm-recipient@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Fcm Recipient",
       }),
     });
@@ -14934,6 +15026,7 @@ test("reports, blocks and admin moderation endpoints work end-to-end", async () 
       body: JSON.stringify({
         email,
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName,
       }),
     });
@@ -15160,6 +15253,7 @@ test("ready endpoint and auth rate limiting expose operational state", async () 
       body: JSON.stringify({
         email: "ops-admin@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Ops Admin",
       }),
     });
@@ -15236,6 +15330,7 @@ test("auth session endpoint can serve from cached auth context", async () => {
       body: JSON.stringify({
         email: "cache-auth@rodnya.app",
         password: "secret123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Cache Auth",
       }),
     });
@@ -15273,6 +15368,7 @@ test("register endpoint rejects malformed input shapes", async () => {
     let response = await attempt({
       email: "not-an-email",
       password: "secret-pass-123",
+      consentDocVersion: "test-consent-v1",
       displayName: "Тестовый Пользователь",
     });
     assert.equal(response.status, 400);
@@ -15313,9 +15409,77 @@ test("register endpoint rejects malformed input shapes", async () => {
     response = await attempt({
       email: "ok@rodnya.app",
       password: "secret-pass-123",
+      consentDocVersion: "test-consent-v1",
       displayName: "Артем Кузнецов",
     });
     assert.equal(response.status, 201);
+  } finally {
+    await stopTestServer(ctx);
+  }
+});
+
+test("email register: без consentDocVersion → requiresConsent и нет аккаунта; с версией → 201 и согласие записано (152-ФЗ)", async () => {
+  const ctx = await startConfiguredTestServer();
+  try {
+    async function attempt(body) {
+      return fetch(`${ctx.baseUrl}/v1/auth/register`, {
+        method: "POST",
+        headers: {"content-type": "application/json"},
+        body: JSON.stringify(body),
+      });
+    }
+
+    // 1. Без consentDocVersion — сервер отказывает, аккаунт не создаётся.
+    const asked = await attempt({
+      email: "fresh-email-consent@rodnya.app",
+      password: "secret-pass-123",
+      displayName: "Свежая Регистрация",
+    });
+    assert.equal(asked.status, 400);
+    const askedPayload = await asked.json();
+    assert.equal(
+      askedPayload.message,
+      "Нужно согласие на обработку персональных данных",
+    );
+    assert.equal(askedPayload.requiresConsent, true);
+    assert.equal(askedPayload.provider, "email");
+    assert.equal(
+      await ctx.store.findUserByEmail("fresh-email-consent@rodnya.app"),
+      null,
+      "аккаунт без согласия не создаётся",
+    );
+
+    // Пустая строка — как и отсутствие поля, гейт срабатывает.
+    const askedBlank = await attempt({
+      email: "fresh-email-consent@rodnya.app",
+      password: "secret-pass-123",
+      consentDocVersion: "   ",
+      displayName: "Свежая Регистрация",
+    });
+    assert.equal(askedBlank.status, 400);
+    assert.equal(
+      await ctx.store.findUserByEmail("fresh-email-consent@rodnya.app"),
+      null,
+      "пустая версия согласия не считается согласием",
+    );
+
+    // 2. С версией — аккаунт создан, согласие записано.
+    const done = await attempt({
+      email: "fresh-email-consent@rodnya.app",
+      password: "secret-pass-123",
+      consentDocVersion: "2026-06-12",
+      displayName: "Свежая Регистрация",
+    });
+    assert.equal(done.status, 201);
+    const donePayload = await done.json();
+    assert.ok(donePayload.accessToken, "после согласия выдаётся сессия");
+
+    const created = await ctx.store.findUserByEmail(
+      "fresh-email-consent@rodnya.app",
+    );
+    assert.ok(created, "аккаунт создан");
+    assert.equal(created.consentDocVersion, "2026-06-12");
+    assert.ok(created.consentAt, "время согласия записано");
   } finally {
     await stopTestServer(ctx);
   }
@@ -15332,6 +15496,7 @@ test("login is timing-equalized for unknown vs invalid-password emails", async (
       body: JSON.stringify({
         email: "real@rodnya.app",
         password: "real-secret-1234",
+        consentDocVersion: "test-consent-v1",
         displayName: "Тест",
       }),
     });
@@ -15386,6 +15551,7 @@ test("login locks account after repeated failures and unlocks on success", async
       body: JSON.stringify({
         email: "lockout-test@rodnya.app",
         password: "real-secret-1234",
+        consentDocVersion: "test-consent-v1",
         displayName: "Тест",
       }),
     });
@@ -15443,6 +15609,7 @@ test("chat send rejects oversized text and oversized attachment array", async ()
       body: JSON.stringify({
         email: "alice-guard@rodnya.app",
         password: "secret-pass-123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Алиса",
       }),
     });
@@ -15455,6 +15622,7 @@ test("chat send rejects oversized text and oversized attachment array", async ()
       body: JSON.stringify({
         email: "bob-guard@rodnya.app",
         password: "secret-pass-123",
+        consentDocVersion: "test-consent-v1",
         displayName: "Боб",
       }),
     });
@@ -15538,6 +15706,7 @@ test("successful login resets the lockout failure counter", async () => {
       body: JSON.stringify({
         email: "reset-test@rodnya.app",
         password: "real-secret-1234",
+        consentDocVersion: "test-consent-v1",
         displayName: "Тест",
       }),
     });
