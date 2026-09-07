@@ -324,6 +324,96 @@ void main() {
     await realtimeService.dispose();
     await service.dispose();
   });
+
+  test(
+    'perf(client): getActiveCall single-flights concurrent overlapping '
+    'calls into one HTTP request',
+    () async {
+      var requestCount = 0;
+      final responseGate = Completer<void>();
+      final client = MockClient((request) async {
+        if (request.url.path == '/v1/calls/active') {
+          requestCount += 1;
+          await responseGate.future;
+          return http.Response(
+            jsonEncode({'call': null}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('{"message":"not found"}', 404);
+      });
+      final authService = await _createAuthService(client);
+      final service = CustomApiCallService(
+        authService: authService,
+        runtimeConfig: const BackendRuntimeConfig(
+          apiBaseUrl: 'https://api.example.ru',
+        ),
+        httpClient: client,
+      );
+
+      // Cold-start scenario: several independent initiators (call
+      // coordinator bootstrap, its realtime "connection.ready"
+      // listener, IncomingCallWatcher) all ask for the active call
+      // within the same tick, before the first HTTP response lands.
+      final futures = List.generate(4, (_) => service.getActiveCall());
+      // Let the futures actually start their HTTP call before we
+      // release the gate, so they genuinely overlap in time.
+      await Future<void>.delayed(Duration.zero);
+      responseGate.complete();
+      final results = await Future.wait(futures);
+
+      expect(requestCount, 1);
+      expect(results, everyElement(isNull));
+
+      // A call issued AFTER the in-flight one has resolved is NOT a
+      // TTL cache hit — periodic polling and realtime-driven refreshes
+      // must still see a fresh request.
+      await service.getActiveCall();
+      expect(requestCount, 2);
+
+      await service.dispose();
+    },
+  );
+
+  test(
+    'perf(client): getActiveCall single-flight is keyed per chatId',
+    () async {
+      final requestedChatIds = <String?>[];
+      final client = MockClient((request) async {
+        if (request.url.path == '/v1/calls/active') {
+          requestedChatIds.add(request.url.queryParameters['chatId']);
+          return http.Response(
+            jsonEncode({'call': null}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('{"message":"not found"}', 404);
+      });
+      final authService = await _createAuthService(client);
+      final service = CustomApiCallService(
+        authService: authService,
+        runtimeConfig: const BackendRuntimeConfig(
+          apiBaseUrl: 'https://api.example.ru',
+        ),
+        httpClient: client,
+      );
+
+      // A chat-scoped lookup and the global lookup must never share an
+      // in-flight future with each other — different queries, both
+      // legitimate concurrently.
+      await Future.wait([
+        service.getActiveCall(chatId: 'chat-1'),
+        service.getActiveCall(),
+      ]);
+
+      expect(requestedChatIds, hasLength(2));
+      expect(requestedChatIds, containsAll(<String?>['chat-1', null]));
+
+      await service.dispose();
+    },
+  );
 }
 
 Future<CustomApiAuthService> _createAuthService(http.Client client) async {
