@@ -2126,14 +2126,20 @@ class PostgresStore extends FileStore {
         preUpdateCachedVersion !== null &&
         preUpdateCachedVersion === writtenVersion - 1
       ) {
-        const patchedState = {
-          ...this._cachedState,
-          persons: [...(this._cachedState.persons || []), person],
-          personIdentities: [
-            ...(this._cachedState.personIdentities || []),
-            identity,
-          ],
-        };
+        // Ревью SPEED-14: тот же путь, что у промаха _read()/_write —
+        // клон (кэш заморожен, а _syncGraphFromLegacy пушит в graphPersons/
+        // branchPersonViews/graphRelations), добавить человека и
+        // идентичность, синхронизировать зеркало графа (Phase 3.1c). Без
+        // sync прогретый кэш отдавал бы новую персону без graph-зеркала до
+        // следующего промаха, которого при совпадающей версии уже не будет.
+        // O(N) sync дешевле старого промаха (SELECT + parse + тот же sync).
+        const patchedState = structuredClone(this._cachedState);
+        patchedState.persons = [...(patchedState.persons || []), person];
+        patchedState.personIdentities = [
+          ...(patchedState.personIdentities || []),
+          identity,
+        ];
+        this._syncGraphFromLegacy(patchedState);
         this._commitCachedState(patchedState, writtenVersion);
         // Same fallback fs cache as every other writer — backgrounded, see
         // _persistSnapshotCache.
