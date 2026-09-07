@@ -5210,17 +5210,26 @@ class PostgresStore extends FileStore {
       // serialized write link and keep any terminal call terminal, so a write
       // built on a stale pre-teardown snapshot can't resurrect an ended call
       // (inherited FileStore._preserveTerminalCalls; same invariant as file).
+      // SPEED-14: _preserveTerminalCalls only ever reads `.calls` off
+      // whatever we hand it — it never looks at any other field — but this
+      // used to fetch the ENTIRE ~1-2MB row (`SELECT data FROM ...`) just to
+      // reach that one array, on EVERY single write app-wide (createPerson/
+      // deletePerson/linkPersonToUser/createAuthHandoff included). Extracting
+      // `data->'calls'` server-side (same COALESCE(data->'calls', '[]') idiom
+      // already used for the real-time calls lookup a few hundred lines up)
+      // gets the same array without transmitting or parsing the rest of the
+      // blob.
       try {
         const currentResult = await this._pool.query(
-          `SELECT data FROM ${this._qualifiedTableName} WHERE id = $1`,
+          `SELECT data->'calls' AS calls FROM ${this._qualifiedTableName} WHERE id = $1`,
           [this._rowId],
         );
-        const currentData = currentResult.rows?.[0]?.data;
-        const parsedCurrent =
-          typeof currentData === "string"
-            ? JSON.parse(currentData)
-            : currentData;
-        this._preserveTerminalCalls(data, parsedCurrent?.calls);
+        const currentCalls = currentResult.rows?.[0]?.calls;
+        const parsedCalls =
+          typeof currentCalls === "string"
+            ? JSON.parse(currentCalls)
+            : currentCalls;
+        this._preserveTerminalCalls(data, parsedCalls);
       } catch (_) {
         // First write / row absent — nothing persisted to preserve.
       }
