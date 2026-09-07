@@ -99,15 +99,14 @@ function registerVkAuthRoutes(
         finalRedirectRaw,
         resolvePublicAppUrl(),
     );
-    // 152-ФЗ: carry the consent version (set on the client's re-start after
-    // the consent modal) AND the consentCapable capability flag (sent by a
-    // consent-aware client on the first attempt) through the redirect dance so
-    // the callback can apply the same rollout-guarded gate as Google.
+    // 152-ФЗ: версия согласия (клиент ставит её при повторном старте после
+    // модалки) едет через redirect-танец в handoff, чтобы callback применил
+    // тот же безусловный гейт, что и Google. Флаг consentCapable в query
+    // старые клиенты ещё шлют — игнорируется (гейт безусловный с 06.09.2026).
     const consentDocVersion =
         typeof req.query?.consentDocVersion === "string"
             ? req.query.consentDocVersion.trim()
             : "";
-    const consentCapable = String(req.query?.consentCapable || "") === "true";
     const authFlowHandoff = await store.createAuthHandoff({
       type: "vk_auth_flow",
       payload: {
@@ -117,7 +116,6 @@ function registerVkAuthRoutes(
         deviceContext,
         finalRedirect,
         consentDocVersion: consentDocVersion || null,
-        consentCapable,
       },
     });
 
@@ -373,18 +371,17 @@ function registerVkAuthRoutes(
         return;
       }
 
-      // 152-ФЗ / RuStore: same rollout-guarded gate as Google (see
-      // google-auth-routes). consentDocVersion + consentCapable were stashed
-      // at /start. Three-way:
-      //   consentDocVersion present    → consent given, create with it.
-      //   consentCapable & no version  → requires_consent handoff (ask).
-      //   neither (legacy client)      → create as before, NO gate.
+      // 152-ФЗ / RuStore: тот же гейт, что у Google (google-auth-routes);
+      // consentDocVersion припрятана на /start. Есть версия → создаём с ней,
+      // нет → requires_consent (модалка на клиенте, повторный поток).
       const consentDocVersion =
           typeof authFlowHandoff.payload?.consentDocVersion === "string"
               ? authFlowHandoff.payload.consentDocVersion.trim()
               : "";
-      const consentCapable = authFlowHandoff.payload?.consentCapable === true;
-      if (!consentDocVersion && consentCapable) {
+      // Гейт безусловный (06.09.2026), как в google-auth-routes: без версии
+      // согласия свежий аккаунт не создаём — отдаём requires_consent, клиент
+      // показывает модалку и повторяет поток с consentDocVersion.
+      if (!consentDocVersion) {
         const authHandoff = await store.createAuthHandoff({
           type: "vk_auth_result",
           payload: {

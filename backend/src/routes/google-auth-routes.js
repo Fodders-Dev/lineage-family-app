@@ -59,20 +59,17 @@ function registerGoogleAuthRoutes(
           return;
         }
 
-        // 152-ФЗ / RuStore: a brand-new social account needs the same
-        // affirmative consent the email-registration checkbox captures. But
-        // the gate is rollout-guarded by `consentCapable` so it ONLY applies
-        // to clients that know how to handle a requiresConsent response — old
-        // clients (Android 1.0.18, pre-update web) would otherwise break on a
-        // response they don't understand. Three-way:
-        //   consentDocVersion present     → consent given, create with it.
-        //   consentCapable & no version   → ask: 200 {requiresConsent:true}.
-        //   neither (legacy client)       → create as before, NO gate.
+        // 152-ФЗ / RuStore: свежий аккаунт через соцвход требует того же
+        // явного согласия, что и чекбокс регистрации по email. Гейт
+        // БЕЗУСЛОВНЫЙ (06.09.2026): rollout-флаг consentCapable больше не
+        // смотрим — все клиенты с модалкой согласия ≥ 1.0.19, а свежая
+        // регистрация идёт только с новых сборок (OTA/веб). Клиент без
+        // модалки получит {requiresConsent:true} и аккаунт не создаст —
+        // это требование закона, а не поломка. Флаг в теле игнорируется.
         const consentDocVersion = String(
           req.body?.consentDocVersion || "",
         ).trim();
-        const consentCapable = req.body?.consentCapable === true;
-        if (!consentDocVersion && consentCapable) {
+        if (!consentDocVersion) {
           res.json({requiresConsent: true, provider: "google"});
           return;
         }

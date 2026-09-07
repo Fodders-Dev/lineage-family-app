@@ -2927,11 +2927,12 @@ test("google fresh signup WITHOUT consent → requiresConsent, no account create
   }
 });
 
-test("google legacy client WITHOUT consentCapable → account created, no gate", async () => {
-  // Rollout safety: an old client (Android 1.0.18 / pre-update web) sends
-  // neither consentCapable nor consentDocVersion. It must NOT be gated —
-  // account is created exactly as before, so the unconditional gate doesn't
-  // break new signups on clients that can't handle a requiresConsent reply.
+test("google fresh signup WITHOUT consentDocVersion и без consentCapable → requiresConsent (гейт безусловный)", async () => {
+  // 06.09.2026: rollout-флаг consentCapable больше не ослабляет гейт —
+  // свежая регистрация без версии согласия всегда «спросить», аккаунт не
+  // создаётся. Старый клиент без модалки не сможет зарегистрироваться —
+  // это требование 152-ФЗ, а не поломка (вход в существующие аккаунты
+  // гейтом не затронут).
   const googleTokenVerifier = {
     async verifyIdToken() {
       return {
@@ -2958,13 +2959,12 @@ test("google legacy client WITHOUT consentCapable → account created, no gate",
     });
     assert.equal(response.status, 200);
     const payload = await response.json();
-    assert.ok(payload.accessToken, "legacy client still gets a session");
-    assert.equal(payload.user.email, "legacy-client@rodnya.app");
+    assert.equal(payload.requiresConsent, true);
+    assert.equal(payload.provider, "google");
+    assert.ok(!payload.accessToken, "сессия без согласия не выдаётся");
 
     const created = await ctx.store.findUserByEmail("legacy-client@rodnya.app");
-    assert.ok(created, "account created for legacy client");
-    assert.ok(!created.consentAt, "no consent timestamp for legacy signup");
-    assert.equal(created.consentDocVersion, null);
+    assert.equal(created, null, "аккаунт без согласия не создаётся");
   } finally {
     await stopTestServer(ctx);
   }
@@ -15596,6 +15596,95 @@ test("successful login resets the lockout failure counter", async () => {
       200,
       "successful login must reset the counter so we don't lock too eagerly",
     );
+  } finally {
+    await stopTestServer(ctx);
+  }
+});
+
+test("vk fresh signup: без consentDocVersion → requires_consent и нет аккаунта; с версией → аккаунт и согласие записаны", async () => {
+  const vkAuthClient = {
+    isEnabled: true,
+    webAppId: "54549672",
+    async exchangeCode({code}) {
+      return {access_token: "vk-token-" + code};
+    },
+    async fetchUserInfo(accessToken) {
+      assert.match(accessToken, /^vk-token-fresh-/);
+      return {
+        user: {
+          user_id: "vk-fresh-consent",
+          first_name: "VK",
+          last_name: "Fresh",
+          email: "fresh-vk-consent@rodnya.app",
+        },
+      };
+    },
+  };
+  const ctx = await startConfiguredTestServer({
+    configOverrides: {
+      publicAppUrl: "https://rodnya-tree.ru",
+      publicApiUrl: "",
+      vkWebAppId: "54549672",
+      vkAuthEnabled: true,
+    },
+    vkAuthClient,
+  });
+
+  function hashParam(location, name) {
+    const url = new URL(location);
+    const fragment = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
+    const queryPart = fragment.includes("?") ? fragment.split("?").slice(1).join("?") : "";
+    return new URLSearchParams(queryPart).get(name);
+  }
+
+  async function runVkFlow({consentDocVersion, code, deviceId}) {
+    const query = consentDocVersion
+      ? "?consentDocVersion=" + encodeURIComponent(consentDocVersion)
+      : "";
+    const start = await fetch(ctx.baseUrl + "/v1/auth/vk/start" + query, {redirect: "manual"});
+    assert.equal(start.status, 302);
+    const state = new URL(start.headers.get("location")).searchParams.get("state");
+    assert.ok(state);
+    const callback = await fetch(
+      ctx.baseUrl + "/v1/auth/vk/callback?state=" + encodeURIComponent(state) + "&code=" + code + "&device_id=" + deviceId,
+      {redirect: "manual"},
+    );
+    assert.equal(callback.status, 302);
+    const authCode = hashParam(callback.headers.get("location"), "vkAuthCode");
+    assert.ok(authCode, "callback выдаёт vkAuthCode для exchange");
+    const exchange = await fetch(ctx.baseUrl + "/v1/auth/vk/exchange", {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({code: authCode}),
+    });
+    assert.equal(exchange.status, 200);
+    return exchange.json();
+  }
+
+  try {
+    // 1. Без согласия (и без consentCapable — как старый клиент): спросить.
+    const asked = await runVkFlow({code: "fresh-1", deviceId: "device-c1"});
+    assert.equal(asked.status, "requires_consent");
+    assert.equal(asked.provider, "vk");
+    assert.ok(!asked.auth, "сессия без согласия не выдаётся");
+    assert.equal(
+      await ctx.store.findUserByEmail("fresh-vk-consent@rodnya.app"),
+      null,
+      "аккаунт без согласия не создаётся",
+    );
+
+    // 2. Повтор с версией согласия: аккаунт создан, согласие записано.
+    const done = await runVkFlow({
+      consentDocVersion: "2026-05-01",
+      code: "fresh-2",
+      deviceId: "device-c2",
+    });
+    assert.equal(done.status, "authenticated");
+    assert.ok(done.auth && done.auth.accessToken, "после согласия выдаётся сессия");
+    const created = await ctx.store.findUserByEmail("fresh-vk-consent@rodnya.app");
+    assert.ok(created, "аккаунт создан");
+    assert.equal(created.consentDocVersion, "2026-05-01");
+    assert.ok(created.consentAt, "время согласия записано");
   } finally {
     await stopTestServer(ctx);
   }
