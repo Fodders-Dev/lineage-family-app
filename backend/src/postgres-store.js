@@ -2062,6 +2062,7 @@ class PostgresStore extends FileStore {
 
     return this._enqueueWrite("_stateWriteQueue", async () => {
       await this.initialize();
+      const preUpdateCachedVersion = this._cachedVersion;
       const result = await this._pool.query(
         `UPDATE ${this._qualifiedTableName}
             SET data = jsonb_set(
@@ -2083,7 +2084,7 @@ class PostgresStore extends FileStore {
                 FROM jsonb_array_elements(COALESCE(data->'trees', '[]'::jsonb)) AS tree_entry
                WHERE COALESCE(tree_entry->>'id', '') = $3
             )
-          RETURNING updated_at`,
+          RETURNING version`,
         [
           this._rowId,
           JSON.stringify(person),
@@ -2093,6 +2094,50 @@ class PostgresStore extends FileStore {
       );
       if (result.rowCount === 0) {
         return null;
+      }
+      // SPEED-14: this scoped UPDATE bypasses _write() entirely (that's the
+      // whole point — no full-blob read/serialize/sidecar for the common
+      // "add a relative" case), so it never told the SPEED-8a/11 read cache
+      // about the row's new version. Left alone, the very next _read() in
+      // the SAME request (e.g. the route handler's dispatchTreeMutation →
+      // resolveTreeAudienceUserIds, called right after this method returns)
+      // sees _cachedVersion pointing at the OLD row version and pays a full
+      // cache-miss reload (SELECT ~1-2MB + parse + normalize + graph-sync +
+      // structuredClone + sidecar write) — confirmed via a fake-pool probe,
+      // see docs/speed_measurement.md SPEED-14; this was the dominant cost
+      // of POST /v1/trees/:id/persons.
+      //
+      // Patch the cache in place ONLY when we can PROVE nothing else wrote
+      // to the row between our last known-good cache fill and this blind
+      // append: preUpdateCachedVersion === writtenVersion - 1 means no
+      // interleaving writer landed in between (version is monotonic and
+      // every writer increments it by exactly 1, invariant guarded
+      // elsewhere — see postgres-store.test.js). If that doesn't hold (cache
+      // was cold, or some other write raced us) we do NOT guess — leave the
+      // cache exactly as this method left it before SPEED-14 (pointing at
+      // the old version), which self-corrects via an honest reload on the
+      // next _read(), same as today.
+      const writtenVersion = PostgresStore._normalizeStateVersion(
+        result?.rows?.[0]?.version,
+      );
+      if (
+        this._cachedState &&
+        writtenVersion !== null &&
+        preUpdateCachedVersion !== null &&
+        preUpdateCachedVersion === writtenVersion - 1
+      ) {
+        const patchedState = {
+          ...this._cachedState,
+          persons: [...(this._cachedState.persons || []), person],
+          personIdentities: [
+            ...(this._cachedState.personIdentities || []),
+            identity,
+          ],
+        };
+        this._commitCachedState(patchedState, writtenVersion);
+        // Same fallback fs cache as every other writer — backgrounded, see
+        // _persistSnapshotCache.
+        this._persistSnapshotCache(this._cachedState);
       }
       return structuredClone(person);
     });
@@ -5210,17 +5255,26 @@ class PostgresStore extends FileStore {
       // serialized write link and keep any terminal call terminal, so a write
       // built on a stale pre-teardown snapshot can't resurrect an ended call
       // (inherited FileStore._preserveTerminalCalls; same invariant as file).
+      // SPEED-14: _preserveTerminalCalls only ever reads `.calls` off
+      // whatever we hand it — it never looks at any other field — but this
+      // used to fetch the ENTIRE ~1-2MB row (`SELECT data FROM ...`) just to
+      // reach that one array, on EVERY single write app-wide (createPerson/
+      // deletePerson/linkPersonToUser/createAuthHandoff included). Extracting
+      // `data->'calls'` server-side (same COALESCE(data->'calls', '[]') idiom
+      // already used for the real-time calls lookup a few hundred lines up)
+      // gets the same array without transmitting or parsing the rest of the
+      // blob.
       try {
         const currentResult = await this._pool.query(
-          `SELECT data FROM ${this._qualifiedTableName} WHERE id = $1`,
+          `SELECT data->'calls' AS calls FROM ${this._qualifiedTableName} WHERE id = $1`,
           [this._rowId],
         );
-        const currentData = currentResult.rows?.[0]?.data;
-        const parsedCurrent =
-          typeof currentData === "string"
-            ? JSON.parse(currentData)
-            : currentData;
-        this._preserveTerminalCalls(data, parsedCurrent?.calls);
+        const currentCalls = currentResult.rows?.[0]?.calls;
+        const parsedCalls =
+          typeof currentCalls === "string"
+            ? JSON.parse(currentCalls)
+            : currentCalls;
+        this._preserveTerminalCalls(data, parsedCalls);
       } catch (_) {
         // First write / row absent — nothing persisted to preserve.
       }
@@ -5598,10 +5652,56 @@ class PostgresStore extends FileStore {
     await this._snapshotCacheHydrationPromise;
   }
 
-  async _persistSnapshotCache(snapshot) {
+  // SPEED-14: the sidecar snapshot file is a boot/outage fallback ONLY —
+  // _hydrateCachedStateFromSnapshotCache() reads it once at boot before the
+  // first real _read(), and _serveCachedSnapshotFallback() reaches for it
+  // only when a live DB read/write fails. Nothing on the hot read/write path
+  // ever trusts it for correctness (that's _cachedState/_cachedVersion,
+  // SPEED-8a/11) — so it never needs to block the response the caller is
+  // building. Every _persistSnapshotCache() call site (_write, the boot
+  // migrations, the read-miss refill) used to `await` a full
+  // JSON.stringify(~1-2MB) + fs.writeFile + implicit fsync-on-close of the
+  // ENTIRE state on every single write/miss, all before the client got its
+  // answer — e.g. createPerson/deletePerson/linkPersonToUser/
+  // createAuthHandoff's own _write() call, or the cache-miss _read() a
+  // request like dispatchTreeMutation triggers right after a write. Now the
+  // call schedules the write and returns immediately; the actual fs work
+  // happens in the background on _snapshotCacheWriteChain.
+  //
+  // Coalesced, not merely queued: if a newer snapshot arrives while a
+  // write is still in flight, only the LATEST one is persisted next — we
+  // never need to burn a disk write on an intermediate snapshot nobody will
+  // ever read (the sidecar is a point-in-time fallback, not a log). If the
+  // process crashes before a scheduled write lands, the worst case is a
+  // stale (or, on first boot, missing) sidecar — bootstrap already treats
+  // "no valid sidecar" as normal (falls back to an honest DB read), so this
+  // trades "always fresh on disk" for "fresh soon, never blocks", which is
+  // exactly the tradeoff a read-only fallback cache should make.
+  //
+  // close()/_flushSnapshotCacheWrites() await the chain, so graceful
+  // shutdown and tests that assert on the sidecar's final contents still
+  // see it land.
+  _persistSnapshotCache(snapshot) {
     if (!this._snapshotCachePath || !snapshot) {
       return;
     }
+    this._pendingSnapshotCacheWrite = snapshot;
+    if (!this._snapshotCacheWriteChain) {
+      this._snapshotCacheWriteChain = this._drainSnapshotCacheWrites();
+    }
+  }
+
+  async _drainSnapshotCacheWrites() {
+    while (this._pendingSnapshotCacheWrite) {
+      const next = this._pendingSnapshotCacheWrite;
+      this._pendingSnapshotCacheWrite = null;
+      // eslint-disable-next-line no-await-in-loop
+      await this._writeSnapshotCacheFile(next);
+    }
+    this._snapshotCacheWriteChain = null;
+  }
+
+  async _writeSnapshotCacheFile(snapshot) {
     try {
       await fs.mkdir(path.dirname(this._snapshotCachePath), {recursive: true});
       await fs.writeFile(
@@ -5619,6 +5719,18 @@ class PostgresStore extends FileStore {
           message: String(error?.message || error || "unknown_error"),
         }),
       );
+    }
+  }
+
+  // Test/shutdown hook: wait for any in-flight or still-pending sidecar
+  // write to land. Purely additive — nothing on the request path calls
+  // this; it exists so close() can shut down cleanly and so tests can
+  // assert on the sidecar file's final contents without racing the
+  // background write.
+  async _flushSnapshotCacheWrites() {
+    while (this._snapshotCacheWriteChain) {
+      // eslint-disable-next-line no-await-in-loop
+      await this._snapshotCacheWriteChain;
     }
   }
 
@@ -5653,6 +5765,10 @@ class PostgresStore extends FileStore {
 
   async close() {
     await Promise.allSettled([this._stateWriteQueue, this._sessionWriteQueue]);
+    // SPEED-14: the sidecar snapshot write is now backgrounded (see
+    // _persistSnapshotCache) — drain it before tearing down the pool so a
+    // graceful shutdown doesn't drop the last write's fallback-cache copy.
+    await this._flushSnapshotCacheWrites();
     if (this._poolRelease) {
       await this._poolRelease();
       this._poolRelease = null;

@@ -1803,3 +1803,364 @@ CPU-профиль (`node --cpu-prof`, 400 повторов на прогрет�
   (см. «Оговорка» выше); ветка не мержится в main до явного «го» (см.
   `.claude/rules/backend-store.md`).
 
+## SPEED-14 — путь ЗАПИСИ: гейт backfill, фоновый сайдкар, укороченный
+## calls-SELECT, тёплый кэш после fast-path createPerson (07.09.2026)
+
+SPEED-6…13 сделали ЧТЕНИЯ быстрыми (SPEED-8a/11 кэш, SPEED-9/10/12 —
+меньше `_read()` на запрос и дешевле route-level CPU). На проде из
+топа медленных запросов остались ЗАПИСИ, все одиночные (не бёрст,
+медленный vCPU): `POST /v1/trees/:id/persons` 510-670 мс, `POST
+/v1/invitations/pending/process` 590-730 мс, `POST /v1/auth/qr/start`
+505-770 мс, `DELETE /v1/trees/:id/persons/:id` 690 мс. Задача — то же
+самое разложение-на-фазы, что SPEED-8c/9/10 уже делали для чтений, но
+для четырёх write-методов: `createPerson`, `deletePerson`,
+`linkPersonToUser` (обработчик `/v1/invitations/pending/process`),
+`createAuthHandoff` (обработчик `/v1/auth/qr/start`).
+
+### Метод
+
+Харнессы (все `backend/.scratch/`, не коммитятся, копия прод-блоба —
+`local_db.json`, 155 persons/144 relations/25 деревьев, метод как в
+SPEED-8c/9/10/12/13):
+- `speed14_profile_run.js` + `node --cpu-prof` — FileStore,
+  150×(createPerson+deletePerson)/(linkPersonToUser+unlink)/
+  (createAuthHandoff+consume), self-time по `speed10_cpuprofile_report.js`.
+- `speed14_pgmem_bench.js`/`speed14_fastpath_probe.js` — `PostgresStore`
+  на pg-mem/fake-pool (метод `postgres-read-cache.test.js`/
+  `postgres-store.test.js`): считает SQL по категориям, ловит точный
+  список запросов на операцию.
+- `speed14_before_after_pgmem.js`/`speed14_filestore_before_after.js` —
+  сравнение «main» (снят `git show main:backend/src/{store,postgres-
+  store}.js` в `backend/.scratch/src_before/`) против этой ветки, тем же
+  прогретым инстансом на каждую сторону (тот же приём, что SPEED-13:
+  пересоздание `FileStore`/`PostgresStore` на каждый вызов исказило бы
+  разницу однократной ценой инициализации).
+
+**Важная находка до профиля**: `PostgresStore.createPerson` (без
+`userId` — обычный случай «добавить родственника», подавляющее
+большинство вызовов) уже был scoped-SQL fast-path (`jsonb_set`,
+минуя `_read()`/`_write()` целиком — введён в SPEED-8a) — это НЕ то,
+что описывал бриф задачи (полный `_read()+applyFn+_write()`). pg-mem
+не может исполнить его `EXISTS(SELECT 1 FROM jsonb_array_elements(...))`
+(та же голая грабля pg-mem, что задокументирована в
+`speed11-shared-snapshot.test.js`/`.claude/rules/backend-store.md`) —
+поэтому `createPerson` профилировался на FileStore (где он идёт по
+общему `_read()+applyFn+_write()` пути — не тождественно прод-пути, но
+вскрывает те же самые общие проблемы: гейт reconcile, дублирующий вызов)
+и верифицировался отдельно через fake-pool (не pg-mem — фейковый pool не
+исполняет настоящий SQL, просто матчит текст запроса, так же как
+`postgres-store.test.js`), где fast-path воспроизводится точно.
+
+### Разложение по фазам (FileStore, CPU-профиль, 150 повторов каждой пары)
+
+Топ self-time ДО (`speed14_before.cpuprofile`, 40604 мс на 450
+операций):
+
+| self% | self, мс | функция | относится к |
+|---|---|---|---|
+| 27.3 | 11108 | `_write`'s anonymous callback (store.js:6406) — `fs.readFile`(preserve-calls)+`JSON.stringify(data,null,2)`+`fs.writeFile`+`fs.rename` | `_write` (все 4 операции) |
+| 12.7 | 5163 | `_read` — `fs.readFile`+`JSON.parse`+`normalizeDbState`+`_syncGraphFromLegacy` | `_read` (все 4) |
+| 10.2+9.5 | 4164+3847 | `write`/`utf8Write` (node:string_decoder/buffer — часть кодирования при записи файла) | `_write` |
+| 5.9+5.4+2.7+2.1 ≈ 16.1 | ≈8100 | `stableSerialize`+callback+`update`(sha256) (migration-utils.js) — двойной `hashSnapshot` внутри `backfillPersonIdentities` | `_reconcilePersonIdentities` → `createPerson`/`deletePerson`/`linkPersonToUser` |
+| 1.5+0.7+0.7+0.6 ≈ 3.5 | ≈1450 | `_syncPersonToGraph`/`_buildGraphSyncIndex`/`_syncGraphFromLegacy`/`_syncRelationToGraph` (SPEED-9 A, O(N)) | `_read`+`_write` (по разу каждый) |
+| 0.3 | 108 | `_reconcilePersonIdentities` (сама функция, без backfill) | createPerson/deletePerson/linkPersonToUser |
+
+`_reconcilePersonIdentities`→`backfillPersonIdentities` — **~16% self-
+time**, вызывается БЕЗУСЛОВНО на каждый из createPerson/deletePerson/
+linkPersonToUser (19 caller'ов по всему store.js), хотя на проде (все
+persons уже с `identityId`) это доказанный no-op (см. §«Идентичность»
+ниже) — тот же паттерн, что SPEED-8c/13 уже гейтили в других хот-путях.
+
+На PostgresStore (fake-pool, не CPU-профиль — там нет диска/JSON-
+кодирования, зато есть SQL round-trip'ы) нашлись ещё два независимых
+источника, оба вне FileStore-профиля выше:
+- **`_write()` читал ВЕСЬ блоб (`SELECT data FROM ...`) только чтобы
+  достать `.calls`** для `_preserveTerminalCalls` (store-race guard) —
+  на КАЖДЫЙ `_write()` app-wide, независимо от того, трогает ли
+  applyFn звонки вообще.
+- **Сайдкар-кэш (`_persistSnapshotCache`) писал ~1-2 МБ на диск
+  СИНХРОННО внутри `_write()` и внутри read-miss `_read()`** —
+  `JSON.stringify(snapshot)`+`fs.writeFile`, блокируя ответ клиенту,
+  хотя читается только на буте/при отказе живой БД (не путь
+  корректности).
+- **`createPerson`'s fast-path не обновлял `_cachedState`/
+  `_cachedVersion`** — САМ СЕБЯ подставлял: следующий `_read()` в ТОМ
+  ЖЕ HTTP-запросе (`dispatchTreeMutation` → `resolveTreeAudienceUserIds`
+  → `store._read()`, вызывается СРАЗУ после `store.createPerson(...)` в
+  обработчике `tree-routes.js`) видел версию строки, ушедшую вперёд
+  собственной же записью, и платил ПОЛНЫЙ промах кэша (SELECT ~1-2 МБ +
+  parse + `normalizeDbState` + `_syncGraphFromLegacy` + `structuredClone`
+  + сайдкар) — подтверждено фейк-pool пробой (`speed14_fastpath_probe.js`):
+  3 SQL-запроса на этот `_read()` (включая полный `SELECT data, version
+  FROM`) до фикса, 2 (только version + сессии) после. **Это, судя по
+  всему, и есть основной источник заявленных 510-670 мс** —
+  self-inflicted полный реload блоба ВНУТРИ того же запроса, который его
+  же и вызвал.
+
+Таблица «этап | относится к»:
+
+| этап | createPerson (fast-path, без userId) | createPerson (с userId)/deletePerson/linkPersonToUser | createAuthHandoff |
+|---|---|---|---|
+| `_read()` (попадание кэша, Postgres) | нет — минует `_read`/`_write` целиком | да, 1 раз | да, 1 раз |
+| `_read()` (промах кэша) | **да, самопроизвольно — см. выше** (было; фикс ниже) | зависит от прод-кэша | зависит |
+| `applyFn`: `_reconcilePersonIdentities`→`backfillPersonIdentities` | нет (identity уже собран в JS до SQL) | да, безусловно (было) | нет |
+| `applyFn`: `_syncGraphFromLegacy` | нет (не идёт через `_write`) | да, 2× (read+write) | да, 2× |
+| `_write()`: `JSON.stringify` полного блоба | нет (только `person`/`identity` в параметрах) | 1× (параметр UPDATE) | 1× |
+| `_write()`: SELECT для `_preserveTerminalCalls` | нет | было: весь блоб; стало: `data->'calls'` | было/стало так же |
+| `_write()`: `_persistSnapshotCache` | было: нет вообще (fast-path не зовёт `_write`); стало: только если кэш патчится | было: синхронно в критическом пути; стало: в фоне | так же |
+| `computeProjectionHash`×3 (users/sessions/chats) | нет | да, безусловно (НЕ тронуто — см. ниже) | нет (не в `_write`... на самом деле да, `createAuthHandoff` тоже идёт через общий `_write`, но db.users/sessions/chats не меняются) |
+
+### Что исправлено (каждое — отдельный коммит)
+
+1. **Гейт `backfillPersonIdentities` внутри `_reconcilePersonIdentities`**
+   (`store.js`) — `dbHasPersonsWithoutIdentity(db)` (тот же, что SPEED-13
+   уже ввёл) теперь охраняет ТОЛЬКО внутренний вызов
+   `backfillPersonIdentities(db)`, а не всю функцию: цикл синхронизации
+   `db.personIdentities[].personIds`/steward/isLiving из `db.persons`
+   (то, ради чего 19 caller'ов зовут эту функцию после мутации персон)
+   по-прежнему выполняется БЕЗУСЛОВНО каждый раз. Это меньший периметр,
+   чем SPEED-13's подход (гейтить целиком вызов reconcile в ОДНОМ месте)
+   — здесь гейтится ровно тот суб-вызов, чей результат доказанно не
+   нужен, если гейт ложный (backfill — гарантированный no-op, когда
+   некого бэкфиллить), поэтому безопасно для ВСЕХ 19 caller'ов разом, не
+   только для четырёх из этой задачи.
+2. **Убрана дублирующая `_reconcilePersonIdentities(db)` в `createPerson`**
+   (else-ветка без `canonicalIdentity`) — следом шёл безусловный повторный
+   вызов; `_appendTreeChangeRecord` между ними трогает только
+   `db.treeChangeRecords`.
+3. **`_persistSnapshotCache` (PostgresStore) — фоновая запись с
+   коалесингом.** Раньше `await`-илась внутри каждого `_write()` и
+   read-miss `_read()`. Теперь планирует запись и возвращается сразу;
+   реальный `fs.writeFile` идёт на отдельной цепочке
+   `_snapshotCacheWriteChain`, схлопывая несколько подряд идущих снимков
+   в ПОСЛЕДНИЙ (не жжёт диск на промежуточные). `close()`/
+   `_flushSnapshotCacheWrites()` дожидаются цепочки перед остановкой пула.
+4. **`_write()` читает `data->'calls'`, не весь блоб**, для
+   `_preserveTerminalCalls` (store-race guard) — тот же
+   `COALESCE(data->'calls', '[]')` идиом, что уже используется для
+   поиска активных звонков в реальном времени чуть выше по файлу.
+5. **`createPerson` fast-path патчит `_cachedState`/`_cachedVersion`**
+   вместо того, чтобы молча их состарить — но ТОЛЬКО когда
+   `preUpdateCachedVersion === writtenVersion - 1` (доказанно никто не
+   писал строку между последним прогревом кэша и этой слепой SQL-
+   записью). Если это не так — кэш не трогается, следующий `_read()`
+   честно перечитывает (то же поведение, что было ДО этого коммита,
+   никакого нового способа отдать неверные данные).
+
+### Что НЕ сделано и почему
+
+- **`computeProjectionHash`×3 (users/sessions/chats) в `_write()`** — не
+  тронуто. Аудит показал: `createAuthHandoff` и `deletePerson`
+  ДЕЙСТВИТЕЛЬНО не трогают `db.users`/`sessions`/`chats` — для них
+  вычисление всех трёх хэшей формально лишнее. НО `createPerson`
+  (ветка с `userId`, self-claim) и `linkPersonToUser` МЕНЯЮТ `db.users`
+  через `_ensureUserIdentity`/`_attachPersonToIdentity`
+  (`user.identityId`, `user.profile.photoUrl`-бэкфилл) — эти поля прямо
+  участвуют в auth-проекции (`_replaceProjectedUsers`). Безопасный
+  «дешёвый признак из applyFn» потребовал бы либо аудита ВСЕХ ~200+
+  caller'ов `_write()` на предмет того, что они трогают, либо
+  инфраструктуры для явного объявления «затронутых коллекций» на
+  каждый вызов — оба варианта несоразмерно рискованны (ошибка здесь
+  тихо ломает auth: пропущенный `_replaceProjectedUsers` оставляет
+  протухшую auth-проекцию) относительно выигрыша (`computeProjectionHash`
+  — это `JSON.stringify`, не крипто-хэш; на копии прод-блоба `users`
+  138 КБ + `sessions` 61 КБ + `chats` 17 КБ ≈ 216 КБ — **меньше**, чем
+  ОДИН full-blob `JSON.stringify` (1.63 МБ на той же копии), который
+  сайдкар-фикс (п.3) уже убрал из критического пути). Более дешёвый
+  хэш взамен `JSON.stringify` тоже не тронут — та же причина: любой
+  хэш дешевле, чем «прочитать каждый байт», рискует коллизией, а
+  коллизия здесь означает пропущенную auth-проекцию, не испорченный
+  кэш чтения.
+- **Двойной `hashSnapshot` ВНУТРИ самого `backfillPersonIdentities`**
+  (переписать на счётчик-based diff вместо hash-based) — не тронуто:
+  задача явно требовала теста-доказательства эквивалентности на 4
+  категориях состояний ПЕРЕД такой правкой (см. SPEED-12/13, где та же
+  находка была явно отложена по той же причине), а гейт (п.1) уже
+  устраняет САМ ВЫЗОВ в steady state — тот же CPU-выигрыш без риска
+  переписывать 19-caller'ный shared helper.
+- **`_drainTreeChangeCollections`/`_drainTransientNotificationCollections`
+  в `_write()`** — проверено (не профилировано отдельно, но по коду):
+  оба no-op'ятся за O(1) при пустых входных массивах и делают
+  O(новых записей) INSERT'ов иначе (SPEED-8b/7 дизайн) — НЕ
+  O(размера блоба). Для четырёх операций задачи `createPerson`/
+  `deletePerson` добавляют 1-2 tree-change записи за вызов — уже
+  дёшево, трогать нечего.
+- **`_syncGraphFromLegacy`, вызываемый И на `_read()`, И на `_write()`**
+  (дважды за операцию) — уже O(N) после SPEED-9 A (~3.5% self-time в
+  профиле выше), оба вызова архитектурно нужны (SPEED-9A/SPEED-11
+  комментарии: read-side поддерживает зеркало консистентным на входе,
+  write-side — на выходе, до следующего чтения) — не в периметре.
+- **Единственный `JSON.stringify` полного блоба на `_write()`
+  (параметр UPDATE)** — после фикса №3 остаётся ОДИН на операцию
+  (было два — второй был у сайдкара), это и есть пол, о котором
+  предупреждает бриф («сам UPDATE 2 МБ JSONB в Postgres — пол, который
+  локально не измерить»): TOAST-компрессия/декомпрессия `jsonb`-
+  колонки на UPDATE — стоимость самого Postgres, не JS-стороны,
+  недоступна для локального профилирования (pg-mem её не
+  воспроизводит).
+- **`PostgresStore.createPerson`'s fast-path пропускает
+  `_appendTreeChangeRecord`/`ensureCirclesForTree`** — предсуществующее
+  поведение (введено в SPEED-8a, задокументировано и покрыто тестом
+  `postgres-store.test.js` «createPerson fast path skips auth
+  projection rewrites», `state.treeChangeRecords.length === 0`) — вне
+  периметра этой задачи, не трогалось.
+
+### Идентичность и тесты
+
+`backend/test/speed14-write-path.test.js` (13 тестов):
+- **A** (HTTP+FileStore) — все четыре маршрута дают корректный
+  identityId/personIdentities/журнал/handoff после мутации, включая
+  create+create+delete (оставшийся person не теряет identityId, ни одна
+  `personIdentities[].personIds` не ссылается на удалённого).
+- **B1** — `backfillPersonIdentities` на steady-state фикстуре (все
+  persons с `identityId`) — доказанный no-op (`changed=false`, снимок
+  не отличается) — ОСНОВАНИЕ гейта, не предположение.
+- **B2** — `_reconcilePersonIdentities` с гейтом vs эталонная
+  безусловная реализация (буквальная копия ДОГЕЙТОВОГО кода) — на
+  steady-state и на «грязной» (person без identityId) фикстурах
+  сравниваются ПО СТРУКТУРЕ person↔identity (не по сырым id — обе ветки
+  минтят identityId для «сироты» через независимый
+  `crypto.randomUUID()`, сравнивать текст id между двумя независимыми
+  прогонами бессмысленно; сравнивается «у кого есть identity» и «какие
+  имена сгруппированы в одну identity»).
+- **B3** — убранный дублирующий вызов в createPerson не меняет
+  итоговое состояние.
+- **C1/C1b** (PostgresStore+fake-pool) — сайдкар пишется в фоне
+  (`_write()` резолвится раньше файла), `_flushSnapshotCacheWrites()`
+  доводит до диска; несколько записей подряд коалесятся в ОДИН
+  (последний) файл, не в N.
+- **C2** — `_write()` использует `data->'calls'`, не `SELECT data
+  FROM` целиком, и `_preserveTerminalCalls` всё ещё откатывает
+  протухший «active» на «ended» при записи.
+- **C3/C4** — `createPerson` fast-path: следующий `_read()` не
+  промахивается, когда версии совпали (кэш пропатчен и виден); честно
+  перечитывает и получает корректные данные, когда версии разошлись
+  (чужая запись между прогревом и fast-path UPDATE) — оба случая дают
+  ПРАВИЛЬНЫЙ финальный результат, разница только в стоимости.
+
+`npm --prefix backend test` — **763/763** (было 750, +13); `api.test.js`
+изолированно (Windows-ENOTEMPTY флейк из CLAUDE.md) — **128/128**,
+флейка не было ни разу за все прогоны этой задачи.
+
+### Замер: до/после (два независимых харнесса)
+
+**FileStore** (`speed14_filestore_before_after.js`, median из 60,
+копия прод-блоба, «до» = `git show main:...` в
+`backend/.scratch/src_before/`, «после» = эта ветка, 2 независимых
+прогона):
+
+| операция | до, мс (2 прогона) | после, мс (2 прогона) | Δ |
+|---|---|---|---|
+| `createPerson` | 44.35, — | 34.94, 35.43 | **−21%** |
+| `deletePerson` | 41.80, — | 31.50, 32.33 | **−24%** |
+| `linkPersonToUser`+unlink | 91.32, 92.04 | 75.32, 74.48 | **−18%** |
+| `createAuthHandoff`+consume | 62.97, 63.63 | 68.08, 63.16 | ~0% (ожидаемо — эта операция не трогает `_reconcilePersonIdentities`, единственную FileStore-заметную правку этой задачи; разброс — файловый I/O jitter) |
+
+CPU-профиль (150×3 операции, `node --cpu-prof`): общая запись **40604
+мс → 35060 мс (−13.7%)**; self-time `backfillPersonIdentities`-related
+(`stableSerialize`+callback+sha256 `update`) — **~16.1% → ~6.1%**
+(остаток — легитимные срабатывания гейта на самих операциях бенча,
+которые создают/отвязывают identity-less персон по ходу цикла; см.
+разбор в комментарии теста B2).
+
+**PostgresStore на pg-mem** (`speed14_before_after_pgmem.js`, median
+из 40/60 повторов, 2 прогона; `createPerson` fast-path НЕ измерим на
+pg-mem — см. «Метод» выше, — но покрыт fake-pool query-count
+доказательством C3/C4):
+
+| операция | до, мс (2 прогона) | после, мс (2 прогона) | Δ | SQL-запросов на операцию (не изменилось) |
+|---|---|---|---|---|
+| `deletePerson` | 73.13, 74.98 | 59.56, 62.81 | **−17…−19%** | 5 |
+| `linkPersonToUser`+unlink (за один вызов) | 166.60, 170.06 | 149.50, 147.98 | **−10…−13%** | 49.5 (auth-проекция users, не тронуто — см. «Что НЕ сделано») |
+| `createAuthHandoff`+consume (за один вызов) | 128.03, 129.89 | 114.57, 114.06 | **−10…−12%** | 4 |
+
+Число SQL-запросов НЕ изменилось этой задачей ни для одной операции —
+выигрыш целиком из (а) более дешёвого содержимого одного из запросов
+(`data->'calls'` вместо всего блоба) и (б) устранения блокирующей
+фоновой работы (`_persistSnapshotCache`), а не из устранения самих
+запросов. **Оговорка, как во всех pg-mem-замерах документа**: pg-mem
+не даёт сетевого RTT — на реальном Postgres абсолютная разница от
+пунктов 3 (сайдкар) и 4 (укороченный SELECT) больше, не меньше,
+потому что оба убирают/уменьшают РЕАЛЬНУЮ передачу данных по сети,
+которой у pg-mem просто нет.
+
+`createPerson` fast-path (fake-pool, `speed14_fastpath_probe.js`) —
+только счётчик запросов, не тайминг: следующий `_read()` в том же
+запросе — **3 запроса (включая полный `SELECT data, version FROM`) →
+2** (только version + сессии) при совпавших версиях. Это качественное,
+не количественное доказательство устранения того, что бриф задачи
+называет «основным источником» — полного лишнего reload блоба внутри
+одного и того же HTTP-запроса; абсолютная величина на проде зависит от
+размера блоба на момент замера (SPEED-8a/9/10/11 профили уже
+показывали 5-6 мс на один `structuredClone` + сетевые round-trip'ы на
+`SELECT version`/сессии — то, что этот `_read()` теперь делает вместо
+полного `SELECT+parse+normalize+sync+clone+сайдкар`).
+
+### Риски
+
+- **Это путь ВСЕХ записей** (`_reconcilePersonIdentities` — 19
+  caller'ов; `_write()`/`_persistSnapshotCache` — вызывается из каждого
+  `_write()` app-wide, не только четырёх методов задачи). Гейт (п.1)
+  несёт тот же принятый риск, что `treeHasPersonsWithoutIdentity`
+  (SPEED-8c) и `dbHasPersonsWithoutIdentity` (SPEED-13) уже приняли:
+  смотрит только на присутствие `identityId`, не на согласованность
+  `personIdentities[].personIds` — рассинхрон ЭТОГО массива (без потери
+  самого `identityId`) не триггерит backfill. Не новый риск — тот же,
+  что уже в проде через SPEED-13.
+- **Сайдкар в фоне (п.3) — при падении процесса ДО того, как фоновая
+  запись долетела, следующий бут увидит УСТАРЕВШИЙ (не текущий)
+  сайдкар.** Осознанный компромисс: сайдкар — ТОЛЬКО буст/outage
+  fallback (см. комментарий в коде), никогда не участвует в решении
+  «кэш валиден» на горячем пути (это `_cachedVersion`, SPEED-8a) — и
+  используется ТОЛЬКО когда живая БД одновременно недоступна на буте.
+  Двойной отказ (крэш ровно между записью строки и записью сайдкара) +
+  (БД недоступна на следующем буте) — комбинация, которую и старое
+  поведение не гарантировало идеально (сайдкар и раньше мог не успеть
+  долететь при `kill -9`, просто окно было короче).
+- **`createPerson` fast-path патчит `_cachedState` вручную (п.5),
+  минуя единственную задокументированную точку правды
+  `_commitCachedState`** (комментарий SPEED-11 явно предупреждал:
+  «любой БУДУЩИЙ код, который присвоит `_cachedState` в обход этого
+  метода... тихо вернёт мутируемый снимок»). Здесь `_commitCachedState`
+  ВЫЗЫВАЕТСЯ (не обходится) — заморозка (SPEED-11) применяется как
+  обычно, риск смягчён; но условие «когда патчить» (version-проверка)
+  — новый код, не переиспользующий проверенный путь `_write()`. Тесты
+  C3/C4 покрывают оба исхода (совпали/разошлись версии), но не
+  заменяют ревью при будущих изменениях этого метода.
+- **Не проверено на реальном Postgres** — как и весь корпус SPEED-8a…13
+  этого документа. В частности: TOAST-поведение реального `jsonb` при
+  `data->'calls'` extraction (должно быть дешевле полного чтения
+  колонки, но абсолютная разница не измерена локально — pg-mem не
+  моделирует TOAST); фоновая запись сайдкара под реальной файловой
+  системой/диском прод-сервера (задержки в фоне НЕ должны быть заметны
+  клиенту по построению — `_write()` их не ждёт — но не проверено
+  вживую). Ветка не мержится в main до явного «го» пользователя (см.
+  `.claude/rules/backend-store.md`).
+
+### Предложения на будущее
+
+- **Двойной `hashSnapshot` внутри `backfillPersonIdentities`** —
+  крупнейшая оставшаяся находка внутри самой функции (не устранённая
+  гейтом, когда гейт истинно нужен — редкий, но не нулевой путь на
+  проде: легаси-импорт, гонка создания). Требует теста на 4 категории
+  состояний ДО правки (см. SPEED-12).
+- **`computeProjectionHash` для `createAuthHandoff`/`deletePerson`
+  специфически** (не users/sessions/chats вообще) — раз аудит уже
+  показал, что ИМЕННО эти два метода из четырёх не трогают
+  users/sessions/chats, можно ОДИН РАЗ (не универсально) научить
+  именно их пропускать три хэша через явный опциональный параметр
+  `_write(data, {skipProjectionHashes: true})` — но это отдельная
+  задача с отдельным тестом на «а что если кто-то потом добавит в
+  `createAuthHandoff` побочный эффект на `db.users`» (риск тот же, что
+  здесь сознательно не взят).
+- **`PostgresStore.createPerson` fast-path для ветки с `userId`**
+  (self-claim, редкая) — сейчас безусловно уходит в `super.createPerson`
+  (полный `_read()+applyFn+_write()`); отдельный scoped-SQL fast-path
+  для неё потребовал бы переносить `_ensureUserIdentity`/
+  `_attachPersonToIdentity`'s побочные эффекты на `db.users` в SQL —
+  несоразмерно риску относительно частоты вызова.
+- **UPDATE 2 МБ JSONB как пол** — единственный оставшийся полный
+  `JSON.stringify`+Postgres-сторонний TOAST на операцию. Устраняется
+  только структурным выносом persons/personIdentities из блоба в
+  таблицы (SPEED-6/7/8b generalized) — крупная миграция, не в
+  периметре perf-тюнинга.

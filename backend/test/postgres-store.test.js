@@ -540,6 +540,11 @@ test("PostgresStore persists snapshot cache after successful write", async () =>
 
     await store.initialize();
     await store._write({users: [{id: "u-7"}]});
+    // SPEED-14: the sidecar write is now backgrounded (never blocks the
+    // caller — it's a boot/outage fallback, not a correctness path, see
+    // _persistSnapshotCache) — _write() resolving no longer means the file
+    // has landed. Flush the pending write explicitly before reading it back.
+    await store._flushSnapshotCacheWrites();
 
     const persistedSnapshot = JSON.parse(
       await fs.readFile(snapshotCachePath, "utf8"),
