@@ -54,6 +54,7 @@ async function makeUser(baseUrl) {
     body: JSON.stringify({
       email: `bin-${Math.random().toString(36).slice(2)}@rodnya.app`,
       password: "Test-Password-123!",
+      consentDocVersion: "test-consent-v1",
       displayName: "Загрузчик",
     }),
   });

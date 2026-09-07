@@ -56,7 +56,7 @@ async function registerUser(ctx, email) {
   const response = await fetch(`${ctx.baseUrl}/v1/auth/register`, {
     method: "POST",
     headers: {"content-type": "application/json"},
-    body: JSON.stringify({email, password: "secret123", displayName: "Test"}),
+    body: JSON.stringify({email, password: "secret123", consentDocVersion: "test-consent-v1", displayName: "Test"}),
   });
   assert.equal(response.status, 201);
   return response.json();

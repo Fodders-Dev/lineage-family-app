@@ -69,7 +69,7 @@ async function makeUser(store, baseUrl, email) {
   const res = await fetch(`${baseUrl}/v1/auth/register`, {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({email, password, displayName}),
+    body: JSON.stringify({email, password, displayName, consentDocVersion: "test-consent-v1"}),
   });
   if (res.status !== 201) {
     const text = await res.text();

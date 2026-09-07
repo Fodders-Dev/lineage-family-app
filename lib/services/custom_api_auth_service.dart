@@ -1730,6 +1730,17 @@ class CustomApiAuthService implements AuthServiceInterface {
         final sanitized = _sanitizeErrorMessage(normalizedMessage);
         return sanitized.isEmpty ? _loginFallback : sanitized;
       }
+      // 152-ФЗ: /v1/auth/register отвечает 400 {requiresConsent: true},
+      // когда consentDocVersion пуст (прямой вызов API мимо чекбокса —
+      // экран его всегда шлёт, см. auth_screen._submit). Явная ветка нужна,
+      // потому что общий catch-all ниже возвращает сообщение сервера
+      // as-is, а describeUserFacingError считает «сообщение не изменилось
+      // относительно raw» техническим и подменяет его на общий fallback
+      // («Не удалось войти...») — пользователь не понял бы, что делать.
+      if (error.statusCode == 400 && lowerMessage.contains('согласие')) {
+        return 'Нужно подтвердить согласие на обработку персональных '
+            'данных, чтобы создать аккаунт.';
+      }
       if (error.statusCode == 409) {
         if (lowerMessage.contains('email') &&
             lowerMessage.contains('существ')) {

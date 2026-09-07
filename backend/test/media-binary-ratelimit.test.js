@@ -40,6 +40,7 @@ test("PUT /v1/media/object/ (со слешем) считается в upload-б�
       body: JSON.stringify({
         email: "rl@rodnya.app",
         password: "Test-Password-123!",
+        consentDocVersion: "test-consent-v1",
         displayName: "РЛ",
       }),
     });

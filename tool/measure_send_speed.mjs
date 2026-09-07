@@ -36,7 +36,15 @@ const main = async () => {
     const email = `speed6-${tag}-${ts}@example.com`;
     const {payload} = await call("/v1/auth/register", {
       method: "POST",
-      body: {email, password: `Speed6!${ts}`, displayName: `Замер ${tag}`},
+      // 152-ФЗ: /v1/auth/register требует непустой consentDocVersion с
+      // 07.09.2026 (см. feat/register-consent-required) — без него сервер
+      // отвечает 400 requiresConsent и аккаунт не создаётся.
+      body: {
+        email,
+        password: `Speed6!${ts}`,
+        displayName: `Замер ${tag}`,
+        consentDocVersion: "prod-smoke-v1",
+      },
     });
     const token = payload?.accessToken || payload?.session?.accessToken || payload?.token;
     const userId = payload?.user?.id || payload?.userId || payload?.session?.userId;

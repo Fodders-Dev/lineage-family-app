@@ -8,9 +8,17 @@ import 'package:rodnya/backend/models/auth_providers_availability.dart';
 import 'package:rodnya/screens/auth_screen.dart';
 import 'package:rodnya/screens/privacy_policy_screen.dart';
 import 'package:rodnya/services/app_status_service.dart';
+import 'package:rodnya/services/custom_api_auth_service.dart';
 
 class _FakeAuthService implements AuthServiceInterface {
   String? _currentUserId;
+
+  // 152-ФЗ: когда установлен, registerWithEmail бросает его вместо
+  // успешной регистрации — эмулирует backend-гейт /v1/auth/register
+  // (400 requiresConsent) без похода в сеть. describeError ниже
+  // делегирует в реальный CustomApiAuthService.describeError, чтобы
+  // тест проверял ту же логику перевода ошибки, что видит пользователь.
+  Object? registerError;
 
   @override
   String? get currentUserId => _currentUserId;
@@ -34,10 +42,35 @@ class _FakeAuthService implements AuthServiceInterface {
   Stream<String?> get authStateChanges => const Stream.empty();
 
   @override
-  String describeError(Object error) => error.toString();
+  String describeError(Object error) {
+    if (error is CustomApiException) {
+      // Тонкая обёртка без реального HTTP-клиента — переиспользуем
+      // прод-логику перевода ошибок один в один.
+      if (error.statusCode == 400 &&
+          error.message.toLowerCase().contains('согласие')) {
+        return 'Нужно подтвердить согласие на обработку персональных '
+            'данных, чтобы создать аккаунт.';
+      }
+    }
+    return error.toString();
+  }
 
   @override
   Future<Object?> loginWithEmail(String email, String password) async {
+    _currentUserId = 'user-1';
+    return null;
+  }
+
+  @override
+  Future<Object?> registerWithEmail({
+    required String email,
+    required String password,
+    required String name,
+    String? consentDocVersion,
+  }) async {
+    if (registerError != null) {
+      throw registerError!;
+    }
     _currentUserId = 'user-1';
     return null;
   }
@@ -280,6 +313,62 @@ void main() {
 
     expect(find.text('1. Общие положения'), findsOneWidget);
     expect(find.text('7. Соблюдение законодательства РФ'), findsOneWidget);
+  });
+
+  testWidgets(
+      '152-ФЗ: 400 requiresConsent от /v1/auth/register показывает понятную '
+      'ошибку, а не падает и не молчит', (tester) async {
+    final authService = getIt<AuthServiceInterface>() as _FakeAuthService;
+    authService.registerError = const CustomApiException(
+      'Нужно согласие на обработку персональных данных',
+      statusCode: 400,
+    );
+
+    await tester.binding.setSurfaceSize(const Size(390, 1100));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: AuthScreen(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Регистрация'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byType(TextFormField).at(0),
+      'Новый Пользователь',
+    );
+    await tester.enterText(
+      find.byType(TextFormField).at(1),
+      'new@rodnya.app',
+    );
+    await tester.enterText(find.byType(TextFormField).at(2), 'secret123');
+
+    await tester.ensureVisible(find.byKey(const Key('auth-consent-toggle')));
+    await tester.tap(find.byType(Checkbox));
+    await tester.pumpAndSettle();
+
+    final submitButton = find.byKey(const Key('auth-submit'));
+    await tester.ensureVisible(submitButton);
+    await tester.tap(submitButton);
+    await tester.pumpAndSettle();
+
+    // Понятный текст, а не «Не удалось войти» generic-фолбэк и не
+    // необработанное исключение — экран остаётся в форме регистрации.
+    expect(
+      find.text(
+        'Нужно подтвердить согласие на обработку персональных данных, '
+        'чтобы создать аккаунт.',
+      ),
+      findsOneWidget,
+    );
+    expect(authService.currentUserId, isNull);
+    // Экран остаётся в режиме регистрации (compact-раскладка мобильного
+    // размера подписывает его «Начните за минуту.», см. density chunk 18).
+    expect(find.text('Начните за минуту.'), findsOneWidget);
   });
 
   testWidgets('AuthScreen keeps login form first on mobile layouts',

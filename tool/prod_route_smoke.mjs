@@ -362,7 +362,15 @@ async function registerViaApi({apiUrl, email, password, displayName}) {
         "content-type": "application/json",
         accept: "application/json",
       },
-      body: JSON.stringify({email, password, displayName}),
+      // 152-ФЗ: /v1/auth/register требует непустой consentDocVersion с
+      // 07.09.2026 (см. feat/register-consent-required) — без него сервер
+      // отвечает 400 requiresConsent и аккаунт не создаётся.
+      body: JSON.stringify({
+        email,
+        password,
+        displayName,
+        consentDocVersion: "prod-smoke-v1",
+      }),
     },
   );
   if (!response.ok) {

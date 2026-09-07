@@ -63,6 +63,7 @@ async function registerWithDevice(baseUrl, suffix, deviceInfo, instanceId) {
     body: JSON.stringify({
       email: `user-${suffix}@rodnya.app`,
       password: "secret123",
+      consentDocVersion: "test-consent-v1",
       displayName: `User ${suffix}`,
       deviceInfo,
     }),
@@ -607,7 +608,7 @@ test("OAuth callback receives device context via query-param fallback (Telegram-
   }
 });
 
-test("регистрация пишет consentAt/consentDocVersion; без поля — null", async () => {
+test("регистрация пишет consentAt/consentDocVersion; без поля — 400 requiresConsent", async () => {
   const ctx = await startServer();
   try {
     // Новый клиент: чекбокс отправляет версию документов.
@@ -624,7 +625,10 @@ test("регистрация пишет consentAt/consentDocVersion; без по
     assert.equal(withConsent.status, 201);
     const withConsentBody = await withConsent.json();
 
-    // Старый клиент (1.0.2 в поле): поля нет — регистрация работает.
+    // 152-ФЗ: гейт безусловный (07.09.2026, по аналогии с Google/VK) —
+    // без consentDocVersion аккаунт не создаётся, даже у старых клиентов.
+    // (consentDocVersion сознательно отсутствует — это и есть проверяемый
+    // случай; не добавлять его сюда обратно.)
     const legacy = await fetch(`${ctx.baseUrl}/v1/auth/register`, {
       method: "POST",
       headers: {"content-type": "application/json"},
@@ -634,8 +638,10 @@ test("регистрация пишет consentAt/consentDocVersion; без по
         displayName: "Старый клиент",
       }),
     });
-    assert.equal(legacy.status, 201);
+    assert.equal(legacy.status, 400);
     const legacyBody = await legacy.json();
+    assert.equal(legacyBody.requiresConsent, true);
+    assert.equal(legacyBody.provider, "email");
 
     const db = JSON.parse(
       await fs.readFile(path.join(ctx.tempDir, "dev-db.json"), "utf8"),
@@ -649,9 +655,10 @@ test("регистрация пишет consentAt/consentDocVersion; без по
       "момент согласия фиксируется сервером",
     );
 
-    const legacyUser = db.users.find((user) => user.id === legacyBody.user.id);
-    assert.equal(legacyUser.consentDocVersion, null);
-    assert.equal(legacyUser.consentAt, null);
+    const legacyUser = db.users.find(
+      (user) => user.email === "legacy@rodnya.app",
+    );
+    assert.equal(legacyUser, undefined, "без согласия аккаунт не создаётся");
   } finally {
     await stopServer(ctx);
   }

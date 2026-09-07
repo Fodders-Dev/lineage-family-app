@@ -71,7 +71,7 @@ async function register(ctx, email) {
   return jsonFetch(`${ctx.baseUrl}/v1/auth/register`, {
     method: "POST",
     headers: {"content-type": "application/json"},
-    body: JSON.stringify({email, password: "secret123", displayName: email}),
+    body: JSON.stringify({email, password: "secret123", consentDocVersion: "test-consent-v1", displayName: email}),
   });
 }
 

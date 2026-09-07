@@ -70,6 +70,7 @@ async function registerUser(ctx, email, displayName) {
     body: JSON.stringify({
       email,
       password: "secret123",
+      consentDocVersion: "test-consent-v1",
       displayName,
     }),
   });

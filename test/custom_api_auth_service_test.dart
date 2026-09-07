@@ -236,6 +236,105 @@ void main() {
       ),
       'Не удалось выполнить вход. Попробуйте ещё раз.',
     );
+    // 152-ФЗ: 400 {requiresConsent:true} на /v1/auth/register должен
+    // читаться пользователем, а не тонуть в общем login-фолбэке — см.
+    // describeError's явную ветку для statusCode 400 + «согласие».
+    expect(
+      service.describeError(
+        const CustomApiException(
+          'Нужно согласие на обработку персональных данных',
+          statusCode: 400,
+        ),
+      ),
+      'Нужно подтвердить согласие на обработку персональных данных, '
+      'чтобы создать аккаунт.',
+    );
+  });
+
+  test(
+      'CustomApiAuthService registerWithEmail sends consentDocVersion and '
+      'surfaces the 400 requiresConsent gate', () async {
+    final client = MockClient((request) async {
+      if (request.url.path == '/v1/auth/register') {
+        expect(request.method, 'POST');
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(body['email'], 'new@rodnya.app');
+        expect(body['password'], 'secret123');
+        expect(body['displayName'], 'New User');
+
+        if (body['consentDocVersion'] == null) {
+          return http.Response(
+            jsonEncode({
+              'message': 'Нужно согласие на обработку персональных данных',
+              'requiresConsent': true,
+              'provider': 'email',
+            }),
+            400,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        expect(body['consentDocVersion'], 'terms-2026-06-12');
+        return http.Response(
+          jsonEncode({
+            'accessToken': 'access-token',
+            'refreshToken': 'refresh-token',
+            'user': {
+              'id': 'user-new',
+              'email': 'new@rodnya.app',
+              'displayName': 'New User',
+              'providerIds': ['password'],
+            },
+            'profileStatus': {
+              'isComplete': false,
+              'missingFields': ['phoneNumber'],
+            },
+          }),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+
+      return http.Response('{"message":"not found"}', 404);
+    });
+
+    final service = await CustomApiAuthService.create(
+      httpClient: client,
+      preferences: await SharedPreferences.getInstance(),
+      runtimeConfig: const BackendRuntimeConfig(
+        apiBaseUrl: 'https://api.example.ru',
+      ),
+      invitationService: InvitationService(),
+    );
+
+    // Без consentDocVersion — сервер отказывает, аккаунт не создаётся.
+    await expectLater(
+      service.registerWithEmail(
+        email: 'new@rodnya.app',
+        password: 'secret123',
+        name: 'New User',
+      ),
+      throwsA(
+        isA<CustomApiException>()
+            .having((e) => e.statusCode, 'statusCode', 400)
+            .having(
+              (e) => e.message,
+              'message',
+              'Нужно согласие на обработку персональных данных',
+            ),
+      ),
+    );
+    expect(service.currentUserId, isNull);
+
+    // С версией — регистрация проходит, клиент всегда шлёт версию, когда
+    // чекбокс отмечен (см. auth_screen._submit: kLegalDocsVersion).
+    await service.registerWithEmail(
+      email: 'new@rodnya.app',
+      password: 'secret123',
+      name: 'New User',
+      consentDocVersion: 'terms-2026-06-12',
+    );
+    expect(service.currentUserId, 'user-new');
   });
 
   test('CustomApiAuthService exchangeVkAuthCode stores authenticated session',
