@@ -62,7 +62,7 @@ async function createUserWithToken(store, baseUrl, {email}) {
   const registerRes = await fetch(`${baseUrl}/v1/auth/register`, {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({email, password, displayName}),
+    body: JSON.stringify({email, password, displayName, consentDocVersion: "test-consent-v1"}),
   });
   if (registerRes.status !== 201) {
     const text = await registerRes.text();

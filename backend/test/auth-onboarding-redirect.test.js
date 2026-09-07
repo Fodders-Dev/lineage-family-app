@@ -53,7 +53,7 @@ async function register(ctx, email) {
   const response = await fetch(`${ctx.baseUrl}/v1/auth/register`, {
     method: "POST",
     headers: {"content-type": "application/json"},
-    body: JSON.stringify({email, password: "secret123", displayName: "Test"}),
+    body: JSON.stringify({email, password: "secret123", consentDocVersion: "test-consent-v1", displayName: "Test"}),
   });
   const body = await response.json();
   return {status: response.status, body};
@@ -115,6 +115,7 @@ test("Phase 6 chunk 4a: requiresOnboarding flag in auth responses", async (t) =>
     const legacyUser = await ctx.store.createUser({
       email: "legacy@example.com",
       password: "secret123",
+      consentDocVersion: "test-consent-v1",
       displayName: "Legacy",
     });
     assert.ok(legacyUser.id);

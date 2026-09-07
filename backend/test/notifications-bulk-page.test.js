@@ -53,6 +53,7 @@ async function makeUser(baseUrl, email) {
     body: JSON.stringify({
       email,
       password: "Test-Password-123!",
+      consentDocVersion: "test-consent-v1",
       displayName: email.split("@")[0],
     }),
   });
