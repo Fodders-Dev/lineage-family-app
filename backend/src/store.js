@@ -6737,8 +6737,28 @@ class FileStore {
     return db.personIdentities;
   }
 
+  // SPEED-14: backfillPersonIdentities hashes EVERY persons+personIdentities
+  // record in the ENTIRE db twice (stableSerialize+sha256, before/after —
+  // see its own comment in migration-utils.js) just to detect whether it
+  // changed anything. On a write-path call (createPerson/deletePerson/
+  // linkPersonToUser/... — 19 callers of this method across store.js) that
+  // runs on EVERY person mutation, even though in steady state (prod: all
+  // persons already carry an identityId) it is a guaranteed no-op — the
+  // exact pattern SPEED-8c/13 already gated the same way for
+  // ensureAutoCirclesForTree / the merge-proposals materialize path. Gating
+  // ONLY this inner call (not the whole method) is the safe cut: the loop
+  // below — which syncs db.personIdentities[].personIds/steward/isLiving
+  // from db.persons, the thing callers actually rely on after a mutation —
+  // still runs unconditionally every time, so no caller loses the sync it
+  // depends on. See docs/speed_measurement.md SPEED-14 for the profile that
+  // found this (~16% self-time on a synthetic write-path benchmark) and the
+  // audit of why skipping backfillPersonIdentities alone cannot desync
+  // personIds (it only ever CREATES an identity for a person that has none;
+  // dbHasPersonsWithoutIdentity(db) is exactly "does such a person exist").
   _reconcilePersonIdentities(db) {
-    backfillPersonIdentities(db);
+    if (dbHasPersonsWithoutIdentity(db)) {
+      backfillPersonIdentities(db);
+    }
     const identities = this._ensurePersonIdentityCollection(db);
     const validUserIds = new Set(
       db.users
@@ -12141,9 +12161,13 @@ class FileStore {
     tree.updatedAt = nowIso();
     if (canonicalIdentity) {
       this._attachPersonToIdentity(db, person, canonicalIdentity, userId);
-    } else {
-      this._reconcilePersonIdentities(db);
     }
+    // SPEED-14: the `else` branch here used to call _reconcilePersonIdentities(db)
+    // and then call it AGAIN, unconditionally, a few lines below —
+    // _appendTreeChangeRecord in between only pushes to db.treeChangeRecords
+    // (verified — no persons/personIdentities interaction), so the first call
+    // was a pure no-op duplicate of the second on every no-canonicalIdentity
+    // create. Removed; the unconditional call below still covers both branches.
     this._appendTreeChangeRecord(db, {
       treeId,
       actorId: creatorId,
